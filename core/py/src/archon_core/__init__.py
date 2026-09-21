@@ -28,7 +28,7 @@ from .keycodec import (
 )
 from .keytext import decode_key, encode_key
 
-__version__ = "0.6.2"
+__version__ = "0.7.0"
 
 __all__ = [
     "MAX_DOMAIN_SIZE",

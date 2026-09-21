@@ -10,7 +10,7 @@ packaging scaffold gets described as a working implementation:
 | claim | what it means |
 |---|---|
 | **implemented** | the code exists and does the thing |
-| **conforming** | it recomputes all 60 oracle cases and agrees with [`vectors/identity.json`](../vectors/identity.json) |
+| **conforming** | it recomputes all 103 oracle cases and agrees with [`vectors/identity.json`](../vectors/identity.json) — including the 34 [verification-profile](architecture/decisions/0008-the-ed25519-verification-profile.md) classes, which is where library defaults disagree |
 | **published** | a consumer outside this repository can install it, unauthenticated, and run it |
 
 A binding can be implemented and not conforming, or conforming and not published. None of the
@@ -28,18 +28,23 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 | `cli` | the `archon` command |
 | `server` | the login endpoint |
 
-## Current state — 0.6.2
+## Current state — 0.7.0
 
 | Language | core | sdk | cli | server | Coordinates | Conforming | Published |
 |---|---|---|---|---|---|---|---|
-| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 60/60 | ✅ public proxy + checksum db |
-| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 60/60 | ✅ crates.io |
-| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 60/60 | ✅ npmjs, with provenance |
-| **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | **60/60** | ⏳ not yet uploaded |
-| **Java** | — | — | — | — | `dev.bitspark:archon-core` (planned) | — | — |
-| **C++** | — | — | — | — | CMake package (planned) | — | — |
-| **Swift** | — | — | — | — | SwiftPM product (planned) | — | **blocked, see below** |
-| **Haskell** | — | — | — | — | Cabal via Git (planned) | — | **blocked, see below** |
+| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 103/103 | ✅ public proxy + checksum db (0.6.2) |
+| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 103/103 | ✅ crates.io (0.6.2) |
+| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 103/103 | ✅ npmjs, with provenance (0.6.2) |
+| **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 103/103 | ⏳ PyPI, once the pending publisher is registered (see `release.yml`) |
+| **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 60/60 on the pre-0008 oracle; the profile classes pending | ⏳ Maven Central; secrets installed, workflow pending |
+| **C++** | 🔧 in review | — | — | — | CMake package | 60/60 on the pre-0008 oracle; the profile classes pending | — |
+| **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs a binding to a complete Ed25519ph-with-context implementation (0008 §8) |
+| **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same binding (0008 §8) |
+
+A published version is a version that was published: 0.6.2 is on the three registries;
+0.7.0, the profile, is the next release. The Java and C++ rows say "pre-0008" because a core
+that agrees with the 60 cases and has not yet been run on the 34 profile classes has not been
+asked the question that ADR 0008 exists to ask.
 
 The registry prefixes differ by ecosystem because the namespaces do. crates.io and PyPI are
 flat, so those carry `bitspark-`; npm has scopes, so it carries `@bitspark/`. **The prefix is
@@ -77,27 +82,42 @@ variants "SHOULD NOT be used"](https://datatracker.ietf.org/doc/html/rfc8032) an
 authors follow it. Go's stdlib, `ed25519-dalek` and `@noble/curves` expose it;
 `cryptography` does not, which is why the Python core binds **PyCryptodome**.
 
-⛔ **Swift and Haskell are blocked on exactly this.** CryptoKit and swift-crypto ship pure
+**Swift and Haskell need a binding for exactly this.** CryptoKit and swift-crypto ship pure
 Ed25519 only, as stated policy; crypton/cryptonite hardcode SHA-512 with no context
 selection. The prefix goes *inside* both the nonce and challenge hashes, so a stock
 `sign(M)` API cannot be wrapped — reaching it means re-entering EdDSA at the curve level,
-which [CONTRIBUTING](../CONTRIBUTING.md) forbids. This is an open question, not a to-do.
+which [CONTRIBUTING](../CONTRIBUTING.md) forbids. The question of whether to change the
+construction instead was put to outside advice and ruled: it stays (ADR 0008 §6 — a framing
+cannot separate from raw signing on the same key, and Ed25519ctx is no better supported).
+Those two languages bind a **complete Ed25519ph-with-context implementation** — OpenSSL ≥ 3.2
+through its signature-operation parameters; BoringSSL's public API is raw Ed25519 only and
+does not qualify — and are released when they pass the whole oracle, not a subset of it.
+Note also that CryptoKit *randomises* signatures, so it could not be a core's signer even if
+it had the context.
 
 **The acceptance profile.** Less obvious and more dangerous. RFC 8032 permits more than one
 verification equation, so implementations genuinely disagree about which signatures are
 *valid* — and that disagreement is silent until two of them meet.
 
-Python's first full run was **58/60**. The misses were `small-order-pubkey-order4` and
-`small-order-pubkey-order8`: PyCryptodome accepts small-order public keys; Go and
-`ed25519-dalek` reject them. archon had met this before — the TypeScript core settles it with
-`@noble`'s `{ zip215: false }`. PyCryptodome has no such flag, so the Python core checks
-`[8]A` against the identity explicitly.
+Python found it first: its first full run was 58/60, PyCryptodome accepting the two
+small-order keys the oracle happened to pin. The fix at the time — an explicit `[8]A` check —
+was written in the belief that Go and `ed25519-dalek` reject such keys. **They do not.**
+Measured through the harness with the identity point as a public key, `R = B`, `S = 1`: Go
+and Rust accept that one signature over *every* message and in *every* domain; TypeScript
+and Python reject it; Java (Bouncy Castle) rejects it natively; C++ (OpenSSL) accepts it.
+Three of six. Widened to the classes that matter — small-order and *mixed-order* keys,
+non-canonical spellings, the identity and a small-order point as `R` — the four cores had
+three different accepted sets, and four inputs that all of them accepted.
 
-⚠ **archon's acceptance profile exists only in the oracle, never in prose.** That was
-tolerable at three cores. Each further language arrives with its own library's opinion on
-cofactored verification, and the only thing that catches the difference is running the
-vectors. See [`research-docs/0002`](https://github.com/Bitspark/archon-internal) (internal)
-for the open question.
+That is now written down. [**ADR 0008**](architecture/decisions/0008-the-ed25519-verification-profile.md)
+states the accepted set in prose — `A` and `R` are canonical encodings of points of order
+exactly L, `0 ≤ S < L`, the equation decides only inside that, and the domain is UTF-8 text
+counted in bytes — and every core checks it *itself*, ahead of its library, so the set is
+archon's rather than the binding's. The oracle carries the classes as 34 generated cases
+([`conformance/profile-cases.mjs`](../conformance/profile-cases.mjs)), admitted on their
+adversarial value rather than on agreement, which is the rule that had kept the oracle blind.
+`node conformance/profile-cases.mjs measure "<cli>"` prints what any core accepts across the
+classes with no expected value applied — run it on a new binding before anything else.
 
 ## Adding one
 

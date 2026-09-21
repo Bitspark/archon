@@ -63,8 +63,8 @@ the standard pins the standard, and lets every core be wrong together and be cau
 **A rejection is admitted on its adversarial value, never on agreement.** Until ADR 0008 the
 `signature_verify` family took only cases every core already answered identically — which is
 an oracle that cannot contain a disagreement, and it did not: the identity point as a public
-key verified a universal signature in two cores and not in two others for a year without a
-case saying so. Where the standard leaves acceptance open (RFC 8032 permits more than one
+key verified a universal signature in two cores and not in the other two, with no case
+saying so. Where the standard leaves acceptance open (RFC 8032 permits more than one
 verification equation), the expected value is the **profile's** — ADR 0008 decides it, the
 case's note cites the class, and the cores are brought to it, not the other way round. The
 independent authority above is an authority on *signing*; it was never asked an acceptance
