@@ -31,6 +31,12 @@ Go publishes nothing: the module proxy fetches from this repository on demand, s
 per-module tags are the Go release** — `core/go/vX`, `sdk/go/vX`, `cli/go/vX`, `server/go/vX`
 beside the family tag `vX`.
 
+A package check **derives** the version from the manifest it checks and never repeats the
+number: a check that names `archon-core-0.6.2.jar` after the pom moved to 0.7.0 goes red
+saying "the artifact is broken" when it means "the script is stale", and the next person
+spends the afternoon on the jar. The Python check globs for the built wheel; the Java check
+reads `pom.xml`; the next language's does likewise.
+
 ## The procedure
 
 1. **Land the release commit on `main`** through a PR like any other: the version bump and

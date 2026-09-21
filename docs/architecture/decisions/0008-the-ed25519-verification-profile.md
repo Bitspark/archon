@@ -252,7 +252,12 @@ released when they pass the same oracle, never as "the 43 non-domain cases".
   key passed the subgroup check. The fixed vectors had drawn only an order-8 component and
   were green in all four cores. The Python core now tests for `(0, 1)`, the oracle pins a
   mixed-order case per torsion order, and `measure` is not the last word on a new binding —
-  `differential` is.
+  `differential` is: Java was run against Go and against Go + TypeScript together, eight
+  runs and 4,352 cases, zero splits, before being called conforming. What a clean run says
+  is bounded, and should be read as bounded: **no split in the classes the generator
+  samples.** PyCryptodome's exception was found because a class existed whose members land
+  `[L]A` on `(0, −1)`; a library exceptional on a shape no class produces is not found by
+  more seeds of the same classes, only by a new class.
 - **Not a wire change.** `archon-login/1`, the sdk layouts and every published signature
   are unchanged; only what is *accepted* narrowed, to inputs no signer emits.
 - **The key codecs stay byte codecs.** `keytext` and `keycodec` still spell arbitrary 32
