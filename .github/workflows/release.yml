@@ -420,55 +420,6 @@ jobs:
         # since a rehearsal has no business touching the key.
         run: mvn -B -ntp verify -DskipTests=false
 
-      - name: The Maven Central consumer, outside the checkout
-        if: env.REHEARSE != 'true'
-        # Central serves later than it accepts, like every other registry here, so the wait
-        # comes first and its expiry is NOT a failed publish.
-        #
-        # Then the real question: can a stranger USE it? The consumer under
-        # conformance/consumers/java is not a module of core/java — it resolves the
-        # coordinates from Central into an EMPTY local repository, with an empty settings.xml
-        # so no mirror, no user configuration and no credential can stand in for the public
-        # registry. Anything the jar forgot to declare fails here rather than in a consumer's
-        # first build.
-        run: |
-          set -euo pipefail
-          VER="${TAG#v}"
-          POM="https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/$VER/archon-core-$VER.pom"
-          served=
-          for i in $(seq 1 40); do
-            if curl --fail --silent --show-error --max-time 20 "$POM" -o /dev/null; then
-              served=yes
-              echo "  dev.bitspark:archon-core:$VER is served by Maven Central"
-              break
-            fi
-            echo "Central not serving archon-core:$VER yet (try $i/40) — waiting"
-            sleep 15
-          done
-          if [ -z "$served" ]; then
-            echo "::error::archon-core:$VER did not become resolvable within 10 minutes. The publish step SUCCEEDED — check Central before assuming the release failed." >&2
-            exit 1
-          fi
-
-          work="$(mktemp -d)"
-          repo="$work/m2"
-          printf '%s\n' '<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"/>' > "$work/settings.xml"
-          mvn -B -ntp -s "$work/settings.xml" -gs "$work/settings.xml" \
-              "-Dmaven.repo.local=$repo" "-Darchon.version=$VER" \
-              -f conformance/consumers/java/pom.xml \
-              package dependency:build-classpath "-Dmdep.outputFile=$work/cp.txt"
-
-          # Bouncy Castle must arrive TRANSITIVELY. archon's domain separation is Ed25519ph
-          # with the domain as the RFC 8032 context, which the JDK's own Signature exposes no
-          # parameter for; a consumer that has to discover that dependency itself has been
-          # handed a broken package, and would find out at first use.
-          grep -q 'bcprov-jdk18on' "$work/cp.txt" \
-            || { echo "::error::Bouncy Castle did not arrive transitively from archon-core's POM" >&2; exit 1; }
-          test -f "$repo/dev/bitspark/archon-core/$VER/archon-core-$VER.jar" \
-            || { echo "::error::archon-core:$VER was not resolved into the clean repository" >&2; exit 1; }
-
-          java -cp "conformance/consumers/java/target/classes:$(cat "$work/cp.txt")" example.Consumer
-
       - name: Build the Python distributions
         # Always, rehearsal included: a pyproject.toml that no longer builds is a release
         # defect whether or not PyPI is armed. The sdist and wheel are what a consumer gets.
@@ -617,6 +568,55 @@ jobs:
           go mod tidy
           grep -q 'github.com/Bitspark/archon/core/go' go.sum && grep -q 'github.com/Bitspark/archon/sdk/go' go.sum
           go run .
+
+      - name: The Maven Central consumer, outside the checkout
+        if: env.REHEARSE != 'true'
+        # Central serves later than it accepts, like every other registry here, so the wait
+        # comes first and its expiry is NOT a failed publish.
+        #
+        # Then the real question: can a stranger USE it? The consumer under
+        # conformance/consumers/java is not a module of core/java — it resolves the
+        # coordinates from Central into an EMPTY local repository, with an empty settings.xml
+        # so no mirror, no user configuration and no credential can stand in for the public
+        # registry. Anything the jar forgot to declare fails here rather than in a consumer's
+        # first build.
+        run: |
+          set -euo pipefail
+          VER="${TAG#v}"
+          POM="https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/$VER/archon-core-$VER.pom"
+          served=
+          for i in $(seq 1 40); do
+            if curl --fail --silent --show-error --max-time 20 "$POM" -o /dev/null; then
+              served=yes
+              echo "  dev.bitspark:archon-core:$VER is served by Maven Central"
+              break
+            fi
+            echo "Central not serving archon-core:$VER yet (try $i/40) — waiting"
+            sleep 15
+          done
+          if [ -z "$served" ]; then
+            echo "::error::archon-core:$VER did not become resolvable within 10 minutes. The publish step SUCCEEDED — check Central before assuming the release failed." >&2
+            exit 1
+          fi
+
+          work="$(mktemp -d)"
+          repo="$work/m2"
+          printf '%s\n' '<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"/>' > "$work/settings.xml"
+          mvn -B -ntp -s "$work/settings.xml" -gs "$work/settings.xml" \
+              "-Dmaven.repo.local=$repo" "-Darchon.version=$VER" \
+              -f conformance/consumers/java/pom.xml \
+              package dependency:build-classpath "-Dmdep.outputFile=$work/cp.txt"
+
+          # Bouncy Castle must arrive TRANSITIVELY. archon's domain separation is Ed25519ph
+          # with the domain as the RFC 8032 context, which the JDK's own Signature exposes no
+          # parameter for; a consumer that has to discover that dependency itself has been
+          # handed a broken package, and would find out at first use.
+          grep -q 'bcprov-jdk18on' "$work/cp.txt" \
+            || { echo "::error::Bouncy Castle did not arrive transitively from archon-core's POM" >&2; exit 1; }
+          test -f "$repo/dev/bitspark/archon-core/$VER/archon-core-$VER.jar" \
+            || { echo "::error::archon-core:$VER was not resolved into the clean repository" >&2; exit 1; }
+
+          java -cp "conformance/consumers/java/target/classes:$(cat "$work/cp.txt")" example.Consumer
 
       - name: Create the GitHub release
         if: env.REHEARSE != 'true'
