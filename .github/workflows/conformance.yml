@@ -179,6 +179,63 @@ jobs:
       - name: install + consume the jar from outside
         run: node conformance/check-java-package.mjs
 
+  cpp:
+    name: cpp
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      # TWO crypto libraries, and both floors are load-bearing. OpenSSL >= 3.2 is the only
+      # one here that reaches Ed25519ph with a context string; libsodium >= 1.0.21 is the
+      # only way to express ADR 0008's point predicate, because OpenSSL validates no points
+      # for Ed25519 and exposes no scalar multiplication for the curve.
+      #
+      # ubuntu-24.04 carries OpenSSL 3.4 and libsodium 1.0.18, so libsodium comes from
+      # noble-backports/upstream rather than the default pocket — and the CMake configure
+      # asserts the version regardless, so a wrong one fails the build rather than shipping
+      # a core that silently accepts mixed-order keys.
+      - name: the two crypto libraries, at their floors
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake ninja-build pkg-config libssl-dev
+          # The distro's libsodium is 1.0.18, and everything up to 1.0.20 accepts points in
+          # mixed-order subgroups — the exact defect ADR 0008 forbids. So build from the
+          # release tarball. Pinned to the version developers actually get locally (msys2
+          # ships 1.0.22-3): a CI that pins something else is not reproducing the dev build,
+          # and pinning the bare floor would mean any regression AT the floor breaks CI.
+          SODIUM=1.0.22
+          curl -fsSL "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz" -o /tmp/s.tgz
+          tar -xzf /tmp/s.tgz -C /tmp
+          (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && sudo make install >/dev/null)
+          sudo ldconfig
+          pkg-config --modversion libsodium
+      - name: configure, build, and prove the version floor is enforced
+        run: |
+          set -euo pipefail
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          cmake -S core/cpp -B /tmp/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build
+      # The oracle, through the shared harness: all 105 cases recomputed and asserted against
+      # the same vectors as every other core.
+      - name: conformance against the oracle
+        run: node conformance/harness.mjs vectors /tmp/build/archon_conformance
+      # A package that cannot be consumed from its own export is not a package. This builds
+      # conformance/consumers/cpp against the INSTALLED package, which is how the missing
+      # EXPORT_NAME was found: the build tree's archon::core alias is not exported, so a
+      # consumer following the documented target failed to configure.
+      - name: install the package and consume it from outside
+        run: |
+          set -euo pipefail
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          cmake --install /tmp/build --prefix /tmp/prefix
+          cmake -S conformance/consumers/cpp -B /tmp/consumer -G Ninja                 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/tmp/prefix
+          cmake --build /tmp/consumer
+          /tmp/consumer/consumer
+
   py:
     name: py
     runs-on: ubuntu-latest
