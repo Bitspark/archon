@@ -122,6 +122,15 @@ jobs:
           f=core/py/src/archon_core/__init__.py
           got=$(grep -m1 '^__version__ = ' "$f" | sed 's/__version__ = "\(.*\)"/\1/')
           [ "$got" = "$want" ] || { echo "::error::$f reports $got, tag says $want"; fail=1; }
+          # core/java/pom.xml carries the version TWICE: the project's own and <scm><tag>. A
+          # release whose POM names another tag points consumers at source that is not what was
+          # built. Both are READ, never repeated -- the Java package check hardcoded this version
+          # once and then went red for its own reason rather than the jar's.
+          f=core/java/pom.xml
+          got=$(grep -A1 '<artifactId>archon-core</artifactId>' "$f" | grep -m1 -oE '<version>[^<]*</version>' | sed 's|</*version>||g')
+          [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
+          scm=$(grep -m1 -oE '<tag>[^<]*</tag>' "$f" | sed 's|</*tag>||g')
+          [ "$scm" = "$TAG" ] || { echo "::error::$f <scm><tag> is $scm, tag says $TAG"; fail=1; }
           exit $fail
 
       - name: Hold the Go module tags to the same version
@@ -169,6 +178,108 @@ jobs:
           echo "public repository and id-token: write — provenance can be minted"
         env:
           GH_TOKEN: ${{ github.token }}
+
+      # --- Java: Maven Central ------------------------------------------------------------
+      #
+      # Ported from bitwire's publish-java.yml, whose investigation is the reason the
+      # diagnostic below exists at all: a 401 from Central there turned out to be a bad
+      # credential PAIR, not a misconfiguration — the old pair reached Maven unchanged and
+      # Central rejected it directly, and a fresh pair worked. So a 401 is not evidence that
+      # somebody failed to set the secrets, and this workflow must not say that it is.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Check Maven resolves the credentials, and that Central accepts them
+        working-directory: core/java
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+        # READ-ONLY. It never uploads, never prints effective settings, and never prints a
+        # header or a response body. It answers two questions a publish failure cannot
+        # distinguish on its own:
+        #
+        #   1. did Maven substitute the secrets into the `central` server, byte for byte?
+        #      A mismatch between release-settings.xml's <server><id> and the POM's
+        #      <publishingServerId> leaves Maven with NO credentials for the repository, and
+        #      Central then answers 401 — which is indistinguishable from a wrong password.
+        #   2. does Central accept the pair? Probed against an ANONYMOUS CONTROL, because a
+        #      404 on its own proves nothing: an unauthenticated request to a nonexistent
+        #      deployment id can return the same code.
+        shell: python
+        run: |
+          import base64, os, subprocess, tempfile
+          import urllib.request, urllib.error
+          import xml.etree.ElementTree as ET
+
+          username = os.environ["MAVEN_CENTRAL_USERNAME"]
+          password = os.environ["MAVEN_CENTRAL_PASSWORD"]
+          for label, value in [("username", username), ("password", password)]:
+              print(f"{label}: present={bool(value)}, "
+                    f"surrounding_whitespace={value != value.strip()}, "
+                    f"contains_control={any(ord(c) < 32 for c in value)}")
+          if not username or not password:
+              raise SystemExit("A required credential is missing.")
+
+          with tempfile.TemporaryDirectory() as directory:
+              output = os.path.join(directory, "settings.xml")
+              result = subprocess.run([
+                  "mvn", "-B", "-ntp", "-s", "release-settings.xml",
+                  "org.apache.maven.plugins:maven-help-plugin:3.5.1:effective-settings",
+                  "-DshowPasswords=true", "-Doutput=" + output,
+              ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+              if result.returncode:
+                  raise SystemExit("Could not calculate effective settings; output withheld.")
+              root = ET.parse(output).getroot()
+              ns = {"m": root.tag.split("}")[0][1:]}
+              servers = [s for s in root.findall("m:servers/m:server", ns)
+                         if s.findtext("m:id", namespaces=ns) == "central"]
+              if len(servers) != 1:
+                  raise SystemExit("Expected exactly one server with id 'central'. "
+                                   "It must match <publishingServerId> in pom.xml.")
+              server = servers[0]
+              matches = (server.findtext("m:username", namespaces=ns) == username
+                         and server.findtext("m:password", namespaces=ns) == password)
+              print(f"Maven effective credentials exactly match the repository secrets: {matches}")
+              if not matches:
+                  raise SystemExit("Maven altered or failed to resolve the credentials.")
+
+          url = ("https://central.sonatype.com/api/v1/publisher/status"
+                 "?id=00000000-0000-0000-0000-000000000000")
+
+          def probe(label, pair=None):
+              headers = {}
+              if pair is not None:
+                  token = base64.b64encode(":".join(pair).encode()).decode()
+                  headers["Authorization"] = "Bearer " + token
+              request = urllib.request.Request(url, data=b"", headers=headers, method="POST")
+
+              class NoRedirect(urllib.request.HTTPRedirectHandler):
+                  def redirect_request(self, *args, **kwargs):
+                      return None
+
+              try:
+                  with urllib.request.build_opener(NoRedirect()).open(request, timeout=30) as response:
+                      status = response.status
+              except urllib.error.HTTPError as error:
+                  status = error.code
+                  error.close()
+              except Exception:
+                  raise SystemExit("Portal probe failed; diagnostic details withheld.")
+              print(f"{label}: HTTP {status}")
+              return status
+
+          anonymous = probe("Anonymous control")
+          configured = probe("Configured credentials", (username, password))
+          if configured == 401 and anonymous == 401:
+              raise SystemExit(
+                  "Central rejected the configured pair (401), and the anonymous control is "
+                  "also 401, so authentication is not being accepted. Per bitwire's finding "
+                  "this is most likely a stale or wrong Portal user token, NOT a workflow "
+                  "misconfiguration: the effective-settings check above already proved Maven "
+                  "resolved the secrets unchanged. Issue a fresh Portal user token."
+              )
 
       - name: Publish to npm, floor first
         # Order is a dependency order, not a preference: the sdk names the floor, the command
@@ -271,6 +382,92 @@ jobs:
             fi
             [ -z "$DRY" ] && wait_for_index "$pkg" "${TAG#v}"
           done
+
+      - name: Import the release signing key
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          overwrite-settings: false
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+
+      - name: Publish signed artifacts to Maven Central
+        if: env.REHEARSE != 'true'
+        working-directory: core/java
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        # -Prelease activates signing and the Central publishing plugin, which are off by
+        # default so that `mvn test` needs no GPG key. The checkout is the TAG's source, like
+        # every other lane in this run.
+        run: |
+          set -euo pipefail
+          : "${MAVEN_CENTRAL_USERNAME:?Configure the Central Portal user-token username.}"
+          : "${MAVEN_CENTRAL_PASSWORD:?Configure the Central Portal user-token password.}"
+          : "${MAVEN_GPG_PASSPHRASE:?Configure the signing-key passphrase.}"
+          mvn -B -ntp -s release-settings.xml -Prelease deploy
+
+      - name: Pack the Java artifacts without publishing (rehearsal)
+        if: env.REHEARSE == 'true'
+        working-directory: core/java
+        # A rehearsal must still build what would be uploaded — sources jar, javadoc jar and
+        # the POM — because a javadoc error fails a real publish after npm and crates.io have
+        # already gone out. `verify` runs everything short of `deploy`; signing stays off,
+        # since a rehearsal has no business touching the key.
+        run: mvn -B -ntp verify -DskipTests=false
+
+      - name: The Maven Central consumer, outside the checkout
+        if: env.REHEARSE != 'true'
+        # Central serves later than it accepts, like every other registry here, so the wait
+        # comes first and its expiry is NOT a failed publish.
+        #
+        # Then the real question: can a stranger USE it? The consumer under
+        # conformance/consumers/java is not a module of core/java — it resolves the
+        # coordinates from Central into an EMPTY local repository, with an empty settings.xml
+        # so no mirror, no user configuration and no credential can stand in for the public
+        # registry. Anything the jar forgot to declare fails here rather than in a consumer's
+        # first build.
+        run: |
+          set -euo pipefail
+          VER="${TAG#v}"
+          POM="https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/$VER/archon-core-$VER.pom"
+          served=
+          for i in $(seq 1 40); do
+            if curl --fail --silent --show-error --max-time 20 "$POM" -o /dev/null; then
+              served=yes
+              echo "  dev.bitspark:archon-core:$VER is served by Maven Central"
+              break
+            fi
+            echo "Central not serving archon-core:$VER yet (try $i/40) — waiting"
+            sleep 15
+          done
+          if [ -z "$served" ]; then
+            echo "::error::archon-core:$VER did not become resolvable within 10 minutes. The publish step SUCCEEDED — check Central before assuming the release failed." >&2
+            exit 1
+          fi
+
+          work="$(mktemp -d)"
+          repo="$work/m2"
+          printf '%s\n' '<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"/>' > "$work/settings.xml"
+          mvn -B -ntp -s "$work/settings.xml" -gs "$work/settings.xml" \
+              "-Dmaven.repo.local=$repo" "-Darchon.version=$VER" \
+              -f conformance/consumers/java/pom.xml \
+              package dependency:build-classpath "-Dmdep.outputFile=$work/cp.txt"
+
+          # Bouncy Castle must arrive TRANSITIVELY. archon's domain separation is Ed25519ph
+          # with the domain as the RFC 8032 context, which the JDK's own Signature exposes no
+          # parameter for; a consumer that has to discover that dependency itself has been
+          # handed a broken package, and would find out at first use.
+          grep -q 'bcprov-jdk18on' "$work/cp.txt" \
+            || { echo "::error::Bouncy Castle did not arrive transitively from archon-core's POM" >&2; exit 1; }
+          test -f "$repo/dev/bitspark/archon-core/$VER/archon-core-$VER.jar" \
+            || { echo "::error::archon-core:$VER was not resolved into the clean repository" >&2; exit 1; }
+
+          java -cp "conformance/consumers/java/target/classes:$(cat "$work/cp.txt")" example.Consumer
 
       - name: Build the Python distributions
         # Always, rehearsal included: a pyproject.toml that no longer builds is a release
