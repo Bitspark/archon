@@ -575,16 +575,16 @@ jobs:
         # comes first and its expiry is NOT a failed publish.
         #
         # Then the real question: can a stranger USE it? The consumer under
-        # The program is read from the TOOLING checkout (see the two-trees note at the top),
-        # not from the tag's tree: v0.7.0 was cut before this consumer existed, and a step
-        # that read it from the product tree would fail on that tag AFTER Central had been
-        # written to. What is verified is still the tag's published artifact.
-        #
         # tooling/conformance/consumers/java is not a module of core/java — it resolves the
         # coordinates from Central into an EMPTY local repository, with an empty settings.xml
         # so no mirror, no user configuration and no credential can stand in for the public
         # registry. Anything the jar forgot to declare fails here rather than in a consumer's
         # first build.
+        #
+        # The program comes from the TOOLING checkout (see the two-trees note at the top),
+        # not from the tag's tree: v0.7.0 was cut before this consumer existed, and a step
+        # that read its program from the product tree would fail on that tag AFTER Central
+        # had been written to. What is verified is still the tag's published artifact.
         run: |
           set -euo pipefail
           VER="${TAG#v}"
