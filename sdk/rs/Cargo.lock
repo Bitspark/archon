@@ -4,14 +4,14 @@ version = 4
 
 [[package]]
 name = "bitspark-archon-core"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "ed25519-dalek",
 ]
 
 [[package]]
 name = "bitspark-archon-sdk"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "bitspark-archon-core",
  "serde_json",
