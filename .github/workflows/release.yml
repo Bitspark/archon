@@ -318,8 +318,11 @@ jobs:
           sig = a.sign_in_domain(seed, 'example.v1', b'hello')
           assert a.verify_in_domain(pub, 'example.v1', b'hello', sig)
           assert not a.verify(pub, b'hello', sig)
-          identity = bytes([1]) + bytes(31); universal = bytes([0x58]) + bytes([0x66]) * 31 + bytes([1]) + bytes(31)
-          assert not a.verify(identity, b'hello', universal), 'ADR 0008: the identity key is refused'
+          # ADR 0008, on inputs every library accepted before it (oracle profile-identity-R and
+          # profile-mixed-order-A-k-divisible), so only archon's own check can refuse them.
+          k11 = bytes.fromhex('d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737')
+          assert not a.verify(k11, b'hello', bytes.fromhex('0100000000000000000000000000000000000000000000000000000000000000' '04201a21f9221727c221b35265ca6248968a426e9fb5168e368d7dcdaa05fa07')), 'identity R must be refused'
+          assert not a.verify(bytes.fromhex('05edb8c261651304ea335a4397e0696b9fb37c99aa8023ee1583a2f3e43d9fe4'), bytes.fromhex('6d697865642d6f72646572233133'), bytes.fromhex('b862409fb5c4c4123df2abf7462b88f041ad36dd6864ce872fd5472be363c5b1' '20e561d759891b93dd85ac31f464fc01adb9d3d89074eaa7795084f43661a90b')), 'a mixed-order key must be refused'
           print('installed', a.__version__, a.encode_key(pub))
           "
 
@@ -395,6 +398,10 @@ jobs:
             echo "::error::the Go modules at v$VER did not become resolvable from the proxy within 5 minutes — check that the four */go/v$VER tags are public." >&2
             exit 1
           fi
+          # `go get` of the module roots records their sums, not those of what they import
+          # (core/go's filippo.io/edwards25519 since 0.7.0); tidy fills go.sum from the proxy.
+          go mod tidy
+          grep -q 'github.com/Bitspark/archon/core/go' go.sum && grep -q 'github.com/Bitspark/archon/sdk/go' go.sum
           go run .
 
       - name: Create the GitHub release
