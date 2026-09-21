@@ -3,6 +3,10 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    // TypeScript 7 defaults `types` to [], where 5.x swept every @types package it found in
+    // node_modules into the global scope. `node` is the only one this package has, and the
+    // whole tier needs it: `process`, `Buffer`, and every `node:` import specifier.
+    "types": ["node"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
