@@ -221,8 +221,17 @@ one binding problem and therefore one decision: OpenSSL ≥ 3.2 is the **complet
 ph-with-context implementation** (via its signature-operation parameters; BoringSSL's public
 API is raw Ed25519 only and does not qualify) and it validates nothing, so each of the three
 also binds **libsodium ≥ 1.0.21** for lines 2–3 — see Consequences for why the floor is that
-version and not "libsodium". They are released when they pass the same oracle and a clean
-differential run, never as "the 43 non-domain cases".
+version and not "libsodium". **Ruled by the operator on 2026-09-21** from three real options:
+libsodium as a second dependency (chosen); vendoring libsodium's routine into each package —
+the same code carried rather than depended on, with security-update ownership moved here
+(declined); writing the check on OpenSSL's BIGNUM — some 150 variable-time lines on public
+inputs, fully testable against the oracle, but curve arithmetic written in this repository,
+which §3 and 0001 Finding 5 forbid and which would have needed an explicit amendment
+(declined). wolfSSL, which would sign and validate with one dependency, is GPLv2-or-commercial
+and cannot be pushed onto an Apache-2.0 library's consumers. A weaker predicate for these
+three languages was not an option: it reintroduces the mixed-order disagreement this
+decision removes. They are released when they pass the same oracle and a clean differential
+run, never as "the 43 non-domain cases".
 
 ## Consequences
 
