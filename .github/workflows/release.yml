@@ -346,14 +346,14 @@ jobs:
           # that gap fails to resolve the floor it names.
           wait_for_index() {
             pkg="$1"; ver="$2"
-            for i in $(seq 1 30); do
+            for i in $(seq 1 60); do
               if curl -sf -A "archon-release (github.com/Bitspark/archon)" \
                    "https://crates.io/api/v1/crates/$pkg/$ver" >/dev/null 2>&1; then
                 echo "  $pkg@$ver is on the index (after ${i}0s)"; return 0
               fi
               sleep 10
             done
-            echo "::error::$pkg@$ver never appeared on the crates.io index" >&2; return 1
+            echo "::error::$pkg@$ver never appeared on the crates.io index within 10 minutes — the upload was accepted; check crates.io before re-running, which skips what is already there" >&2; return 1
           }
 
           for c in core/rs sdk/rs server/rs cli/rs; do
@@ -467,13 +467,14 @@ jobs:
           VER="${TAG#v}"
           d=$(mktemp -d); cd "$d"
           python -m venv v
-          ok=0
-          for i in $(seq 1 30); do
-            if ./v/bin/pip install --quiet --no-cache-dir "bitspark-archon-core==$VER"; then ok=1; break; fi
-            echo "PyPI not serving bitspark-archon-core==$VER yet (try $i/30) — waiting"; sleep 10
+          ok=0; err=""
+          for i in $(seq 1 60); do
+            if err=$(./v/bin/pip install --quiet --no-cache-dir "bitspark-archon-core==$VER" 2>&1); then ok=1; break; fi
+            echo "PyPI not serving bitspark-archon-core==$VER yet (try $i/60) — waiting"; sleep 10
           done
           if [ "$ok" -ne 1 ]; then
-            echo "::error::bitspark-archon-core==$VER did not become installable within 5 minutes. The publish step SUCCEEDED — check PyPI before assuming the release failed." >&2
+            echo "last attempt said:"; echo "$err" | tail -n 20
+            echo "::error::bitspark-archon-core==$VER did not become installable within 10 minutes. The publish step SUCCEEDED — check PyPI before assuming the release failed." >&2
             exit 1
           fi
           ./v/bin/python -c "
@@ -500,9 +501,13 @@ jobs:
       # possession proof goes through the floor, and the identity key's universal signature
       # is refused (ADR 0008). No checkout, link, replace, path or workspace is reachable.
       # ⚠ Every registry ACCEPTS a publish before its read path serves it. Six tries at 10s
-      # failed the 0.6.1 run AFTER all eight packages had published correctly — the release
-      # was fine and the verification cried wolf. Give each one real time, and make the
-      # failure say which half is at fault.
+      # failed the 0.6.1 run AFTER all eight packages had published correctly; thirty tries
+      # at 10s failed the 0.6.2 run the same way — npm accepted 0.6.2 at 14:20:19Z and was
+      # still not serving it five minutes later. Both releases were fine and the
+      # verification cried wolf. Ten minutes now, the loop breaks on success so a fast
+      # registry pays nothing, and every loop keeps its LAST attempt's stderr and prints it
+      # on failure: the 0.6.2 log could not say whether the registry was slow or the
+      # install was refused, because the loop had sent stderr to /dev/null.
       - name: The npm consumer, outside the checkout
         if: env.REHEARSE != 'true'
         run: |
@@ -510,14 +515,19 @@ jobs:
           VER="${TAG#v}"
           d=$(mktemp -d); cp tooling/conformance/consumers/ts/consumer.mjs "$d"; cd "$d"; npm init -y >/dev/null
           export npm_config_cache=$(mktemp -d)
-          ok=0
-          for i in $(seq 1 30); do
-            if npm install --no-audit --no-fund --registry https://registry.npmjs.org --@bitspark:registry=https://registry.npmjs.org \
-                 "@bitspark/archon-sdk@$VER" "@bitspark/archon@$VER" 2>/dev/null; then ok=1; break; fi
-            echo "registry not serving @bitspark/archon-sdk@$VER + @bitspark/archon@$VER yet (try $i/30) — waiting"; sleep 10
+          # An EMPTY user config: setup-node wrote ~/.npmrc with an auth line for the publish,
+          # and a public install must not carry a placeholder token to the registry. The
+          # consumer is anonymous by definition.
+          export NPM_CONFIG_USERCONFIG=$(mktemp)
+          ok=0; err=""
+          for i in $(seq 1 60); do
+            if err=$(npm install --no-audit --no-fund --registry https://registry.npmjs.org --@bitspark:registry=https://registry.npmjs.org \
+                 "@bitspark/archon-sdk@$VER" "@bitspark/archon@$VER" 2>&1); then ok=1; break; fi
+            echo "registry not serving @bitspark/archon-sdk@$VER + @bitspark/archon@$VER yet (try $i/60) — waiting"; sleep 10
           done
           if [ "$ok" -ne 1 ]; then
-            echo "::error::@bitspark/archon-sdk@$VER did not become installable within 5 minutes. The publish steps SUCCEEDED — check the registry before assuming the release failed." >&2
+            echo "last attempt said:"; echo "$err" | tail -n 20
+            echo "::error::@bitspark/archon-sdk@$VER did not become installable within 10 minutes. The publish steps SUCCEEDED — check the registry before assuming the release failed." >&2
             exit 1
           fi
           node consumer.mjs
@@ -530,13 +540,14 @@ jobs:
           d=$(mktemp -d); cp -r tooling/conformance/consumers/rs/. "$d"; cd "$d"
           sed -i "s/ARCHON_VERSION/$VER/g" Cargo.toml
           export CARGO_HOME=$(mktemp -d)
-          ok=0
-          for i in $(seq 1 30); do
-            if cargo fetch 2>/dev/null; then ok=1; break; fi
-            echo "crates.io not resolving bitspark-archon-sdk =$VER yet (try $i/30) — waiting"; sleep 10
+          ok=0; err=""
+          for i in $(seq 1 60); do
+            if err=$(cargo fetch 2>&1); then ok=1; break; fi
+            echo "crates.io not resolving bitspark-archon-sdk =$VER yet (try $i/60) — waiting"; sleep 10
           done
           if [ "$ok" -ne 1 ]; then
-            echo "::error::bitspark-archon-{core,sdk} =$VER did not become resolvable within 5 minutes. The publish steps SUCCEEDED — check crates.io before assuming the release failed." >&2
+            echo "last attempt said:"; echo "$err" | tail -n 20
+            echo "::error::bitspark-archon-{core,sdk} =$VER did not become resolvable within 10 minutes. The publish steps SUCCEEDED — check crates.io before assuming the release failed." >&2
             exit 1
           fi
           grep -A2 'name = "bitspark-archon-' Cargo.lock | grep -q 'registry+https://github.com/rust-lang/crates.io-index' || { echo "::error::the crates did not resolve from crates.io" >&2; exit 1; }
@@ -554,13 +565,14 @@ jobs:
           d=$(mktemp -d); cp tooling/conformance/consumers/go/main.go "$d"; cd "$d"
           export GOFLAGS= GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOPRIVATE= GONOSUMDB= GOMODCACHE=$(mktemp -d)
           go mod init consumer >/dev/null 2>&1
-          ok=0
-          for i in $(seq 1 30); do
-            if go get "github.com/Bitspark/archon/sdk/go@v$VER" "github.com/Bitspark/archon/core/go@v$VER" 2>/dev/null; then ok=1; break; fi
-            echo "proxy.golang.org not serving sdk/go@v$VER + core/go@v$VER yet (try $i/30) — waiting"; sleep 10
+          ok=0; err=""
+          for i in $(seq 1 60); do
+            if err=$(go get "github.com/Bitspark/archon/sdk/go@v$VER" "github.com/Bitspark/archon/core/go@v$VER" 2>&1); then ok=1; break; fi
+            echo "proxy.golang.org not serving sdk/go@v$VER + core/go@v$VER yet (try $i/60) — waiting"; sleep 10
           done
           if [ "$ok" -ne 1 ]; then
-            echo "::error::the Go modules at v$VER did not become resolvable from the proxy within 5 minutes — check that the four */go/v$VER tags are public." >&2
+            echo "last attempt said:"; echo "$err" | tail -n 20
+            echo "::error::the Go modules at v$VER did not become resolvable from the proxy within 10 minutes — check that the four */go/v$VER tags are public." >&2
             exit 1
           fi
           # `go get` of the module roots records their sums, not those of what they import
