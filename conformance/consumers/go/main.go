@@ -38,12 +38,21 @@ func main() {
 	asRaw := crypto.Verify(pub, []byte("hello"), sig)
 	fmt.Printf("genuine: in v1=%v in v2=%v raw=%v\n", inDomain, otherDomain, asRaw)
 
-	identity, _ := hex.DecodeString("0100000000000000000000000000000000000000000000000000000000000000")
-	universal, _ := hex.DecodeString("5866666666666666666666666666666666666666666666666666666666666666" +
-		"0100000000000000000000000000000000000000000000000000000000000000")
-	uRaw := crypto.Verify(identity, []byte("hello"), universal)
-	uDomain := crypto.VerifyInDomain(identity, "archon/test/v1", []byte("hello"), universal)
-	fmt.Printf("identity key: raw=%v in v1=%v\n", uRaw, uDomain)
+	// The profile assertions use inputs EVERY library accepted before ADR 0008 — the identity
+	// as R, and a mixed-order key with a challenge divisible by 8 (oracle cases
+	// profile-identity-R and profile-mixed-order-A-k-divisible) — so that only archon's own
+	// check can be what refuses them. An input a language's library already refuses on its
+	// own (the identity as a KEY, for noble and Bouncy Castle) would pass whether or not
+	// the published package enforces anything; the peer lane found its first Java consumer
+	// green against a deliberately broken core for exactly that reason.
+	identityR := refused(pub, "68656c6c6f",
+		"0100000000000000000000000000000000000000000000000000000000000000"+
+			"04201a21f9221727c221b35265ca6248968a426e9fb5168e368d7dcdaa05fa07")
+	mixedKey, _ := hex.DecodeString("05edb8c261651304ea335a4397e0696b9fb37c99aa8023ee1583a2f3e43d9fe4")
+	mixedA := refused(mixedKey, "6d697865642d6f72646572233133",
+		"b862409fb5c4c4123df2abf7462b88f041ad36dd6864ce872fd5472be363c5b1"+
+			"20e561d759891b93dd85ac31f464fc01adb9d3d89074eaa7795084f43661a90b")
+	fmt.Printf("profile: identity R refused=%v, mixed-order key refused=%v\n", identityR, mixedA)
 
 	nonce := bytes.Repeat([]byte{0x42}, 32)
 	proof, err := possession.Prove(seed, "example/pop/v1", nonce, []byte("binding"))
@@ -53,9 +62,17 @@ func main() {
 	pop := possession.Verify(pub, "example/pop/v1", nonce, []byte("binding"), proof)
 	fmt.Printf("possession: %v\n", pop)
 
-	if !(inDomain && !otherDomain && !asRaw && !uRaw && !uDomain && pop) {
+	if !(inDomain && !otherDomain && !asRaw && identityR && mixedA && pop) {
 		fmt.Println("FAIL: the published Go modules do not behave as the release claims")
 		os.Exit(1)
 	}
 	fmt.Println("OK: archon core/go + sdk/go from the public proxy")
+}
+
+// refused reports whether the published floor refuses (pubkey, message, sig) — a case an
+// unprofiled verifier accepts.
+func refused(pubkey []byte, messageHex, sigHex string) bool {
+	message, _ := hex.DecodeString(messageHex)
+	sig, _ := hex.DecodeString(sigHex)
+	return !crypto.Verify(pubkey, message, sig)
 }
