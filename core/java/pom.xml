@@ -6,7 +6,7 @@
 
   <groupId>dev.bitspark</groupId>
   <artifactId>archon-core</artifactId>
-  <version>0.6.2</version>
+  <version>0.7.0</version>
 
   <name>archon core</name>
   <description>archon core: Ed25519 primitives, the canonical key spelling, and the SPKI/PKCS-8 key codec. The identity floor beneath the law.</description>
@@ -32,7 +32,7 @@
     <connection>scm:git:https://github.com/Bitspark/archon.git</connection>
     <developerConnection>scm:git:ssh://git@github.com/Bitspark/archon.git</developerConnection>
     <url>https://github.com/Bitspark/archon</url>
-    <tag>v0.6.2</tag>
+    <tag>v0.7.0</tag>
   </scm>
 
   <issueManagement>

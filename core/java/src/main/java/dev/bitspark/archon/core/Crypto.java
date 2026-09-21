@@ -47,6 +47,10 @@ public final class Crypto {
     if (pubkey.length != PUBLIC_KEY_SIZE || signature.length != SIGNATURE_SIZE) {
       return false;
     }
+    // The profile, on BOTH points, before any verification equation.
+    if (!pointAcceptable(pubkey, 0) || !pointAcceptable(signature, 0)) {
+      return false;
+    }
     try {
       Ed25519PublicKeyParameters key = new Ed25519PublicKeyParameters(pubkey, 0);
       Ed25519Signer verifier = new Ed25519Signer();
@@ -85,6 +89,9 @@ public final class Crypto {
     } catch (IllegalArgumentException badDomain) {
       return false;
     }
+    if (!pointAcceptable(pubkey, 0) || !pointAcceptable(signature, 0)) {
+      return false;
+    }
     try {
       Ed25519PublicKeyParameters key = new Ed25519PublicKeyParameters(pubkey, 0);
       Ed25519phSigner verifier = new Ed25519phSigner(context);
@@ -92,6 +99,37 @@ public final class Crypto {
       verifier.update(message, 0, message.length);
       return verifier.verifySignature(signature);
     } catch (RuntimeException failed) {
+      return false;
+    }
+  }
+
+  /**
+   * archon's Ed25519 verification profile, applied to an encoded point before any verification
+   * equation. It must hold for BOTH the public key {@code A} and the signature's {@code R} (its
+   * first 32 bytes): the point decodes and is on the curve, its encoding is canonical, it is not
+   * the identity, and it lies in the prime-order subgroup.
+   *
+   * <p>⚠ MEASURED, NOT ASSUMED. Bouncy Castle offers two validators and only one of them is this
+   * predicate. Against the profile's own points:
+   *
+   * <pre>
+   *                        validatePublicKeyFull   validatePublicKeyPartial
+   *   ordinary key         accept                  accept
+   *   identity             REJECT                  REJECT
+   *   small-order          REJECT                  REJECT
+   *   non-canonical        REJECT                  REJECT
+   *   MIXED-ORDER          REJECT                  accept        <- the one that matters
+   * </pre>
+   *
+   * <p>{@code Ed25519Signer} validates the public key with the PARTIAL check internally and does
+   * not look at {@code R} at all, which is why this core accepted mixed-order keys, an identity
+   * {@code R} and a small-order {@code R} before the check was made explicit. {@code [8]P = O} is
+   * not a substitute: it catches small-order points and misses mixed-order ones.
+   */
+  private static boolean pointAcceptable(byte[] encoded, int offset) {
+    try {
+      return org.bouncycastle.math.ec.rfc8032.Ed25519.validatePublicKeyFull(encoded, offset);
+    } catch (RuntimeException notAPoint) {
       return false;
     }
   }
