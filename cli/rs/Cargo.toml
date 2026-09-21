@@ -26,22 +26,22 @@ bitspark-archon-core = { path = "../../core/rs", version = "0.6.1" }
 # scheme's binding and proof, which the CLI consumes and never reimplements.
 bitspark-archon-sdk = { path = "../../sdk/rs", version = "0.6.1" }
 # keygen's OS CSPRNG — the CLI's, never the library's.
-getrandom = "0.3"
+getrandom = "0.4"
 # login's HTTP + JSON. minreq is chosen on a MEASUREMENT, not a preference: against a
 # 47-crate baseline it adds 21 crates, where ureq 2 adds 52 and ureq 3 adds 69. It is
 # blocking and pulls no async runtime, which suits a CLI that makes two requests and exits.
 # native-tls was ruled out: it makes the Windows CI leg depend on a build environment.
 # serde_json is the transport codec; the login SCHEME is bytes, not JSON, so nothing
 # security-bearing depends on it.
-minreq = { version = "2", features = ["https-rustls"] }
+minreq = { version = "3", features = ["https-rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Custody (ADR 0007 §A): the key store's Argon2id and XChaCha20-Poly1305, the NFC
 # normaliser its password rule names, and a terminal prompt that does not echo. None of
 # them reach core/ or sdk/.
-argon2 = "0.5"
-chacha20poly1305 = "0.10"
+argon2 = "0.6"
+chacha20poly1305 = "0.11"
 unicode-normalization = "0.1"
 rpassword = "7"
 

@@ -163,10 +163,12 @@ pub fn seal(
         public_key: public_key_from_seed(&seed_fixed),
     });
     let key = derive_key(password, salt, p)?;
-    let aead = XChaCha20Poly1305::new(Key::from_slice(&key));
+    let aead = XChaCha20Poly1305::new(&Key::from(key));
+    let xnonce =
+        XNonce::try_from(nonce).map_err(|_| format!("nonce must be {NONCE_SIZE} bytes"))?;
     let ciphertext = aead
         .encrypt(
-            XNonce::from_slice(nonce),
+            &xnonce,
             Payload {
                 msg: seed,
                 aad: &header,
@@ -189,11 +191,13 @@ pub fn open(file: &[u8], password: &[u8]) -> Result<[u8; SEED_SIZE], String> {
         return Err(EMPTY_PASSWORD.to_string());
     }
     let key = derive_key(password, &header.salt, header.params)?;
-    let aead = XChaCha20Poly1305::new(Key::from_slice(&key));
+    let aead = XChaCha20Poly1305::new(&Key::from(key));
     let nonce = &file[HEADER_SIZE..HEADER_SIZE + NONCE_SIZE];
+    let xnonce =
+        XNonce::try_from(nonce).map_err(|_| format!("nonce must be {NONCE_SIZE} bytes"))?;
     let seed = aead
         .decrypt(
-            XNonce::from_slice(nonce),
+            &xnonce,
             Payload {
                 msg: &file[HEADER_SIZE + NONCE_SIZE..],
                 aad: &file[..HEADER_SIZE],
