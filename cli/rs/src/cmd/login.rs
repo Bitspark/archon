@@ -546,7 +546,7 @@ fn fetch_login_request(audience: &str, id: &str) -> Result<LoginRequest, String>
         .map_err(|e| format!("login: could not reach {endpoint}: {e}"))?;
     let body = read_body(&response, &endpoint)?;
     if response.status_code != 200 {
-        return Err(login_http_error(response.status_code as u16, &body));
+        return Err(login_http_error(response.status_code, &body));
     }
     serde_json::from_str(&body)
         .map_err(|e| format!("login: the service's request is not the expected JSON: {e}"))
@@ -577,7 +577,7 @@ fn post_answer(audience: &str, id: &str, answer: &LoginAnswer) -> Result<(u16, S
         .send()
         .map_err(|e| format!("login: could not reach {endpoint}: {e}"))?;
     let body = response.as_str().unwrap_or("").to_string();
-    Ok((response.status_code as u16, body))
+    Ok((response.status_code, body))
 }
 
 /// The response body as text. A body that is not UTF-8 is a service speaking something this
@@ -892,7 +892,7 @@ fn post_offer(audience: &str, offer: &OfferBody) -> Result<OfferResponse, String
         .map_err(|e| format!("login: could not reach {endpoint}: {e}"))?;
     let body = read_body(&response, &endpoint)?;
     if response.status_code != 201 {
-        return Err(login_http_error(response.status_code as u16, &body));
+        return Err(login_http_error(response.status_code, &body));
     }
     serde_json::from_str(&body)
         .map_err(|e| format!("login: the service's offer is not the expected JSON: {e}"))
@@ -979,7 +979,7 @@ fn poll_offer(
             429 => continue,
             404 => return Err("login: the offer expired before the page took it".to_string()),
             200 => {}
-            other => return Err(login_http_error(other as u16, &body)),
+            other => return Err(login_http_error(other, &body)),
         }
         let read: OfferRead = serde_json::from_str(&body)
             .map_err(|e| format!("login: the service's offer is not the expected JSON: {e}"))?;
