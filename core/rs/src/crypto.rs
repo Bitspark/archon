@@ -207,7 +207,12 @@ mod tests {
         sig[32] = 1;
         assert!(!verify(&identity, b"hello", &sig));
         assert!(!verify(&identity, b"different message", &sig));
-        assert!(!verify_in_domain(&identity, "archon/test/v1", b"hello", &sig));
+        assert!(!verify_in_domain(
+            &identity,
+            "archon/test/v1",
+            b"hello",
+            &sig
+        ));
         // A non-canonical spelling of the identity (y = p + 1) is refused as an encoding.
         let mut non_canonical = [0xffu8; PUBLIC_KEY_SIZE];
         non_canonical[0] = 0xee;
