@@ -32,8 +32,15 @@ import java.util.Arrays;
  * measurement: the core's own profile check was disabled and the oracle re-run, and these
  * are inputs that changed verdict. That matters because the obvious candidate does not —
  * the identity public key is refused by Bouncy Castle itself, so asserting it here would
- * pass whether or not archon enforced anything. A mixed-order key and an identity {@code R}
- * are refused only because archon checks for them ahead of its library.
+ * pass whether or not archon enforced anything.
+ *
+ * <p>Two of them are the pair every archon consumer asserts, in every language:
+ * {@code profile-mixed-order-A-k-divisible} and {@code profile-identity-R}, taken verbatim
+ * from the oracle. They are the pair because every implementation measured before ADR 0008
+ * accepted both — Go, Rust, TypeScript, Python, Java and C++ alike — so nothing but archon's
+ * own check can refuse them, and a consumer that sees them refused has proved the profile is
+ * present rather than that some library happened to be strict. The small-order {@code R}
+ * below is an additional case this core also refuses; it is not part of the shared pair.
  *
  * <p>There is no Java sdk, so there is no proof-of-possession assertion to make.
  */
