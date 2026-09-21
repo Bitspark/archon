@@ -36,28 +36,41 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 | **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.6.1** |
 | **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.6.1** |
 | **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 105/105 | ⏳ PyPI, once the pending publisher is registered (see `release.yml`) |
-| **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ⏳ Maven Central; the lane is built and publishes with 0.7.0 |
+| **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ⏳ Maven Central — 0.7.0 uploaded and validated; "published" awaits the `verify_only` consumer (see below) |
 | **C++** | 🔧 signs, does not yet accept | — | — | — | CMake package | 83/105 — all 22 failures are profile cases | needs the same two (0008 §8) |
 | **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs **two** libraries — a signer and a validator (0008 §8) |
 | **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same two (0008 §8) |
 
 A published version is a version that was published — which is not the same as a version that
-was tagged, and right now the two have come apart. Measured against the registries themselves
-rather than against the tag list:
+was tagged. **Snapshot taken 2026-09-21 16:00Z**, and dated because the previous version of
+this table went stale within the hour: it is a fact about the world, not about this
+repository, so re-measure rather than trust it.
 
 | registry | has | how it got there |
 |---|---|---|
-| Go proxy + `sum.golang.org` | v0.6.0, v0.6.1, v0.6.2, **v0.7.0** | **automatically** — the proxy fetches any tag of a public repo on demand |
-| npm | 0.6.1 | the release workflow |
-| crates.io | 0.6.1 | the release workflow |
-| PyPI | *nothing* | pending publisher |
-| Maven Central | *nothing* | lane built, not yet run |
+| Go proxy + `sum.golang.org` | v0.6.0 … **v0.7.0** | **automatically** — the proxy fetches any tag of a public repo on demand |
+| npm | 0.6.1, 0.6.2, **0.7.0** (`latest`) | the release workflow |
+| crates.io | 0.6.1, 0.6.2, **0.7.0** | the release workflow |
+| Maven Central | 0.7.0 *uploaded and validated*, not yet served | the release workflow; verified by a `verify_only` run |
+| PyPI | *nothing* | pending publisher not registered |
 
-`v0.6.2` and `v0.7.0` are tagged but were never published to npm or crates.io, so those two
-sit a release behind. **Go is the asymmetry to keep in mind:** nobody publishes it, and
-nothing gates it. Pushing a tag to a public repo is enough for the proxy to serve that
-version and for `sum.golang.org` to pin its hash forever, which is why a tag can never be
-re-cut once it exists — and why `v0.7.0` is already immutable.
+To re-measure, ask each registry rather than reading the tag list:
+
+```sh
+curl -s https://registry.npmjs.org/@bitspark/archon | jq '.["dist-tags"], (.versions|keys)'
+curl -s https://crates.io/api/v1/crates/bitspark-archon-core/versions | jq '[.versions[].num]'
+curl -s https://proxy.golang.org/github.com/!bitspark/archon/core/go/@latest
+curl -so /dev/null -w '%{http_code}\n' https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/0.7.0/archon-core-0.7.0.pom
+```
+
+**Go is the asymmetry to keep in mind:** nobody publishes it, and nothing gates it. Pushing a
+tag to a public repo is enough for the proxy to serve that version and for `sum.golang.org`
+to pin its hash forever, which is why a tag can never be re-cut once it exists.
+
+**Maven Central is the other one.** It accepts and validates in seconds and serves much
+later — over 36 minutes for archon-core 0.7.0 — so a green publish run proves the upload,
+not the availability. Java counts as published when a `verify_only` run's consumer resolves
+it from the public repository.
 
 0.7.0 is the next release for the other registries, and it carries Java — but only because
 the release workflow checks out **two trees**, which is worth understanding before changing
