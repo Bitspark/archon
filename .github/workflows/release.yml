@@ -180,14 +180,40 @@ jobs:
           # The prefix is a REGISTRY name only -- [lib] name is pinned in each manifest, so
           # consumers still write `use archon_core::` and the installed binary is `archon`.
           # Order is dependency order; server and cli both name core and sdk.
+          # Wait for a version to actually appear in the index rather than sleeping a guess.
+          # crates.io accepts an upload before it serves it, and a dependent published into
+          # that gap fails to resolve the floor it names.
+          wait_for_index() {
+            pkg="$1"; ver="$2"
+            for i in $(seq 1 30); do
+              if curl -sf -A "archon-release (github.com/Bitspark/archon)" \
+                   "https://crates.io/api/v1/crates/$pkg/$ver" >/dev/null 2>&1; then
+                echo "  $pkg@$ver is on the index (after ${i}0s)"; return 0
+              fi
+              sleep 10
+            done
+            echo "::error::$pkg@$ver never appeared on the crates.io index" >&2; return 1
+          }
+
           for c in core/rs sdk/rs server/rs cli/rs; do
-            ( cd "$c"
-              # crates.io serves a new version a moment after it accepts it; a dependent
-              # published immediately can fail to resolve the floor it names.
-              cargo publish $DRY --allow-dirty || {
-                echo "::error::cargo publish failed in $c" >&2; exit 1; }
-            )
-            [ -z "$DRY" ] && sleep 30 || true
+            pkg=$(grep -m1 '^name = ' "$c/Cargo.toml" | sed 's/name = "\(.*\)"/\1/')
+            out=$(cd "$c" && cargo publish $DRY --allow-dirty 2>&1) && rc=0 || rc=$?
+            echo "$out"
+            if [ "$rc" -ne 0 ]; then
+              # ⚠ A REHEARSAL CANNOT VERIFY A DEPENDENT ON A FIRST PUBLISH. --dry-run aborts
+              # the upload, so the floor never reaches the index, and every crate above it
+              # fails with "no matching package named bitspark-archon-*". That is the dry run
+              # telling the truth about a chain whose lower links do not exist yet, not a
+              # defect in this crate — so it is reported and tolerated HERE ONLY, and only
+              # for our own names. Any other failure still fails the run.
+              if [ "$REHEARSE" = "true" ] && \
+                 echo "$out" | grep -q 'no matching package named `bitspark-archon-'; then
+                echo "::notice::$pkg — not verifiable in a rehearsal: it depends on a crate this dry run deliberately did not upload. The real run publishes the floor first and waits for the index."
+                continue
+              fi
+              echo "::error::cargo publish failed in $c" >&2; exit 1
+            fi
+            [ -z "$DRY" ] && wait_for_index "$pkg" "${TAG#v}"
           done
 
       - name: The round trip against what was published
