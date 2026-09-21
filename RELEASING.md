@@ -95,8 +95,13 @@ itself, and a fresh pair succeeding — diagnose with a read-only request before
 ## Recovery
 
 If a run fails after some registry accepted an upload: keep the tag, keep the artifacts,
-inspect the registry before doing anything, and re-run the **same** dispatch — every publish
-step is idempotent against what is already served, and the round trips are separate steps.
+inspect the registry before doing anything, and re-dispatch with **`verify_only=true`** —
+every publish step is skipped, every outside consumer runs against what the registries
+serve, and the GitHub release is created. That is the recovery for a good release with a
+slow registry, which has now happened twice (0.6.2: npm served 0.6.2 more than five
+minutes after accepting it; 0.7.0: Central was still `PUBLISHING` ten minutes after
+validating the bundle). Do **not** simply re-run the failed job: npm and crates.io skip what
+they already serve, but Central refuses a second upload of a version it has.
 A consumer check that fails after an upload does not mean the upload failed; the registries
 serve later than they accept, and the round trips wait for that with a bounded retry. Never
 replace a published version with changed source. A registry is "published" in the matrix
