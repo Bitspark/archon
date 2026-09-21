@@ -600,29 +600,79 @@ jobs:
         run: |
           set -euo pipefail
           VER="${TAG#v}"
-          POM="https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/$VER/archon-core-$VER.pom"
-          served=
-          for i in $(seq 1 40); do
-            if curl --fail --silent --show-error --max-time 20 "$POM" -o /dev/null; then
-              served=yes
-              echo "  dev.bitspark:archon-core:$VER is served by Maven Central"
-              break
+          BASE="https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/$VER/archon-core-$VER"
+
+          # ASSERT each file, do not infer one from another. Central publishes a bundle, so
+          # pom, jar and signature "should" appear together — and npm's packages "should"
+          # have been installable the moment they were accepted, which cost the 0.6.1 and
+          # 0.6.2 runs a red apiece. A poll for the pom that is really a claim about the jar
+          # is the same mistake wearing a different hat.
+          ok=0; err=""
+          for i in $(seq 1 60); do
+            if err=$( { curl --fail --silent --show-error --max-time 20 "$BASE.pom" -o /dev/null \
+                     && curl --fail --silent --show-error --max-time 20 "$BASE.jar" -o /dev/null \
+                     && curl --fail --silent --show-error --max-time 20 "$BASE.jar.asc" -o /dev/null; } 2>&1 ); then
+              ok=1; break
             fi
-            echo "Central not serving archon-core:$VER yet (try $i/40) — waiting"
-            sleep 15
+            echo "Central not serving archon-core:$VER yet (try $i/60) — waiting"; sleep 10
           done
-          if [ -z "$served" ]; then
-            echo "::error::archon-core:$VER did not become resolvable within 10 minutes. The publish step SUCCEEDED — check Central before assuming the release failed." >&2
+          if [ "$ok" -ne 1 ]; then
+            echo "last attempt said:"; echo "$err" | tail -n 20
+            echo "::error::archon-core:$VER did not become available within 10 minutes. The publish step SUCCEEDED — check Central before assuming the release failed." >&2
             exit 1
           fi
 
           work="$(mktemp -d)"
           repo="$work/m2"
           printf '%s\n' '<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"/>' > "$work/settings.xml"
-          mvn -B -ntp -s "$work/settings.xml" -gs "$work/settings.xml" \
-              "-Dmaven.repo.local=$repo" "-Darchon.version=$VER" \
-              -f tooling/conformance/consumers/java/pom.xml \
-              package dependency:build-classpath "-Dmdep.outputFile=$work/cp.txt"
+
+          # The resolve retries too, because a file served from one edge can still miss at
+          # another. Ten attempts rather than sixty: the files are already known served, so
+          # this rides out an inconsistency rather than waiting for a publication, and each
+          # attempt is a whole Maven run — sixty of them would outlast the job.
+          ok=0; err=""
+          for i in $(seq 1 10); do
+            if err=$(mvn -B -ntp -s "$work/settings.xml" -gs "$work/settings.xml" \
+                 "-Dmaven.repo.local=$repo" "-Darchon.version=$VER" \
+                 -f tooling/conformance/consumers/java/pom.xml \
+                 package dependency:build-classpath "-Dmdep.outputFile=$work/cp.txt" 2>&1); then
+              ok=1; break
+            fi
+            echo "Central not resolving archon-core:$VER yet (try $i/10) — waiting"; sleep 10
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "last attempt said:"; echo "$err" | tail -n 40
+            echo "::error::archon-core:$VER is served but did not resolve. The publish step SUCCEEDED — read the Maven output above." >&2
+            exit 1
+          fi
+
+          jar="$repo/dev/bitspark/archon-core/$VER/archon-core-$VER.jar"
+          test -f "$jar" \
+            || { echo "::error::archon-core:$VER was not resolved into the clean repository" >&2; exit 1; }
+
+          # "Resolved" and "resolved THAT" are different claims. The local repository is
+          # fresh, so this should be tautological — assert it anyway, because the whole point
+          # of this step is that the PUBLISHED bytes work, and a tautology that fails is the
+          # most interesting result available.
+          #
+          # Both sides are hashed here rather than trusting a published checksum file:
+          # .jar.sha256 is optional and often absent (gson 2.11.0 has none), so requiring it
+          # would redden a good release over a file nobody promised. .jar.sha1 IS guaranteed,
+          # and is checked second — against the bytes Central served, so Central's own
+          # metadata has to agree with Central's own payload.
+          served="$work/served.jar"
+          curl --fail --silent --show-error --max-time 60 "$BASE.jar" -o "$served"
+          resolved_sha=$(sha256sum "$jar" | cut -d' ' -f1)
+          served_sha=$(sha256sum "$served" | cut -d' ' -f1)
+          [ "$resolved_sha" = "$served_sha" ] \
+            || { echo "::error::the resolved jar is not what Central serves — resolved $resolved_sha, served $served_sha" >&2; exit 1; }
+          echo "  resolved jar is byte-identical to what Central serves (sha256 $resolved_sha)"
+
+          want_sha1=$(curl --fail --silent --show-error --max-time 20 "$BASE.jar.sha1" | tr -d '[:space:]' | cut -c1-40)
+          got_sha1=$(sha1sum "$served" | cut -d' ' -f1)
+          [ "$want_sha1" = "$got_sha1" ] \
+            || { echo "::error::Central's published .jar.sha1 disagrees with the jar it served — published $want_sha1, computed $got_sha1" >&2; exit 1; }
+          echo "  Central's published sha1 agrees with its payload ($got_sha1)"
 
           # Bouncy Castle must arrive TRANSITIVELY. archon's domain separation is Ed25519ph
           # with the domain as the RFC 8032 context, which the JDK's own Signature exposes no
@@ -630,8 +680,6 @@ jobs:
           # handed a broken package, and would find out at first use.
           grep -q 'bcprov-jdk18on' "$work/cp.txt" \
             || { echo "::error::Bouncy Castle did not arrive transitively from archon-core's POM" >&2; exit 1; }
-          test -f "$repo/dev/bitspark/archon-core/$VER/archon-core-$VER.jar" \
-            || { echo "::error::archon-core:$VER was not resolved into the clean repository" >&2; exit 1; }
 
           java -cp "tooling/conformance/consumers/java/target/classes:$(cat "$work/cp.txt")" example.Consumer
 
