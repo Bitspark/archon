@@ -25,6 +25,11 @@
 #                ~30-minute token, armed by vars.CRATES_IO_TRUSTED_PUBLISHING.
 #                secrets.CARGO_REGISTRY_TOKEN remains only as the pre-trusted-publishing
 #                fallback and can be deleted once a release has gone out on OIDC.
+#   PyPI       — pypa/gh-action-pypi-publish with the same OIDC identity, armed by
+#                vars.PYPI_TRUSTED_PUBLISHING once the pending publisher is registered
+#                (the registration is spelled out at the step). Unarmed, the distributions
+#                are still built and the run warns instead of failing.
+#   Go         — nothing; the module proxy reads the tags.
 #
 # ⚠ Neither registry validates a trusted-publisher configuration when you save it, and all
 #   fields are case-sensitive. A typo surfaces as an auth failure at publish time, not before
@@ -80,10 +85,12 @@ jobs:
           echo "releasing $TAG at $head"
 
       - name: Hold every manifest version to the tag
-        # Eight manifests carry a version, and a release in which one of them disagrees is a
+        # Nine manifests carry a version, and a release in which one of them disagrees is a
         # release that publishes two different things under one name. The floor's version is
         # also what the dependent packages' ranges are derived from at publish time, so a
-        # mismatch here is not cosmetic.
+        # mismatch here is not cosmetic. The Python module also REPORTS a version of its own
+        # (`archon_core.__version__`), and a package whose metadata and self-report disagree
+        # is the same defect one layer down.
         run: |
           set -euo pipefail
           want="${TAG#v}"
@@ -92,10 +99,13 @@ jobs:
             got=$(node -p "require('./$f').version")
             [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
           done
-          for f in core/rs/Cargo.toml sdk/rs/Cargo.toml cli/rs/Cargo.toml server/rs/Cargo.toml; do
+          for f in core/rs/Cargo.toml sdk/rs/Cargo.toml cli/rs/Cargo.toml server/rs/Cargo.toml core/py/pyproject.toml; do
             got=$(grep -m1 '^version = ' "$f" | sed 's/version = "\(.*\)"/\1/')
             [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
           done
+          f=core/py/src/archon_core/__init__.py
+          got=$(grep -m1 '^__version__ = ' "$f" | sed 's/__version__ = "\(.*\)"/\1/')
+          [ "$got" = "$want" ] || { echo "::error::$f reports $got, tag says $want"; fail=1; }
           exit $fail
 
       - name: Hold the Go module tags to the same version
@@ -224,14 +234,20 @@ jobs:
             out=$(cd "$c" && cargo publish $DRY --allow-dirty 2>&1) && rc=0 || rc=$?
             echo "$out"
             if [ "$rc" -ne 0 ]; then
-              # ⚠ A REHEARSAL CANNOT VERIFY A DEPENDENT ON A FIRST PUBLISH. --dry-run aborts
-              # the upload, so the floor never reaches the index, and every crate above it
-              # fails with "no matching package named bitspark-archon-*". That is the dry run
-              # telling the truth about a chain whose lower links do not exist yet, not a
-              # defect in this crate — so it is reported and tolerated HERE ONLY, and only
-              # for our own names. Any other failure still fails the run.
+              # ⚠ A REHEARSAL CANNOT VERIFY A DEPENDENT. --dry-run aborts the upload, so the
+              # floor never reaches the index at THIS version, and every crate above it fails
+              # to resolve it. Cargo says that two ways, and the rehearsal has now met both:
+              #   "no matching package named `bitspark-archon-…`"      the floor has never been
+              #                                                        published (0.6.1's rehearsal)
+              #   "failed to select a version for the requirement
+              #    `bitspark-archon-… = "^X"`"                         the floor exists, at an
+              #                                                        older version (0.6.2's)
+              # Both are the dry run telling the truth about a chain whose lower link is not
+              # on the index yet, not a defect in this crate — so they are reported and
+              # tolerated HERE ONLY, and only for our own names. Any other failure still
+              # fails the run.
               if [ "$REHEARSE" = "true" ] && \
-                 echo "$out" | grep -q 'no matching package named `bitspark-archon-'; then
+                 echo "$out" | grep -qE 'no matching package named `bitspark-archon-|failed to select a version for the requirement `bitspark-archon-'; then
                 echo "::notice::$pkg — not verifiable in a rehearsal: it depends on a crate this dry run deliberately did not upload. The real run publishes the floor first and waits for the index."
                 continue
               fi
@@ -240,41 +256,62 @@ jobs:
             [ -z "$DRY" ] && wait_for_index "$pkg" "${TAG#v}"
           done
 
-      - name: Publish to PyPI
-        # Trusted publishing, like npm: the OIDC token this run already carries is exchanged
-        # for upload rights scoped to this repository, this workflow and the `release`
-        # environment. No PyPI API token is stored.
-        #
-        # ⚠ Like npm and crates.io, a trusted publisher must be configured against a project
-        # that EXISTS, so the first upload of a new name needs a token; and as everywhere
-        # else in this workflow, a rehearsal cannot prove any of it, because a dry run never
-        # authenticates.
+      - name: Build the Python distributions
+        # Always, rehearsal included: a pyproject.toml that no longer builds is a release
+        # defect whether or not PyPI is armed. The sdist and wheel are what a consumer gets.
         run: |
           set -euo pipefail
           python -m pip install --quiet --upgrade pip build
           python -m build core/py --outdir dist-py
           ls -l dist-py
+
+      # PyPI trusted publishing: the OIDC token this run already carries is exchanged for
+      # upload rights scoped to this repository, this workflow file and the `release`
+      # environment. No PyPI API token is stored — not even for the first upload: PyPI
+      # accepts a PENDING publisher for a project name that does not exist yet, and the first
+      # OIDC upload creates the project. The registration is account-side and looks like:
+      #     project        bitspark-archon-core
+      #     owner          Bitspark
+      #     repository     archon
+      #     workflow       release.yml
+      #     environment    release
+      # It is armed by vars.PYPI_TRUSTED_PUBLISHING, exactly as crates.io is by
+      # vars.CRATES_IO_TRUSTED_PUBLISHING, so a release is not red at the last registry
+      # because an account was not configured for the newest one — and so the OIDC test of
+      # the two registries that ARE configured is not entangled with the third. As everywhere
+      # else in this workflow, a rehearsal cannot prove any of it: a dry run never authenticates.
       - uses: pypa/gh-action-pypi-publish@release/v1
-        if: env.REHEARSE != 'true'
+        if: env.REHEARSE != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true'
         with:
           packages-dir: dist-py
           # The upload is idempotent-ish: re-running a release that already published this
           # version should not red the whole run.
           skip-existing: true
 
+      - name: What PyPI did not get
+        if: env.REHEARSE != 'true' && vars.PYPI_TRUSTED_PUBLISHING != 'true'
+        run: |
+          echo "::warning::bitspark-archon-core ${TAG#v} was BUILT but NOT PUBLISHED: vars.PYPI_TRUSTED_PUBLISHING is not 'true'. Register the pending publisher on PyPI (see this workflow), set the variable, and re-run this dispatch — every publish step skips what is already on its registry."
+
       - name: The Python round trip against what was published
-        if: env.REHEARSE != 'true'
+        if: env.REHEARSE != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true'
         # Same standard as npm: "on the registry" is a claim until an install from nothing
-        # proves it. PyPI, like npm, serves later than it accepts.
+        # proves it. PyPI, like npm, serves later than it accepts, and — like npm — the
+        # failure has to say which half is at fault.
         run: |
           set -euo pipefail
           VER="${TAG#v}"
           d=$(mktemp -d); cd "$d"
           python -m venv v
+          ok=0
           for i in $(seq 1 30); do
-            if ./v/bin/pip install --quiet "bitspark-archon-core==$VER"; then break; fi
+            if ./v/bin/pip install --quiet "bitspark-archon-core==$VER"; then ok=1; break; fi
             echo "PyPI not serving bitspark-archon-core==$VER yet (try $i/30) — waiting"; sleep 10
           done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::bitspark-archon-core==$VER did not become installable within 5 minutes. The publish step SUCCEEDED — check PyPI before assuming the release failed." >&2
+            exit 1
+          fi
           ./v/bin/python -c "
           import archon_core as a
           seed = bytes(range(32)); pub = a.public_key_from_seed(seed)
@@ -322,6 +359,6 @@ jobs:
         if: env.REHEARSE == 'true'
         run: |
           echo "REHEARSAL — nothing was published and no release was created."
-          echo "The tag, the eight manifest versions, the four Go module tags, tri-core"
-          echo "agreement and both dry-run packs were checked. Re-run with rehearse=false"
-          echo "to publish."
+          echo "The tag, the nine manifest versions, the four Go module tags, tri-core"
+          echo "agreement, both dry-run packs and the Python build were checked. Re-run"
+          echo "with rehearse=false to publish."
