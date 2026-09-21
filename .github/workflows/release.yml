@@ -460,8 +460,9 @@ jobs:
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           DEPLOYMENT_ID: ${{ steps.maven_publish.outputs.deployment-id }}
         # The deploy returns when the bundle is VALIDATED, which is not when it is SERVED,
-        # and the gap is long — measured at over 36 minutes for the first archon-core
-        # publication. So this run cannot prove Central serves the artifact. It can prove
+        # and the gap is long — measured at 44 minutes for the first archon-core publication
+        # (validated 15:15:38Z, served 15:59:40Z). So this run cannot prove Central serves
+        # the artifact. It can prove
         # what Central believes, which is the useful half and takes one request.
         #
         # FAILED is a real failed publish and fails the step. Every other state is normal
@@ -697,11 +698,12 @@ jobs:
         if: env.VERIFY_ONLY == 'true'
         # THIS STEP DOES NOT RUN IN A PUBLISH RUN, and the reason is measured rather than
         # cautious. Central accepted and validated archon-core 0.7.0 at 15:15:38Z and was
-        # still not serving it 36 minutes later. This step began life waiting 10 minutes;
-        # the job's whole remaining budget is about 37. So there is no number that fits
-        # inside a publish run — widening it again would only have bought a longer red on a
-        # release that had in fact succeeded, which is how 5 minutes became 10 and 10 became
-        # wrong.
+        # did not serve it until 15:59:40Z — 44 minutes. This step began life waiting 10
+        # minutes; the job's whole remaining budget is about 37. So 44 is not merely larger
+        # than what shipped, it is larger than the largest wait this job could ever offer:
+        # there is no number that fits inside a publish run. Widening it again would only
+        # have bought a longer red on a release that had in fact succeeded, which is how 5
+        # minutes became 10 and 10 became wrong.
         #
         # npm, crates.io and the Go proxy serve fast enough to verify in the same run.
         # Central does not, at least for a first publication into a namespace. So for Java

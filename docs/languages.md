@@ -42,7 +42,7 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 | **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same two (0008 §8) |
 
 A published version is a version that was published — which is not the same as a version that
-was tagged. **Snapshot taken 2026-09-21 16:00Z**, and dated because the previous version of
+was tagged. **Snapshot taken 2026-09-21 16:35Z**, and dated because an earlier version of
 this table went stale within the hour: it is a fact about the world, not about this
 repository, so re-measure rather than trust it.
 
@@ -51,7 +51,7 @@ repository, so re-measure rather than trust it.
 | Go proxy + `sum.golang.org` | v0.6.0 … **v0.7.0** | **automatically** — the proxy fetches any tag of a public repo on demand |
 | npm | 0.6.1, 0.6.2, **0.7.0** (`latest`) | the release workflow |
 | crates.io | 0.6.1, 0.6.2, **0.7.0** | the release workflow |
-| Maven Central | 0.7.0 *uploaded and validated*, not yet served | the release workflow; verified by a `verify_only` run |
+| Maven Central | **0.7.0** — served from 15:59:40Z | the release workflow; verified by a `verify_only` run |
 | PyPI | *nothing* | pending publisher not registered |
 
 To re-measure, ask each registry rather than reading the tag list:
@@ -68,7 +68,8 @@ tag to a public repo is enough for the proxy to serve that version and for `sum.
 to pin its hash forever, which is why a tag can never be re-cut once it exists.
 
 **Maven Central is the other one.** It accepts and validates in seconds and serves much
-later — over 36 minutes for archon-core 0.7.0 — so a green publish run proves the upload,
+later — **44 minutes** for archon-core 0.7.0, validated 15:15:38Z and served 15:59:40Z, past
+the ~37 minutes a publish job could ever wait — so a green publish run proves the upload,
 not the availability. Java counts as published when a `verify_only` run's consumer resolves
 it from the public repository.
 
