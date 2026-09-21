@@ -224,10 +224,19 @@ jobs:
           set -euo pipefail
           VER="${TAG#v}"
           d=$(mktemp -d); cd "$d"; npm init -y >/dev/null
-          for i in 1 2 3 4 5 6; do
-            npm install --no-audit --no-fund "@bitspark/archon@$VER" && break
-            echo "registry not serving @bitspark/archon@$VER yet (try $i) — waiting"; sleep 10
+          # ⚠ npm ACCEPTS a publish well before its read path serves it. Six tries at 10s
+          # failed the 0.6.1 run AFTER all eight packages had published correctly — the
+          # release was fine and the verification cried wolf. Give the CDN real time, and
+          # make the failure say which half is at fault.
+          ok=0
+          for i in $(seq 1 30); do
+            if npm install --no-audit --no-fund "@bitspark/archon@$VER" 2>/dev/null; then ok=1; break; fi
+            echo "registry not serving @bitspark/archon@$VER yet (try $i/30) — waiting"; sleep 10
           done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::@bitspark/archon@$VER did not become installable within 5 minutes. The publish steps SUCCEEDED — check the registry before assuming the release failed." >&2
+            exit 1
+          fi
           node --input-type=module -e "
             import * as a from '@bitspark/archon';
             const n = Object.keys(a);
