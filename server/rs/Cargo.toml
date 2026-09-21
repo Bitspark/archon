@@ -1,0 +1,33 @@
+# archon-server: the service side of the archon login protocol (docs/login.md §4).
+#
+# A mounted handler and nothing more (ADR 0007 §B): it opens no socket and spawns no task, so
+# there is NO HTTP FRAMEWORK HERE — no axum, no tower, no hyper. `Handler::handle` is a plain
+# function from a Request to a Response, and an adapter for whichever server the service runs
+# is a dozen lines beside this crate rather than a dependency inside it. That is what keeps
+# the tier adoptable by a service that has already chosen its stack.
+[package]
+name = "bitspark-archon-server"
+version = "0.6.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/Bitspark/archon"
+description = "archon login: the service-side handler — four routes, law-free, store-minimal."
+
+[lib]
+name = "archon_server"
+path = "src/lib.rs"
+
+[dependencies]
+# The floor and the layer above it. `login` is the only part of the sdk this crate touches:
+# the binding, the proofs and the audience grammar, consumed and never reimplemented.
+bitspark-archon-core = { path = "../../core/rs", version = "0.6.0" }
+bitspark-archon-sdk = { path = "../../sdk/rs", version = "0.6.0" }
+# The transport codec. The login SCHEME is bytes, not JSON, so nothing security-bearing
+# depends on serde.
+serde = { version = "1", features = ["derive"] }
+# `raw_value` is not optional decoration: it is what lets the authority payload cross this
+# crate as the bytes the CLI sent rather than as a re-encoding of a parsed value.
+serde_json = { version = "1", features = ["raw_value"] }
+serde_path_to_error = "0.1"
+# The id and nonce source, used only behind the injectable Entropy so tests never touch it.
+getrandom = "0.3"

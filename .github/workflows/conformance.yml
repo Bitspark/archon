@@ -1,0 +1,338 @@
+# Tri-core (rs · go · ts) conformance for archon.
+#
+# archon's entire claim is one sentence: the three cores produce the SAME BYTES for the
+# same identity inputs. That claim was demonstrated once, by hand, on the founding
+# commit. This workflow is what turns it from a demonstration into an invariant — the
+# only thing standing between "the cores agreed on 2026-08-22" and "the cores agree".
+#
+# Deliberately plainer than thesmos's vectors.yml, and the difference is load-bearing:
+#
+#   * NO secrets, NO org token, NO private-registry auth, NO GOPRIVATE. Every dependency
+#     archon has is public (ed25519-dalek · crypto/ed25519 · @noble/*), so CI needs no
+#     credential to build it. AUSTERITY is not only a runtime property — it is why this
+#     file is short and why a fork can run it.
+#   * NO docs-only change detector. thesmos gates its heavy jobs behind a cross-repo
+#     composite action because its suite is long; archon's whole suite is seconds, and
+#     buying a skip would cost a private cross-repo dependency in a leaf repo whose point
+#     is having none. Everything runs on every push.
+#
+# The `conformance` job is the one that matters: it drives all three cores as black boxes
+# over vectors/identity.json and fails if ANY core disagrees on ANY case.
+name: conformance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One run per commit: `push` is scoped to main (post-merge coverage), PR branches are
+# covered by `pull_request`. A superseded PR push cancels its predecessor; a push to main
+# always runs to completion.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rust:
+    name: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: fmt
+        working-directory: core/rs
+        run: cargo fmt --all --check
+      - name: clippy
+        working-directory: core/rs
+        # --all-features so the conformance-cli binary is linted too: it is a dev artifact,
+        # but it is the artifact CI trusts to speak for the Rust core.
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: test
+        working-directory: core/rs
+        run: cargo test --locked
+      # The layer above the floor (sdk/rs, ADR 0004): same three gates, its own crate.
+      - name: sdk fmt + clippy + test
+        working-directory: sdk/rs
+        run: |
+          set -euo pipefail
+          cargo fmt --all --check
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test --locked
+      # The `archon` CLI (cli/rs): a thin I/O layer, linted like the rest.
+      #
+      # `cargo test` was added with `login --key`: this step built the command and never ran
+      # its tests, so cli/rs's suite — the audience cross-check, the refusals, the shared
+      # statement fixture, and now the sealed-store-key login — was green only on a
+      # developer's machine. The gap the Go step below closed at archon#25, one lane over:
+      # a tier whose tests CI does not run is a tier with no tests.
+      - name: cli fmt + clippy + test
+        working-directory: cli/rs
+        run: |
+          set -euo pipefail
+          cargo fmt --all --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test --locked
+      # The server tier (server/rs, ADR 0007 §B): a mounted handler that opens no socket, so
+      # its suite needs no network, no runtime and no fixtures beyond the shared wire file.
+      # `--all-targets` also builds examples/serve.rs — the crate's only demonstration of a
+      # real mount, and the thing most likely to rot if nothing compiled it.
+      - name: server fmt + clippy + test
+        working-directory: server/rs
+        run: |
+          set -euo pipefail
+          cargo fmt --all --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test --locked
+
+  go:
+    name: go
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false   # the fleet keeps its own warm per-slot caches; hosted-built GOCACHE must not be restored here
+      - name: fmt + vet + test
+        working-directory: core/go
+        # gofmt -l prints the files it would reformat; a non-empty list fails the job.
+        # The Go analogue of `cargo fmt --check`, which Go's toolchain does not ship.
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "gofmt: files above need formatting"; exit 1; }
+          go vet ./...
+          go test ./...
+      # The layer above the floor (sdk/go, ADR 0004): a separate module that resolves
+      # core/go through the repository's go.work, so it is tested against THIS checkout.
+      - name: sdk fmt + vet + test
+        working-directory: sdk/go
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "gofmt: files above need formatting"; exit 1; }
+          go vet ./...
+          go test ./...
+      - name: cli fmt + vet + build + test
+        working-directory: cli/go
+        # `go test` was added with the server tier (archon#25): this step built the command
+        # and never ran its tests, so cli/go/cmd/archon's suite — the audience cross-check,
+        # the refusals, the shared statement fixture — was green only on a developer's
+        # machine. A tier whose tests CI does not run is a tier with no tests.
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "gofmt: files above need formatting"; exit 1; }
+          go vet ./...
+          go build ./...
+          go test ./...
+      # The server tier (server/go, ADR 0007 §B): a fourth module, resolved through the
+      # repository's go.work like the others, so it is tested against THIS checkout of the
+      # sdk it consumes. rs has its own step above; ts gets one in its own lane.
+      - name: server fmt + vet + test
+        working-directory: server/go
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "gofmt: files above need formatting"; exit 1; }
+          go vet ./...
+          go test ./...
+      # The race detector, on the two modules that have concurrency: server/go holds a store
+      # behind a mutex and deliberately runs the service's law OUTSIDE it, and cli/go's suite
+      # drives HTTP stubs from goroutines. The other modules are pure functions over bytes.
+      #
+      # Linux only, and not for tidiness: `-race` needs a C toolchain, which this job has and
+      # the Windows legs do not. It is a SEPARATE step rather than a flag on the steps above,
+      # so a race failure is legible as a race failure instead of arriving as "the tests
+      # failed" — and so the plain run still reports first.
+      - name: server + cli race
+        working-directory: server/go
+        run: |
+          set -euo pipefail
+          go test -race ./...
+          (cd ../../cli/go && go test -race ./...)
+
+  ts:
+    name: ts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: install
+        working-directory: core/ts
+        # `ci`, not `install`: the committed lockfile is the build's reproducibility floor.
+        run: npm ci
+      - name: build + test
+        working-directory: core/ts
+        run: npm test
+      # The layer above the floor (sdk/ts, ADR 0004): consumes core/ts through a file:
+      # dependency, so it is built and tested against THIS checkout's floor, just built.
+      - name: sdk install + build + test
+        working-directory: sdk/ts
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
+      # `npm test` was added with `login --key`, for the reason the cli/rs step gives: this
+      # step built the command and never ran cli/ts/test, so that lane's fixture pin and its
+      # sealed-store-key login were green only on a developer's machine. `npm test` compiles
+      # first, so the build is not lost.
+      - name: cli install + build + test
+        working-directory: cli/ts
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
+      # The server tier (server/ts, ADR 0007 §B): a fetch-style handler that opens no socket,
+      # consuming core/ts and sdk/ts through file: dependencies like the lanes above it, so it
+      # is built and tested against THIS checkout of the sdk it consumes. `npm test` compiles
+      # examples/serve.ts too — the package's only demonstration of a real mount, and the thing
+      # most likely to rot if nothing compiled it.
+      - name: server install + build + test
+        working-directory: server/ts
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
+
+  conformance:
+    name: conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false   # the fleet keeps its own warm per-slot caches; hosted-built GOCACHE must not be restored here
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: install ts deps
+        working-directory: core/ts
+        run: npm ci
+      - name: tri-core agreement
+        # check.mjs builds all three cores, then runs the harness over vectors/identity.json
+        # (60 cases × 3 cores = 180 case-checks), then builds the three sdk CLIs and runs it
+        # over vectors/sdk.json (36 × 3 = 108). It exits non-zero on the FIRST disagreement,
+        # naming the family, the case, and the two byte strings that differ.
+        run: node conformance/check.mjs
+
+  # The `archon` CLI tier: three native binaries, one command. cli/smoke.mjs builds all
+  # three and pins their stdout + exit codes against each other AND against the oracle /
+  # OpenSSL-derived values — the case table, the key store's cross-binary checks, and (since
+  # `login --key`) one real login per lane from a key another binary sealed, against a server
+  # the run hosts itself: server/ts's Handler over node:http, the answer verified against the
+  # oracle's key and never a lane's. That is why server/ts is built here. The one unpinned
+  # edge is keygen's RNG, checked for shape only.
+  cli-smoke:
+    name: cli smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false   # the fleet keeps its own warm per-slot caches; hosted-built GOCACHE must not be restored here
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: install ts deps + build the floor, the sdk and the server (cli/ts consumes the first two via file:; the smoke mounts the third)
+        run: |
+          set -euo pipefail
+          (cd core/ts && npm ci && npm run build)
+          (cd sdk/ts && npm ci && npm run build)
+          (cd server/ts && npm ci && npm run build)
+          (cd cli/ts && npm ci)
+      - name: three binaries, one command
+        run: node cli/smoke.mjs
+
+  # Required Windows leg. conformance/spawn.mjs exists precisely because Node refuses
+  # to spawn Windows .cmd shims without a shell, and going through a shell is the
+  # cross-platform hazard it was written to avoid — so the platform that motivated the code
+  # should be the platform that exercises it.
+  #
+  # PROMOTED 2026-08-23, on measurement rather than on elapsed time. Every run this workflow
+  # has ever had — 17 of 17, back to the first on 2026-08-22T04:05Z — passed this leg, and the
+  # logs confirm it does real work rather than skipping: "all cores agree: 90 case-checks,
+  # 3 core(s)", the same total as the Linux leg.
+  #
+  # ⚠ Note on how that was checked, because the obvious instrument is wrong: with
+  # continue-on-error the JOB's failure never reaches the WORKFLOW's conclusion, so a green
+  # badge on this file was never evidence about this leg. It had to be read per-job
+  # (`gh run view <id> --json jobs`). A non-blocking check reports on itself only if you ask
+  # it directly — which is also why leaving it non-blocking was the greater risk: a regression
+  # in the exact spawn path it guards would have landed green.
+  conformance-windows:
+    name: conformance (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: core/ts/package-lock.json
+      - name: install ts deps
+        working-directory: core/ts
+        run: npm ci
+      - name: tri-core agreement
+        run: node conformance/check.mjs
+
+  # The same leg for the CLI tier, and for the same reason: cli/smoke.mjs carries its own
+  # shell-free spawning (go.exe / cargo.exe by name, `.exe` on the built binaries, tsc run
+  # through node rather than its .cmd shim), and the platform that motivated that code is
+  # the platform that should exercise it. Steps are kept shell-free too — one npm verb per
+  # step, no `set -euo pipefail` — so nothing here depends on which shell windows-latest
+  # hands a `run:` block.
+  cli-smoke-windows:
+    name: cli smoke (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            core/ts/package-lock.json
+            sdk/ts/package-lock.json
+            server/ts/package-lock.json
+            cli/ts/package-lock.json
+      - name: install ts deps (floor)
+        working-directory: core/ts
+        run: npm ci
+      - name: build the floor (cli/ts consumes it via file:)
+        working-directory: core/ts
+        run: npm run build
+      - name: install ts deps (sdk)
+        working-directory: sdk/ts
+        run: npm ci
+      - name: build the sdk (cli/ts consumes login from it via file:)
+        working-directory: sdk/ts
+        run: npm run build
+      - name: install ts deps (server)
+        working-directory: server/ts
+        run: npm ci
+      - name: build the server (the smoke mounts its Handler for the store-key login)
+        working-directory: server/ts
+        run: npm run build
+      - name: install ts deps (cli)
+        working-directory: cli/ts
+        run: npm ci
+      - name: three binaries, one command
+        run: node cli/smoke.mjs

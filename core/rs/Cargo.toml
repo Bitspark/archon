@@ -1,0 +1,40 @@
+# archon-core: the constellation's identity and crypto layer — Ed25519 primitives,
+# the canonical key spelling, and the SPKI/PKCS-8 key codec.
+#
+# It owns *who you provably are*. It owns NOTHING about what you may do: no `is_root`,
+# no admission, no grants. Those are thesmos's (the law), and archon sits beneath them.
+#
+# AUSTERITY: exactly one dependency. Curve arithmetic is NOT reimplemented here — each
+# core binds its language's mature, audited Ed25519 (rs: ed25519-dalek, go: stdlib
+# crypto/ed25519, ts: @noble/ed25519). archon writes its own ENCODINGS three times,
+# never the curve.
+[package]
+name = "bitspark-archon-core"
+version = "0.6.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/Bitspark/archon"
+description = "archon-core: Ed25519 primitives, the canonical key spelling, and the SPKI/PKCS-8 key codec. The identity floor beneath the law."
+
+[lib]
+name = "archon_core"
+path = "src/lib.rs"
+
+[dependencies]
+# Ed25519 sign / verify. The ONLY dependency — no ontos, no logos, no thesmos.
+# `digest` unlocks the prehashed (Ed25519ph) API that domain-separated signing is built
+# on and re-exports dalek's own `Sha512`, so the digest costs no second dependency.
+ed25519-dalek = { version = "2", features = ["digest"] }
+
+# Conformance CLI ONLY. Optional, off by default, and gated behind the
+# `conformance-cli` feature: the published library still has exactly one dependency.
+serde_json = { version = "1", optional = true }
+
+[features]
+default = []
+conformance-cli = ["dep:serde_json"]
+
+[[bin]]
+name = "conformance"
+path = "src/bin/conformance.rs"
+required-features = ["conformance-cli"]

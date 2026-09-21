@@ -1,0 +1,84 @@
+# archon's runtime dependencies are deliberately almost none — ed25519-dalek in Rust,
+# nothing at all in Go beyond the standard library, and @noble/curves with @noble/hashes in
+# TypeScript — so updates are grouped into one pull request per ecosystem per month rather
+# than arriving one at a time.
+#
+# A gomod or npm entry covers the module in ONE directory and does not descend into nested
+# ones, so every module is named here individually. archon has twelve: four language tiers
+# (core, sdk, cli, server) in three languages. A tier added without a line here gets no
+# updates and nothing reds — the silence is the failure mode, so check this list when a
+# tier is added.
+version: 2
+updates:
+  # --- Go: four modules, no runtime dependencies (stdlib crypto/ed25519 only) ----------
+  - package-ecosystem: gomod
+    directory: /core/go
+    schedule: { interval: monthly }
+    groups:
+      go: { patterns: ["*"] }
+  - package-ecosystem: gomod
+    directory: /sdk/go
+    schedule: { interval: monthly }
+    groups:
+      go: { patterns: ["*"] }
+  - package-ecosystem: gomod
+    directory: /cli/go
+    schedule: { interval: monthly }
+    groups:
+      go: { patterns: ["*"] }
+  - package-ecosystem: gomod
+    directory: /server/go
+    schedule: { interval: monthly }
+    groups:
+      go: { patterns: ["*"] }
+
+  # --- Rust: four crates, ed25519-dalek is the only runtime dependency ------------------
+  - package-ecosystem: cargo
+    directory: /core/rs
+    schedule: { interval: monthly }
+    groups:
+      rust: { patterns: ["*"] }
+  - package-ecosystem: cargo
+    directory: /sdk/rs
+    schedule: { interval: monthly }
+    groups:
+      rust: { patterns: ["*"] }
+  - package-ecosystem: cargo
+    directory: /cli/rs
+    schedule: { interval: monthly }
+    groups:
+      rust: { patterns: ["*"] }
+  - package-ecosystem: cargo
+    directory: /server/rs
+    schedule: { interval: monthly }
+    groups:
+      rust: { patterns: ["*"] }
+
+  # --- TypeScript: four packages -------------------------------------------------------
+  - package-ecosystem: npm
+    directory: /core/ts
+    schedule: { interval: monthly }
+    groups:
+      ts: { patterns: ["*"] }
+  - package-ecosystem: npm
+    directory: /sdk/ts
+    schedule: { interval: monthly }
+    groups:
+      ts: { patterns: ["*"] }
+  - package-ecosystem: npm
+    directory: /cli/ts
+    schedule: { interval: monthly }
+    groups:
+      ts: { patterns: ["*"] }
+  - package-ecosystem: npm
+    directory: /server/ts
+    schedule: { interval: monthly }
+    groups:
+      ts: { patterns: ["*"] }
+
+  # --- The workflows themselves --------------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+    groups:
+      actions: { patterns: ["*"] }

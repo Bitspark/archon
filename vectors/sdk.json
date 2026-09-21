@@ -1,0 +1,379 @@
+{
+  "version": 1,
+  "note": "archon-sdk conformance vectors — the layer above the identity floor: proof of possession and the signed envelope. Every case is stated in the floor's vocabulary plus two fixed byte layouts (ADR 0004): nothing here needs the words root, admission, grant, fact, receipt or epoch. A seed of the wrong size is a refusal in every lane (it comes from custody, not code). Entropy, time and binding are case INPUTS — the sdk never sources them — which is what makes every output deterministic and pinnable.",
+  "possession_prove": [
+    {
+      "note": "prove possession: sign SCHEME_TAG(0x01) ‖ u16be(len nonce) ‖ nonce ‖ u16be(len binding) ‖ binding in the caller's domain. Inputs {seed, domain, nonce, binding}; expected {\"ok\":\"<128-hex>\"} or {\"error\":true}. Signatures derived with OpenSSL 3.2.4 (Ed25519ph, context-string = domain) — an implementation outside all three cores; the container bytes around them are assembled by hand from the pinned layout, per vectors/README.md.",
+      "name": "basic",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a31",
+      "result": {
+        "ok": "237325894706dbc4c85a3e64a2091ad90d4061694205487794a6b34c0b4e46ec8a92ef770c20e6bc9d620d424846fde074a56b4ca8d660061fb1280c6ef8990b"
+      }
+    },
+    {
+      "note": "same nonce, other binding: a different proof.",
+      "name": "other-binding",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a32",
+      "result": {
+        "ok": "3c945938eacdc21d6ed928afa7153f82b1fd5f38c79d468700d2d67305b71a3c2173da3b295a1165aa23f85c38e30ee46eabb7283c10a75a9a0408cde5f19c0e"
+      }
+    },
+    {
+      "note": "a large nonce (4096 bytes): the u16 length prefix carries it.",
+      "name": "nonce-4096",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "archon/test/pop",
+      "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "binding": "73657373696f6e3a31",
+      "result": {
+        "ok": "cd64e74df2f2e934038d1c6592706fddafd6294480c605f773bd43a710e6f6dc52ccad77484ca2568fb3b51588e3042a936156fafe8db327d056788f0b98bb08"
+      }
+    },
+    {
+      "note": "15-byte nonce: refused (MIN_NONCE_SIZE = 16 — a guessable proof is refused, not weakened).",
+      "name": "nonce-15-rejected",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a31",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "empty binding: refused — an unbound proof is relayable and therefore not a proof.",
+      "name": "binding-empty-rejected",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "empty domain: refused by the floor.",
+      "name": "domain-empty-rejected",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a31",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a 31-byte seed is refused: in the sdk a seed comes from custody (a file, a store), so the wrong size is a runtime condition and an error, never a panic — the same in all three lanes (ADR 0004, dated note 2026-09-10).",
+      "name": "seed-short-rejected",
+      "seed": "11111111111111111111111111111111111111111111111111111111111111",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a31",
+      "result": {
+        "error": true
+      }
+    }
+  ],
+  "possession_verify": [
+    {
+      "note": "verify possession: inputs {pubkey, domain, nonce, binding, sig}, expected {valid: bool}. Total: every shape failure is false. The substitutions are the content — each of nonce, binding, domain and key must bind. Signatures derived with OpenSSL 3.2.4 (Ed25519ph, context-string = domain) — an implementation outside all three cores; the container bytes around them are assembled by hand from the pinned layout, per vectors/README.md.",
+      "name": "basic",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a31",
+      "sig": "237325894706dbc4c85a3e64a2091ad90d4061694205487794a6b34c0b4e46ec8a92ef770c20e6bc9d620d424846fde074a56b4ca8d660061fb1280c6ef8990b",
+      "valid": true
+    },
+    {
+      "name": "other-nonce-rejected",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/pop",
+      "nonce": "abababababababababababababababab",
+      "binding": "73657373696f6e3a31",
+      "sig": "237325894706dbc4c85a3e64a2091ad90d4061694205487794a6b34c0b4e46ec8a92ef770c20e6bc9d620d424846fde074a56b4ca8d660061fb1280c6ef8990b",
+      "valid": false
+    },
+    {
+      "name": "other-binding-rejected",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a32",
+      "sig": "237325894706dbc4c85a3e64a2091ad90d4061694205487794a6b34c0b4e46ec8a92ef770c20e6bc9d620d424846fde074a56b4ca8d660061fb1280c6ef8990b",
+      "valid": false
+    },
+    {
+      "note": "a proof made in another domain: rejected here.",
+      "name": "other-domain-rejected",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a31",
+      "sig": "9d75007f333595040f843f01a4e1740b57d8eda6e87a6e915e145137742dd6f07a6f28dd6fb2e32a60d2de795fd92c18609adefa2313f372da6b257cebf03a0b",
+      "valid": false
+    },
+    {
+      "note": "a RAW Ed25519 signature over the exact possession bytes: not a proof.",
+      "name": "raw-rejected",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a31",
+      "sig": "aa72bc8666b1907a5c24d8de3d4aab6755056faba0d83d9fd7f192dd71a6eb3d70ec3df5cd74dbfa235edaec272c3f244d345ab0316bd4f1587560dbf127f90f",
+      "valid": false
+    },
+    {
+      "note": "a domain signature over the bare nonce (no tag, no binding): not a proof.",
+      "name": "bare-nonce-rejected",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a31",
+      "sig": "dead746d4b253842dec746f8f04841f6b726955f3db50a72b006db9cdf26470f9abc132d18a4c4cc112ca3fe0a0506d15422c999951285ea230e4dd31a4dcd00",
+      "valid": false
+    },
+    {
+      "name": "other-key-rejected",
+      "pubkey": "0000000000000000000000000000000000000000000000000000000000000000",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a31",
+      "sig": "237325894706dbc4c85a3e64a2091ad90d4061694205487794a6b34c0b4e46ec8a92ef770c20e6bc9d620d424846fde074a56b4ca8d660061fb1280c6ef8990b",
+      "valid": false
+    },
+    {
+      "name": "nonce-15-rejected",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a31",
+      "sig": "237325894706dbc4c85a3e64a2091ad90d4061694205487794a6b34c0b4e46ec8a92ef770c20e6bc9d620d424846fde074a56b4ca8d660061fb1280c6ef8990b",
+      "valid": false
+    },
+    {
+      "name": "binding-empty-rejected",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "",
+      "sig": "237325894706dbc4c85a3e64a2091ad90d4061694205487794a6b34c0b4e46ec8a92ef770c20e6bc9d620d424846fde074a56b4ca8d660061fb1280c6ef8990b",
+      "valid": false
+    },
+    {
+      "name": "bit-flipped-sig",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a31",
+      "sig": "237325894706dbc4c85a3e64a2091ad90d4061694205487794a6b34c0b4e46ec8a92ef770c20e6bc9d620d424846fde074a56b4ca8d660061fb1280c6ef8990a",
+      "valid": false
+    },
+    {
+      "name": "sig-63-bytes",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/pop",
+      "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "binding": "73657373696f6e3a31",
+      "sig": "237325894706dbc4c85a3e64a2091ad90d4061694205487794a6b34c0b4e46ec8a92ef770c20e6bc9d620d424846fde074a56b4ca8d660061fb1280c6ef899",
+      "valid": false
+    },
+    {
+      "name": "nonce-4096",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/pop",
+      "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "binding": "73657373696f6e3a31",
+      "sig": "cd64e74df2f2e934038d1c6592706fddafd6294480c605f773bd43a710e6f6dc52ccad77484ca2568fb3b51588e3042a936156fafe8db327d056788f0b98bb08",
+      "valid": true
+    }
+  ],
+  "envelope_seal": [
+    {
+      "note": "seal: \"arcn\" ‖ 0x01 ‖ u8(len domain) ‖ domain ‖ pubkey[32] ‖ sig[64] ‖ payload, where sig = sign_in_domain(seed, domain, SCHEME_TAG(0x02) ‖ payload). Inputs {seed, domain, payload}; expected {\"ok\":\"<hex of the whole envelope>\"} or {\"error\":true}. Signatures derived with OpenSSL 3.2.4 (Ed25519ph, context-string = domain) — an implementation outside all three cores; the container bytes around them are assembled by hand from the pinned layout, per vectors/README.md.",
+      "name": "basic",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "archon/test/env",
+      "payload": "7061796c6f6164",
+      "result": {
+        "ok": "6172636e010f617263686f6e2f746573742f656e76d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787376fea5cc86f53917b1e8df3b76231f82702b15c0ea41bff83a04969a904d7c8ffec239751f1c46be93b99f2f88de8848bcf8902d28763a18e69d5deee3df56b067061796c6f6164"
+      }
+    },
+    {
+      "note": "an empty payload is allowed: the signed message is never empty because of the tag.",
+      "name": "empty-payload",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "archon/test/env",
+      "payload": "",
+      "result": {
+        "ok": "6172636e010f617263686f6e2f746573742f656e76d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c977873767b3248fbaf98202da395331d87a3816b8db1a41853634d07b4e2eacf9abaad341592012e1fbab7eecc6fcb648f068efd124a16c058dcb9e72ec831c24e44c05"
+      }
+    },
+    {
+      "note": "255-byte domain: the u8 length field's bound and the RFC's, both met.",
+      "name": "domain-255",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "payload": "7061796c6f6164",
+      "result": {
+        "ok": "6172636e01ff646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737222852a90740d01dc13c4496b93023cfd0d034dfa14a4f316866f79107a1f3938510b5c87e508453b73502291679d9d9d787328822d87bfda93fc7ccaf80d00e7061796c6f6164"
+      }
+    },
+    {
+      "name": "domain-empty-rejected",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "",
+      "payload": "7061796c6f6164",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "domain-256-rejected",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "payload": "7061796c6f6164",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a 31-byte seed is refused, as for possession_prove.",
+      "name": "seed-short-rejected",
+      "seed": "11111111111111111111111111111111111111111111111111111111111111",
+      "domain": "archon/test/env",
+      "payload": "68656c6c6f",
+      "result": {
+        "error": true
+      }
+    }
+  ],
+  "envelope_open": [
+    {
+      "note": "open: inputs {envelope, domain} where domain is what the VERIFIER expects; expected {\"ok\":{\"pubkey\":\"<hex>\",\"payload\":\"<hex>\"}} or {\"error\":true}. An envelope never chooses the domain for its verifier. Signatures derived with OpenSSL 3.2.4 (Ed25519ph, context-string = domain) — an implementation outside all three cores; the container bytes around them are assembled by hand from the pinned layout, per vectors/README.md.",
+      "name": "basic",
+      "envelope": "6172636e010f617263686f6e2f746573742f656e76d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787376fea5cc86f53917b1e8df3b76231f82702b15c0ea41bff83a04969a904d7c8ffec239751f1c46be93b99f2f88de8848bcf8902d28763a18e69d5deee3df56b067061796c6f6164",
+      "domain": "archon/test/env",
+      "result": {
+        "ok": {
+          "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+          "payload": "7061796c6f6164"
+        }
+      }
+    },
+    {
+      "name": "empty-payload",
+      "envelope": "6172636e010f617263686f6e2f746573742f656e76d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c977873767b3248fbaf98202da395331d87a3816b8db1a41853634d07b4e2eacf9abaad341592012e1fbab7eecc6fcb648f068efd124a16c058dcb9e72ec831c24e44c05",
+      "domain": "archon/test/env",
+      "result": {
+        "ok": {
+          "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+          "payload": ""
+        }
+      }
+    },
+    {
+      "name": "domain-255",
+      "envelope": "6172636e01ff646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737222852a90740d01dc13c4496b93023cfd0d034dfa14a4f316866f79107a1f3938510b5c87e508453b73502291679d9d9d787328822d87bfda93fc7ccaf80d00e7061796c6f6164",
+      "domain": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "result": {
+        "ok": {
+          "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+          "payload": "7061796c6f6164"
+        }
+      }
+    },
+    {
+      "note": "the verifier expects another domain: refused, before any signature check.",
+      "name": "expected-domain-differs",
+      "envelope": "6172636e010f617263686f6e2f746573742f656e76d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787376fea5cc86f53917b1e8df3b76231f82702b15c0ea41bff83a04969a904d7c8ffec239751f1c46be93b99f2f88de8848bcf8902d28763a18e69d5deee3df56b067061796c6f6164",
+      "domain": "archon/test/other",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "payload tampered (last byte flipped): the signature no longer verifies.",
+      "name": "payload-tampered",
+      "envelope": "6172636e010f617263686f6e2f746573742f656e76d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787376fea5cc86f53917b1e8df3b76231f82702b15c0ea41bff83a04969a904d7c8ffec239751f1c46be93b99f2f88de8848bcf8902d28763a18e69d5deee3df56b067061796c6f6165",
+      "domain": "archon/test/env",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "bad-magic",
+      "envelope": "7872636e010f617263686f6e2f746573742f656e76d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787376fea5cc86f53917b1e8df3b76231f82702b15c0ea41bff83a04969a904d7c8ffec239751f1c46be93b99f2f88de8848bcf8902d28763a18e69d5deee3df56b067061796c6f6164",
+      "domain": "archon/test/env",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "unknown-version",
+      "envelope": "6172636e020f617263686f6e2f746573742f656e76d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787376fea5cc86f53917b1e8df3b76231f82702b15c0ea41bff83a04969a904d7c8ffec239751f1c46be93b99f2f88de8848bcf8902d28763a18e69d5deee3df56b067061796c6f6164",
+      "domain": "archon/test/env",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the domain field altered while the verifier's expectation is unchanged: refused.",
+      "name": "domain-field-altered",
+      "envelope": "6172636e010f607263686f6e2f746573742f656e76d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787376fea5cc86f53917b1e8df3b76231f82702b15c0ea41bff83a04969a904d7c8ffec239751f1c46be93b99f2f88de8848bcf8902d28763a18e69d5deee3df56b067061796c6f6164",
+      "domain": "archon/test/env",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "truncated-8",
+      "envelope": "6172636e010f617263686f6e2f746573742f656e76d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787376fea5cc86f53917b1e8df3b76231f82702b15c0ea41bff83a04969a904d7c8ffec239751f1c46be93b99f2f88de8848bcf8902d28763a18e69d5deee3df56b",
+      "domain": "archon/test/env",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "far-too-short",
+      "envelope": "6172636e010f61726368",
+      "domain": "archon/test/env",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the header's pubkey replaced by the zero key: the signature was not made by it.",
+      "name": "pubkey-swapped",
+      "envelope": "6172636e010f617263686f6e2f746573742f656e7600000000000000000000000000000000000000000000000000000000000000006fea5cc86f53917b1e8df3b76231f82702b15c0ea41bff83a04969a904d7c8ffec239751f1c46be93b99f2f88de8848bcf8902d28763a18e69d5deee3df56b067061796c6f6164",
+      "domain": "archon/test/env",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a RAW signature over the tagged payload placed in the envelope: not an envelope signature.",
+      "name": "raw-sig-rejected",
+      "envelope": "6172636e010f617263686f6e2f746573742f656e76d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737fb57cab5fa21a595076a334543e474621b4b0f8acdc9f081630d06257e5df2f07b343efa93cf6ecd8ef22839bef1d70e9551ec66c18a53a6622a3e430b1bd2097061796c6f6164",
+      "domain": "archon/test/env",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a possession proof's signature placed in an envelope (same key, same domain): the scheme tags differ, so it never verifies.",
+      "name": "possession-sig-rejected",
+      "envelope": "6172636e010f617263686f6e2f746573742f706f70d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737237325894706dbc4c85a3e64a2091ad90d4061694205487794a6b34c0b4e46ec8a92ef770c20e6bc9d620d424846fde074a56b4ca8d660061fb1280c6ef8990b0010aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa000973657373696f6e3a31",
+      "domain": "archon/test/pop",
+      "result": {
+        "error": true
+      }
+    }
+  ]
+}

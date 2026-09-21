@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: A vulnerability
+    url: https://github.com/Bitspark/archon/security/advisories/new
+    about: Report it privately, not in an issue. SECURITY.md says what counts as one.
+  - name: What belongs in archon
+    url: https://github.com/Bitspark/archon/blob/main/docs/architecture/decisions/0001-archon-scope.md
+    about: The scope rule, and a worked example where archon asked for something and was refused.
+  - name: How to contribute
+    url: https://github.com/Bitspark/archon/blob/main/CONTRIBUTING.md
+    about: Three cores, one oracle, and the dependency rule a change has to clear.

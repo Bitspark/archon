@@ -1,0 +1,31 @@
+{
+  "name": "@bitspark/archon-server",
+  "version": "0.6.0",
+  "description": "archon login: the service-side handler — four routes, law-free, store-minimal. A fetch-style handler that opens no socket.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Bitspark/archon"
+  },
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "files": [
+    "dist/src"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.json && node --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "@bitspark/archon": "file:../../core/ts",
+    "@bitspark/archon-sdk": "file:../../sdk/ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.7",
+    "@types/node": "^22"
+  }
+}

@@ -1,0 +1,1261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>archon — the identity floor, proven three times</title>
+<meta name="description" content="Ed25519 identity implemented separately in Rust, Go and TypeScript, and proven to produce the same bytes in all three.">
+<style>
+  :root {
+    --paper:#faf9f6; --panel:#ffffff; --panel-2:#f4f2ec;
+    --ink:#16181d; --ink-2:#4a5058; --ink-3:#656c76;
+    --rule:#d9d5cc; --rule-2:#c4bfb2;
+    --agree:#1f5fa8; --refuse:#925514; --diverge:#b3261e;
+    --agree-bg:#eaf1fa; --refuse-bg:#fbf1e4; --diverge-bg:#fbeceb;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "DejaVu Sans Mono", monospace;
+    --body: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --gut: 24px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:#14161a; --panel:#1b1e24; --panel-2:#20242b;
+      --ink:#e8eaee; --ink-2:#a8b0bb; --ink-3:#8b939d;
+      --rule:#2c3038; --rule-2:#3a3f49;
+      --agree:#6fa8e8; --refuse:#d9954a; --diverge:#f2827a;
+      --agree-bg:#16222f; --refuse-bg:#2a2013; --diverge-bg:#2c1817;
+    }
+  }
+
+  *,*::before,*::after { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body {
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--body); font-size:16.5px; line-height:1.65;
+    overflow-x:hidden;
+  }
+  .wrap { width:min(1180px, 100% - 2*var(--gut)); margin-inline:auto; }
+  .prose { max-width:68ch; }
+  p { margin:0 0 1em; }
+  a { color:var(--agree); text-underline-offset:3px; }
+  a:focus-visible, summary:focus-visible { outline:2px solid var(--agree); outline-offset:3px; border-radius:2px; }
+  code, .m { font-family:var(--mono); }
+
+  .label {
+    font-size:12.5px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--ink-3); font-weight:600; margin:0;
+  }
+  h1,h2,h3 { font-weight:600; letter-spacing:-.015em; line-height:1.2; margin:0; }
+  h2 { font-size:clamp(1.35rem, 1.05rem + 1.2vw, 1.85rem); margin:0 0 .5em; }
+  h3 { font-size:1.05rem; letter-spacing:0; margin:0 0 .4em; }
+
+  section { padding-block:clamp(44px, 5.5vw, 84px); border-top:1px solid var(--rule); }
+  .sec-head { margin-bottom:28px; }
+  .sec-head .label { margin-bottom:10px; }
+  .lede { font-size:1.08rem; color:var(--ink-2); max-width:66ch; margin:0; }
+
+  /* ---------- masthead ---------- */
+  header.mast { padding-block:clamp(40px, 6vw, 76px) clamp(30px, 3.5vw, 44px); border-top:none; }
+  .title-row { display:flex; align-items:baseline; gap:18px; flex-wrap:wrap; }
+  .title { font-size:clamp(2.6rem, 1.7rem + 4.4vw, 4.6rem); font-weight:600; letter-spacing:-.035em; }
+  /* body face, not mono: monospace stacks lack U+1F04 (alpha with psili+oxia) and substitute a
+     monotonic tonos. Letterspaced to keep the specimen feel the mono face was giving it. */
+  .greek { font-size:clamp(.95rem,.85rem + .4vw,1.15rem); color:var(--ink-3); letter-spacing:.06em; }
+  .prop { font-size:clamp(1.12rem, 1rem + .75vw, 1.5rem); line-height:1.45; max-width:34ch; margin:22px 0 0; color:var(--ink); }
+  .prop b { font-weight:600; box-shadow:inset 0 -.42em 0 var(--agree-bg); }
+  .diff {
+    margin:22px 0 0; max-width:56ch; padding-left:16px;
+    border-left:2px solid var(--agree); color:var(--ink-2); font-size:1rem;
+  }
+  .mast-grid { display:grid; grid-template-columns:minmax(0,0.86fr) minmax(0,1.14fr); gap:clamp(28px,4vw,56px); align-items:start; }
+  @media (max-width:900px){ .mast-grid { grid-template-columns:1fr; gap:34px; } }
+
+  .stamp { margin-top:34px; border-top:1px solid var(--rule); padding-top:16px; }
+  .stamp .label { margin-bottom:14px; }
+  .stamp ul { margin:0; padding:0; list-style:none; display:grid; gap:14px; }
+  .stamp li { display:grid; grid-template-columns:56px minmax(0,1fr); align-items:baseline; gap:12px; }
+  .stamp b {
+    font-family:var(--mono); font-size:1.6rem; font-weight:600; color:var(--agree);
+    line-height:1; text-align:right; font-variant-numeric:tabular-nums;
+  }
+  .stamp span { font-size:13px; color:var(--ink-2); line-height:1.45; }
+
+  /* ---------- measurement plate ---------- */
+  .plate { background:var(--panel); border:1px solid var(--rule); }
+  .plate-head {
+    display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap;
+    padding:11px 14px; border-bottom:1px solid var(--rule); background:var(--panel-2);
+  }
+  .plate-head .label { font-size:11.5px; }
+  .stage { border-bottom:1px solid var(--rule); }
+  .stage:last-child { border-bottom:none; }
+  .stage-label { padding:11px 14px 0; }
+  .stage-label .label { font-size:11.5px; color:var(--ink-3); }
+  .stage-note { font-size:12.5px; color:var(--ink-3); margin:2px 0 0; line-height:1.45; }
+
+  /* three lanes */
+  .lanes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .lane { padding:10px 14px 13px; border-left:1px solid var(--rule); min-width:0; }
+  .lane:first-child { border-left:none; }
+  .lane-name {
+    font-family:var(--mono); font-size:12px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--ink-3); margin:0 0 5px;
+  }
+  .val {
+    font-family:var(--mono); font-size:12.5px; line-height:1.55; color:var(--ink);
+    overflow-wrap:anywhere; word-break:normal; margin:0;
+  }
+  .val.pem { font-size:11.5px; color:var(--ink-2); }
+  .concur { margin:7px 0 0; font-family:var(--mono); font-size:11.5px; color:var(--agree); }
+
+  /* The four vector families. Its own grid, NOT .lanes — .lanes is the three-core
+     component and is display:none below 760px, which would blank this block entirely. */
+  .families { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .families > div { padding:12px 14px; border-left:1px solid var(--rule); min-width:0; }
+  .families > div:first-child { border-left:none; }
+  .families .val { color:var(--ink-2); }
+  @media (max-width:900px){
+    .families { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .families > div:nth-child(odd) { border-left:none; }
+    .families > div:nth-child(n+3) { border-top:1px solid var(--rule); }
+  }
+  @media (max-width:560px){
+    .families { grid-template-columns:1fr; }
+    .families > div { border-left:none; }
+    .families > div + div { border-top:1px solid var(--rule); }
+  }
+
+  /* narrow: one value, three witnesses */
+  .lanes-narrow { display:none; padding:10px 14px 13px; }
+  .witnesses { display:flex; gap:14px; flex-wrap:wrap; margin:9px 0 0; }
+  .witness {
+    font-family:var(--mono); font-size:11.5px; color:var(--agree);
+    letter-spacing:.04em;
+  }
+  @media (max-width:760px){
+    .lanes { display:none; }
+    .lanes-narrow { display:block; }
+  }
+
+  /* ---------- generic figure ---------- */
+  figure { margin:0; }
+  figcaption { font-size:14px; color:var(--ink-2); line-height:1.55; margin-top:12px; max-width:70ch; }
+  figcaption b { color:var(--ink); font-weight:600; }
+
+  /* ---------- verdict rows (divergence) ---------- */
+  .verdicts { border:1px solid var(--rule); background:var(--panel); }
+  .vrow {
+    display:grid; grid-template-columns:minmax(0,1fr) 92px 132px;
+    align-items:center; gap:12px; padding:12px 14px; border-top:1px solid var(--rule);
+  }
+  .vrow:first-of-type { border-top:none; }
+  .vrow-lib { font-family:var(--mono); font-size:13px; color:var(--ink); min-width:0; word-break:break-word; }
+  .vrow-lib .sub { display:block; font-family:var(--body); font-size:12px; color:var(--ink-3); letter-spacing:0; }
+  .vrow-val { font-family:var(--mono); font-size:14px; font-weight:600; text-align:right; }
+  .vrow-mark { font-size:12px; font-family:var(--mono); letter-spacing:.06em; text-align:right; white-space:nowrap; }
+  .is-refuse .vrow-val, .is-refuse .vrow-mark { color:var(--refuse); }
+  .is-diverge { background:var(--diverge-bg); }
+  .is-diverge .vrow-val, .is-diverge .vrow-mark { color:var(--diverge); }
+  .is-archon { background:var(--agree-bg); }
+  .vrow-tag {
+    display:inline-block; font-family:var(--mono); font-size:11.5px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--agree); border:1px solid var(--agree);
+    padding:1px 5px; border-radius:3px; margin-left:8px; vertical-align:1px;
+  }
+  @media (max-width:640px){
+    .vrow { grid-template-columns:minmax(0,1fr) auto; row-gap:4px; }
+    .vrow-mark { grid-column:2; }
+    .vrow-val { grid-column:2; }
+    /* the two column labels would stack into a lone right-hand stub; every data row
+       already reads "false × refused" on its own, so drop them rather than orphan them */
+    .vhead .vrow-val, .vhead .vrow-mark { display:none; }
+    .vhead { grid-template-columns:1fr; }
+  }
+
+  /* ---------- bench svg ---------- */
+  .bench { width:100%; height:auto; display:block; }
+  /* The narrow variant has a 360-unit viewBox: left uncapped it scales to the container and
+     renders its labels at ~2x everything around them. Capped, it sits at its drawn size.
+     Crossover is 1080px, not 820: below that the 1000-unit wide variant would shrink its
+     10.5px labels under the 12.5px legibility floor. */
+  .bench-narrow { display:none; max-width:430px; margin-inline:auto; }
+  @media (max-width:1080px){
+    .bench-wide { display:none; }
+    .bench-narrow { display:block; }
+  }
+  svg text { font-family:var(--mono); }
+
+  /* ---------- api index ---------- */
+  .mod { border:1px solid var(--rule); background:var(--panel); margin-bottom:20px; }
+  .mod-head { padding:12px 14px; border-bottom:1px solid var(--rule); background:var(--panel-2); }
+  .mod-head h3 { margin:0; font-family:var(--mono); font-size:14.5px; letter-spacing:0; }
+  .mod-head p { margin:3px 0 0; font-size:13px; color:var(--ink-2); line-height:1.5; }
+  .fn { border-top:1px solid var(--rule); display:grid; grid-template-columns:130px minmax(0,1fr); }
+  .fn:first-of-type { border-top:none; }
+  .fn-what { padding:12px 14px; border-right:1px solid var(--rule); background:var(--panel-2); }
+  .fn-what .label { font-size:11.5px; }
+  .sigs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .sig { padding:12px 14px; border-left:1px solid var(--rule); min-width:0; }
+  .sig:first-child { border-left:none; }
+  .sig .lane-name { margin-bottom:4px; }
+  .sig code { font-size:12.5px; line-height:1.5; color:var(--ink); word-break:break-word; display:block; }
+  @media (max-width:900px){
+    .fn { grid-template-columns:1fr; }
+    .fn-what { border-right:none; border-bottom:1px solid var(--rule); }
+    .sigs { grid-template-columns:1fr; }
+    .sig { border-left:none; border-top:1px solid var(--rule); }
+    .sig:first-child { border-top:none; }
+  }
+
+  /* ---------- byte plate ---------- */
+  .bytes { display:flex; flex-wrap:wrap; gap:3px; margin:0; padding:0; list-style:none; }
+  .bytes li {
+    font-family:var(--mono); font-size:11.5px; line-height:1;
+    padding:5px 4px; min-width:26px; text-align:center;
+    border:1px solid var(--rule); color:var(--ink-2); background:var(--panel-2);
+  }
+  .bytes li.oid { border-color:var(--refuse); color:var(--refuse); background:var(--refuse-bg); font-weight:600; }
+  .bytes li.key { border-style:dashed; border-color:var(--agree); color:var(--agree); background:var(--agree-bg); }
+  .bytes li.wide { min-width:auto; padding-inline:10px; flex:1 1 auto; letter-spacing:.05em; }
+  .plate-body { padding:14px; }
+  .keylegend { display:flex; flex-wrap:wrap; gap:16px; margin:12px 0 0; padding:0; list-style:none; font-size:12.5px; color:var(--ink-2); }
+  .keylegend li { display:flex; align-items:center; gap:7px; }
+  .swatch { width:13px; height:13px; border:1px solid var(--rule); background:var(--panel-2); flex:none; }
+  .swatch.oid { border-color:var(--refuse); background:var(--refuse-bg); }
+  .swatch.key { border-style:dashed; border-color:var(--agree); background:var(--agree-bg); }
+
+  /* ---------- the tiers: the floor, and what stands on it ---------- */
+  /* Its own grid, NOT .lanes (see .families): .lanes is display:none below 760px. A STACK,
+     drawn from the manifests (2026-09-10): the command names the sdk since `archon login`
+     (it consumes the login scheme, never re-implements it), and the sdk names the floor.
+     Until then the two stood side by side, because a stack is a claim and the manifests
+     did not make it. The connector lines state exactly which edge each is. */
+  .tiers { display:grid; grid-template-columns:1fr; gap:16px; }
+  /* The top of the stack is a PAIR: the command and the server both stand on the sdk (and on
+     the floor directly); neither depends on the other, so they are side by side (2026-09-10). */
+  .tiers .pair { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+  @media (max-width:820px){ .tiers .pair { grid-template-columns:1fr; } }
+  .tier { border:1px solid var(--rule); background:var(--panel); display:flex; flex-direction:column; }
+  .tier.floor { border-top:2px solid var(--agree); }
+  .tier-head { padding:11px 14px; border-bottom:1px solid var(--rule); background:var(--panel-2); display:flex; justify-content:space-between; align-items:baseline; gap:6px 16px; flex-wrap:wrap; }
+  .tier-head h3 { font-family:var(--mono); font-size:14px; letter-spacing:0; margin:0; }
+  .tier-head .label { font-size:11.5px; }
+  .tier-lanes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .tier-lanes > div { padding:10px 14px 12px; border-left:1px solid var(--rule); min-width:0; }
+  .tier-lanes > div:first-child { border-left:none; }
+  .tier-lanes .sub { display:block; font-size:11.5px; color:var(--ink-3); margin-top:2px; }
+  .tier-pin { padding:11px 14px 12px; border-top:1px solid var(--rule); font-size:12.5px; color:var(--ink-2); line-height:1.5; margin:0; overflow-wrap:anywhere; }
+  .tier-pin b { color:var(--agree); font-family:var(--mono); font-weight:600; }
+  .tier-rule { padding:0 14px 13px; font-size:13px; color:var(--ink-2); line-height:1.5; margin:auto 0 0; }
+  .stands { text-align:center; font-family:var(--mono); font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3); margin:0; line-height:1.4; }
+  @media (max-width:640px){
+    .tier-lanes { grid-template-columns:1fr; }
+    .tier-lanes > div { border-left:none; }
+    .tier-lanes > div + div { border-top:1px solid var(--rule); }
+  }
+  /* scheme plates — the same cell language as the DER plate. A scheme tag is a constant
+     byte set in weight, not in a semantic colour: it is a template byte, not a verdict. */
+  .bytes li.tag { font-weight:600; color:var(--ink); }
+  .bytes li.len { color:var(--ink-3); min-width:auto; padding-inline:8px; }
+  .plate-note { font-size:12.5px; color:var(--ink-2); line-height:1.5; margin:12px 0 0; max-width:68ch; }
+  .inout { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:14px; border:1px solid var(--rule); }
+  .inout > div { padding:12px 14px; min-width:0; }
+  .inout > div + div { border-left:1px solid var(--rule); }
+  .inout ul { margin:8px 0 0; padding:0; list-style:none; font-family:var(--mono); font-size:12.5px; line-height:1.75; color:var(--ink); }
+  .inout li::before { font-weight:600; margin-right:6px; }
+  .inout .in li::before { content:"="; color:var(--agree); }
+  .inout .out li { color:var(--ink-2); }
+  .inout .out li::before { content:"×"; color:var(--refuse); }
+  .inout p { font-size:12.5px; color:var(--ink-3); line-height:1.5; margin:8px 0 0; }
+  @media (max-width:640px){ .inout { grid-template-columns:1fr; } .inout > div + div { border-left:none; border-top:1px solid var(--rule); } }
+  .usage { margin-top:14px; border:1px solid var(--rule); background:var(--panel); padding:13px 14px; }
+  .usage .label { margin-bottom:8px; }
+  .usage p { font-size:12.5px; color:var(--ink-2); line-height:1.55; margin:9px 0 0; overflow-wrap:anywhere; }
+
+  /* ---------- attach ---------- */
+  .doors { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+  @media (max-width:820px){ .doors { grid-template-columns:1fr; } }
+  .door { border:1px solid var(--rule); background:var(--panel); display:flex; flex-direction:column; }
+  .door-head { padding:11px 14px; border-bottom:1px solid var(--rule); background:var(--panel-2); display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  .door-head .label { font-size:11.5px; }
+  .door-body { padding:13px 14px; }
+  pre {
+    margin:0; font-family:var(--mono); font-size:12.5px; line-height:1.55;
+    white-space:pre-wrap; word-break:break-word; color:var(--ink);
+  }
+  .door-note { font-size:12.5px; color:var(--ink-3); margin:9px 0 0; line-height:1.5; overflow-wrap:anywhere; }
+  .door-note b { color:var(--ink-2); font-weight:600; }
+  .cmd {
+    margin-top:26px; border:1px solid var(--agree); background:var(--agree-bg);
+    padding:15px 16px;
+  }
+  .cmd pre { color:var(--ink); font-size:13.5px; }
+  .cmd .label { color:var(--agree); margin-bottom:8px; }
+
+  /* ---------- rules ---------- */
+  /* 6 rules → exactly 3×2, 2×3 or 1×6. auto-fit would leave a filled-background orphan cell. */
+  .rules { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1px; background:var(--rule); border:1px solid var(--rule); }
+  @media (max-width:1000px){ .rules { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width:660px){ .rules { grid-template-columns:1fr; } }
+  .rule-item { background:var(--panel); padding:16px; }
+  .rule-item h3 { font-family:var(--mono); font-size:13.5px; letter-spacing:0; margin-bottom:6px; }
+  .rule-item p { font-size:13.5px; color:var(--ink-2); line-height:1.55; margin:0; }
+  .rule-item.refuse h3 { color:var(--refuse); }
+  .rule-item.agree h3 { color:var(--agree); }
+
+  .nots { margin:24px 0 0; padding:0; list-style:none; display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px 26px; }
+  .nots li { font-size:13.5px; color:var(--ink-2); line-height:1.5; padding-left:20px; position:relative; }
+  .nots li::before { content:"×"; position:absolute; left:0; top:0; color:var(--refuse); font-family:var(--mono); font-weight:600; }
+  .nots b { color:var(--ink); font-weight:600; }
+
+  /* ---------- counter-case ---------- */
+  /* hugs its content: a full-bleed border around a 68ch column leaves a dead half-page */
+  .counter { border:1px solid var(--rule-2); background:var(--panel); padding:clamp(18px,2.4vw,28px); max-width:880px; }
+  .counter blockquote { margin:0 0 16px; padding-left:16px; border-left:2px solid var(--refuse); font-size:1.02rem; color:var(--ink); line-height:1.6; }
+  .counter blockquote cite { display:block; margin-top:9px; font-style:normal; font-size:12.5px; color:var(--ink-3); font-family:var(--mono); }
+  .tally { width:100%; border-collapse:collapse; margin:0 0 16px; font-size:13.5px; }
+  .tally th, .tally td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--rule); }
+  .tally th { font-weight:400; color:var(--ink-2); }
+  /* measurements, not verdicts — emphasis by weight, never by borrowing a semantic colour */
+  .tally td { font-family:var(--mono); text-align:right; color:var(--ink); font-weight:600; white-space:nowrap; }
+  .tally tr:last-child th, .tally tr:last-child td { border-bottom:none; }
+
+  /* ---------- closing ---------- */
+  .status { display:flex; flex-wrap:wrap; gap:10px 26px; font-size:13.5px; color:var(--ink-2); margin:0 0 26px; padding:0; list-style:none; }
+  .status li { display:flex; gap:8px; align-items:baseline; }
+  .status .label { font-size:11.5px; }
+  .status .m { color:var(--ink); font-size:13px; }
+  .nexts { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; margin-top:6px; }
+  .next {
+    display:block; border:1px solid var(--rule); background:var(--panel);
+    padding:15px 16px; text-decoration:none; color:inherit;
+  }
+  .next:hover { border-color:var(--agree); }
+  .next .label { color:var(--agree); margin-bottom:6px; }
+  .next strong { display:block; font-size:14.5px; font-weight:600; margin-bottom:3px; }
+  .next span { font-size:13px; color:var(--ink-2); line-height:1.5; display:block; }
+
+  details { border:1px solid var(--rule); background:var(--panel); margin-top:26px; }
+  summary { padding:13px 15px; cursor:pointer; font-size:14px; font-weight:600; }
+  .details-body { padding:0 15px 16px; }
+  .proto { width:100%; border-collapse:collapse; font-size:12.5px; font-family:var(--mono); }
+  .proto th, .proto td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--rule); vertical-align:top; word-break:break-word; }
+  .proto th { color:var(--ink-3); font-weight:400; letter-spacing:.05em; text-transform:uppercase; font-size:11.5px; }
+  .scroll-x { overflow-x:auto; }
+
+  footer { border-top:1px solid var(--rule); padding-block:26px 40px; font-size:12.5px; color:var(--ink-3); }
+  footer a { color:var(--ink-2); }
+</style>
+</head>
+<body>
+
+<!-- ============ MASTHEAD ============ -->
+<header class="mast wrap">
+  <div class="mast-grid">
+    <div>
+      <div class="title-row">
+        <h1 class="title">archon</h1>
+        <span class="greek" lang="grc">ἄρχων</span>
+      </div>
+      <p class="prop">Ed25519 identity — keys, one canonical way to write them, the standard PEM containers, and domain-separated signing — implemented <b>separately in Rust, Go and TypeScript</b>, and proven to produce the same bytes in all three.</p>
+      <p class="diff">The three are not bindings over a shared core. They are three real implementations, held byte-identical by an oracle hand-authored from the RFCs — including the cases where Ed25519 libraries genuinely disagree with each other.</p>
+      <p class="diff" style="border-left-color:var(--rule)">Standing on that floor, in this repository and to the same discipline: an <b>sdk</b> — proof of possession, a signed envelope, and the login scheme built on the first — and the <span class="m">archon</span> command. Each written three times; each pinned by its own oracle.</p>
+
+      <div class="stamp">
+        <p class="label">The standing claim</p>
+        <ul>
+          <li><b>240</b><span>vectors — 60 floor, 38 + 105 sdk, 37 command — authored<br>from RFC 8032 / 5280 / 5958, OpenSSL, Argon2 and libsodium</span></li>
+          <li><b>3</b><span>independent implementations of<br>every tier, driven as black boxes</span></li>
+          <li><b>720</b><span>case-checks on every push, plus the<br>command's 107 invocations × 3 binaries</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <figure>
+      <div class="plate">
+        <div class="plate-head">
+          <p class="label">One seed · three implementations</p>
+          <p class="label" style="color:var(--agree)">verified 2026-08-26</p>
+        </div>
+
+        <!-- stage 1 -->
+        <div class="stage">
+          <div class="stage-label">
+            <p class="label">1 · derive public key</p>
+            <p class="stage-note">seed <span class="m">11</span>×32 → 32-byte public key</p>
+          </div>
+          <div class="lanes">
+            <div class="lane">
+              <p class="lane-name">rust</p>
+              <p class="val">d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737</p>
+            </div>
+            <div class="lane">
+              <p class="lane-name">go</p>
+              <p class="val">d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737</p>
+            </div>
+            <div class="lane">
+              <p class="lane-name">typescript</p>
+              <p class="val">d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737</p>
+            </div>
+          </div>
+          <div class="lanes-narrow">
+            <p class="val">d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737</p>
+            <p class="witnesses">
+              <span class="witness">rust =</span><span class="witness">go =</span><span class="witness">typescript =</span>
+            </p>
+          </div>
+        </div>
+
+        <!-- stage 2 -->
+        <div class="stage">
+          <div class="stage-label">
+            <p class="label">2 · spell it</p>
+            <p class="stage-note">the canonical key text — <span class="m">ed25519:</span> + lowercase hex</p>
+          </div>
+          <div class="lanes">
+            <div class="lane">
+              <p class="lane-name">rust</p>
+              <p class="val">ed25519:d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737</p>
+            </div>
+            <div class="lane">
+              <p class="lane-name">go</p>
+              <p class="val">ed25519:d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737</p>
+            </div>
+            <div class="lane">
+              <p class="lane-name">typescript</p>
+              <p class="val">ed25519:d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737</p>
+            </div>
+          </div>
+          <div class="lanes-narrow">
+            <p class="val">ed25519:d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737</p>
+            <p class="witnesses">
+              <span class="witness">rust =</span><span class="witness">go =</span><span class="witness">typescript =</span>
+            </p>
+          </div>
+        </div>
+
+        <!-- stage 3 -->
+        <div class="stage">
+          <div class="stage-label">
+            <p class="label">3 · contain it</p>
+            <p class="stage-note">SPKI PEM, RFC 5280</p>
+          </div>
+          <div class="lanes">
+            <div class="lane">
+              <p class="lane-name">rust</p>
+              <p class="val pem">-----BEGIN PUBLIC KEY-----<br>MCowBQYDK2VwAyEA0EqyMnQrtKs6E2i9RhXk5tAiSrcaAWuvhSCjMsl3hzc=<br>-----END PUBLIC KEY-----</p>
+            </div>
+            <div class="lane">
+              <p class="lane-name">go</p>
+              <p class="val pem">-----BEGIN PUBLIC KEY-----<br>MCowBQYDK2VwAyEA0EqyMnQrtKs6E2i9RhXk5tAiSrcaAWuvhSCjMsl3hzc=<br>-----END PUBLIC KEY-----</p>
+            </div>
+            <div class="lane">
+              <p class="lane-name">typescript</p>
+              <p class="val pem">-----BEGIN PUBLIC KEY-----<br>MCowBQYDK2VwAyEA0EqyMnQrtKs6E2i9RhXk5tAiSrcaAWuvhSCjMsl3hzc=<br>-----END PUBLIC KEY-----</p>
+            </div>
+          </div>
+          <div class="lanes-narrow">
+            <p class="val pem">-----BEGIN PUBLIC KEY-----<br>MCowBQYDK2VwAyEA0EqyMnQrtKs6E2i9RhXk5tAiSrcaAWuvhSCjMsl3hzc=<br>-----END PUBLIC KEY-----</p>
+            <p class="witnesses">
+              <span class="witness">rust =</span><span class="witness">go =</span><span class="witness">typescript =</span>
+            </p>
+          </div>
+        </div>
+      </div>
+      <figcaption>Three separate codebases, <b>character for character the same</b>. Run against the built cores on 2026-08-26; <span class="m">openssl pkey -pubin -text</span> reads that PEM back as <span class="m">ED25519 Public-Key: d0:4a:b2:32:…:87:37</span>, so the container is the standard one, not a private dialect.</figcaption>
+    </figure>
+  </div>
+</header>
+
+<!-- ============ WHY THREE ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <p class="label">The shape</p>
+    <h2>Why three implementations, and not one with bindings</h2>
+  </div>
+  <div class="prose">
+    <p>Because the guarantee is about <em>bytes crossing a language boundary</em>. A key written by a Rust service and read by a Go daemon has to be the same key, and a binding proves nothing about that — it just moves one implementation around.</p>
+    <p>So archon writes its <strong>encodings</strong> three times, and never the curve. Each core binds its language's mature, audited Ed25519 and adds nothing to it:</p>
+  </div>
+
+  <figure style="margin-top:26px">
+    <div class="plate">
+      <div class="plate-head"><p class="label">What is written three times · what is bound once</p></div>
+      <div class="lanes">
+        <div class="lane">
+          <p class="lane-name">rust</p>
+          <p class="val" style="color:var(--agree)">keytext · keycodec · guarded verify</p>
+          <p class="val" style="color:var(--ink-3);margin-top:7px">curve → ed25519-dalek v2</p>
+        </div>
+        <div class="lane">
+          <p class="lane-name">go</p>
+          <p class="val" style="color:var(--agree)">keytext · keycodec · guarded verify</p>
+          <p class="val" style="color:var(--ink-3);margin-top:7px">curve → stdlib crypto/ed25519</p>
+        </div>
+        <div class="lane">
+          <p class="lane-name">typescript</p>
+          <p class="val" style="color:var(--agree)">keytext · keycodec · guarded verify</p>
+          <p class="val" style="color:var(--ink-3);margin-top:7px">curve → @noble/ed25519</p>
+        </div>
+      </div>
+      <div class="lanes-narrow">
+        <p class="val" style="color:var(--agree)">Written three times — keytext · keycodec · guarded verify</p>
+        <p class="val" style="color:var(--ink-3);margin-top:9px">Bound, never rewritten — ed25519-dalek (rust) · stdlib crypto/ed25519 (go) · @noble/ed25519 (typescript)</p>
+      </div>
+    </div>
+    <figcaption>An encoding only one core can read is not a floor; curve arithmetic that three teams reimplement is a liability. <b>The split is the discipline of the repository.</b></figcaption>
+  </figure>
+
+  <p class="lede" style="margin-top:26px">Runtime dependencies, in full: <span class="m">ed25519-dalek</span> · <span class="m">none — Go stdlib</span> · <span class="m">@noble/ed25519 + @noble/hashes</span>. Constellation dependencies: <span class="m">dependsOn: []</span>. CI needs no credential to build archon, because archon depends on nothing private.</p>
+</section>
+
+<!-- ============ THE DIVERGENCE ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <p class="label">The proof</p>
+    <h2>Three Ed25519 libraries really do disagree</h2>
+    <p class="lede">This is not a hypothetical the harness guards against. It is a divergence that was live in this repository's own TypeScript core, and the vectors now pin it shut.</p>
+  </div>
+
+  <figure>
+    <div class="verdicts">
+      <div class="vrow vhead" style="background:var(--panel-2)">
+        <div class="vrow-lib" style="font-family:var(--body);font-size:13.5px;color:var(--ink-2)">
+          <strong style="color:var(--ink);font-weight:600">Is this signature valid?</strong>
+          <span class="sub">a small-order (torsion) public key, signature <span class="m">R=A, S=0</span> — vector <span class="m">small-order-pubkey-order8</span></span>
+        </div>
+        <div class="vrow-val label" style="text-align:right">verdict</div>
+        <div class="vrow-mark label" style="text-align:right">agreement</div>
+      </div>
+
+      <div class="vrow is-refuse">
+        <div class="vrow-lib">ed25519-dalek v2 <span class="sub">rust core</span></div>
+        <div class="vrow-val">false</div>
+        <div class="vrow-mark">× refused</div>
+      </div>
+      <div class="vrow is-refuse">
+        <div class="vrow-lib">crypto/ed25519 <span class="sub">go core, standard library</span></div>
+        <div class="vrow-val">false</div>
+        <div class="vrow-mark">× refused</div>
+      </div>
+      <div class="vrow is-diverge">
+        <div class="vrow-lib">@noble/ed25519 <em>at its defaults</em> <span class="sub">ZIP-215 cofactored verification</span></div>
+        <div class="vrow-val">true</div>
+        <div class="vrow-mark">≠ divergent</div>
+      </div>
+      <div class="vrow is-refuse is-archon">
+        <div class="vrow-lib">@noble/ed25519 <span class="m">{ zip215: false }</span><span class="vrow-tag">archon</span> <span class="sub">RFC 8032 semantics restored</span></div>
+        <div class="vrow-val">false</div>
+        <div class="vrow-mark">× refused</div>
+      </div>
+    </div>
+    <figcaption>Run live against the installed library on 2026-08-26, both the order-8 and order-4 torsion vectors. <b>Without that one flag, the same signature is valid in TypeScript and invalid in Rust</b> — and a core that answers <span class="m">true</span> where another answers <span class="m">false</span> splits a constellation of services in half. Nine <span class="m">signature_verify</span> cases cover exactly this territory: non-canonical <span class="m">S</span>, small-order keys, wrong-length inputs.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ THE BENCH ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <p class="label">The instrument</p>
+    <h2>How agreement is established</h2>
+    <p class="lede">Each core is driven as a black box against a reference document it cannot see the answers in — so every core is checked against the <em>standard</em>, and only therefore against the others.</p>
+  </div>
+
+  <figure>
+    <!-- wide -->
+    <svg class="bench bench-wide" viewBox="0 0 1000 396" role="img" aria-labelledby="benchTitle benchDesc">
+      <title id="benchTitle">The conformance bench</title>
+      <desc id="benchDesc">A standards-derived oracle of 60 cases is sent whole to three independent core CLIs — rust, go and typescript — which each recompute results and emit NDJSON. A comparator checks every result against the oracle as canonical JSON, asserting case names positionally, producing 180 case-checks.</desc>
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g style="color:var(--rule-2)">
+        <!-- oracle: 180..820, inner text width 610 -->
+        <rect x="180" y="10" width="640" height="70" fill="var(--panel)" stroke="var(--agree)" stroke-width="1.5"/>
+        <text x="196" y="33" font-size="11" letter-spacing="1.6" fill="var(--agree)">THE ORACLE — REFERENCE STANDARD</text>
+        <text x="196" y="54" font-size="13.5" fill="var(--ink)">vectors/identity.json — 60 cases, 7 families</text>
+        <text x="196" y="71" font-size="11.5" fill="var(--ink-3)">hand-authored from the RFCs — never captured from a core</text>
+
+        <!-- fan out -->
+        <path d="M500 80 L500 104" stroke="var(--ink-3)" stroke-width="1.2" fill="none"/>
+        <path d="M165 104 L835 104" stroke="var(--ink-3)" stroke-width="1.2" fill="none"/>
+        <g stroke="var(--ink-3)" stroke-width="1.2" fill="none" style="color:var(--ink-3)">
+          <path d="M165 104 L165 146" marker-end="url(#ar)"/>
+          <path d="M500 104 L500 146" marker-end="url(#ar)"/>
+          <path d="M835 104 L835 146" marker-end="url(#ar)"/>
+        </g>
+        <text x="508" y="97" font-size="11" fill="var(--ink-3)">the whole document, on stdin</text>
+
+        <!-- three boxes: width 290, inner text width 262 -->
+        <g>
+          <rect x="20" y="152" width="290" height="76" fill="var(--panel-2)" stroke="var(--rule-2)"/>
+          <text x="34" y="174" font-size="10.5" letter-spacing="1.4" fill="var(--ink-3)">BLACK BOX 1</text>
+          <text x="34" y="195" font-size="13" fill="var(--ink)">core/rs — conformance</text>
+          <text x="34" y="213" font-size="10.5" fill="var(--ink-3)">recomputes from the inputs alone</text>
+        </g>
+        <g>
+          <rect x="355" y="152" width="290" height="76" fill="var(--panel-2)" stroke="var(--rule-2)"/>
+          <text x="369" y="174" font-size="10.5" letter-spacing="1.4" fill="var(--ink-3)">BLACK BOX 2</text>
+          <text x="369" y="195" font-size="13" fill="var(--ink)">core/go — conformance</text>
+          <text x="369" y="213" font-size="10.5" fill="var(--ink-3)">recomputes from the inputs alone</text>
+        </g>
+        <g>
+          <rect x="690" y="152" width="290" height="76" fill="var(--panel-2)" stroke="var(--rule-2)"/>
+          <text x="704" y="174" font-size="10.5" letter-spacing="1.4" fill="var(--ink-3)">BLACK BOX 3</text>
+          <text x="704" y="195" font-size="13" fill="var(--ink)">core/ts — conformance</text>
+          <text x="704" y="213" font-size="10.5" fill="var(--ink-3)">recomputes from the inputs alone</text>
+        </g>
+
+        <!-- fan in -->
+        <g stroke="var(--ink-3)" stroke-width="1.2" fill="none" style="color:var(--ink-3)">
+          <path d="M165 228 L165 256"/>
+          <path d="M500 228 L500 256"/>
+          <path d="M835 228 L835 256"/>
+          <path d="M165 256 L835 256"/>
+          <path d="M500 256 L500 288" marker-end="url(#ar)"/>
+        </g>
+        <text x="508" y="249" font-size="11" fill="var(--ink-3)">one NDJSON line per case, in input order</text>
+
+        <!-- comparator: 180..820 -->
+        <rect x="180" y="294" width="640" height="66" fill="var(--panel)" stroke="var(--rule-2)"/>
+        <text x="196" y="316" font-size="11" letter-spacing="1.6" fill="var(--ink-3)">COMPARATOR</text>
+        <text x="196" y="336" font-size="12.5" fill="var(--ink)">canonical JSON — keys sorted, names asserted positionally</text>
+        <text x="196" y="353" font-size="11.5" fill="var(--ink-3)">key order can never decide a pass; a drop-plus-duplicate cannot slip past</text>
+
+        <text x="500" y="382" font-size="14" font-weight="600" text-anchor="middle" fill="var(--agree)">all cores agree: 180 case-checks, 3 core(s)</text>
+      </g>
+    </svg>
+
+    <!-- narrow -->
+    <svg class="bench bench-narrow" viewBox="0 0 360 470" role="img" aria-labelledby="benchTitleN benchDescN">
+      <title id="benchTitleN">The conformance bench</title>
+      <desc id="benchDescN">A standards-derived oracle of 60 cases is sent whole to three independent core CLIs, which each recompute results and emit NDJSON. A comparator checks every result against the oracle, producing 180 case-checks.</desc>
+      <g>
+        <rect x="4" y="6" width="352" height="62" fill="var(--panel)" stroke="var(--agree)" stroke-width="1.5"/>
+        <text x="16" y="26" font-size="10" letter-spacing="1.3" fill="var(--agree)">THE ORACLE — REFERENCE STANDARD</text>
+        <text x="16" y="44" font-size="12.5" fill="var(--ink)">vectors/identity.json</text>
+        <text x="16" y="60" font-size="11" fill="var(--ink-3)">60 cases · derived from the RFCs, never a core</text>
+
+        <g stroke="var(--ink-3)" stroke-width="1.2" fill="none" style="color:var(--ink-3)">
+          <path d="M180 68 L180 92" marker-end="url(#ar)"/>
+        </g>
+        <text x="190" y="84" font-size="10.5" fill="var(--ink-3)">whole doc on stdin</text>
+
+        <rect x="4" y="98" width="352" height="44" fill="var(--panel-2)" stroke="var(--rule-2)"/>
+        <text x="16" y="118" font-size="12.5" fill="var(--ink)">core/rs — conformance</text>
+        <text x="16" y="134" font-size="10.5" fill="var(--ink-3)">recomputes; ignores the expected value</text>
+
+        <rect x="4" y="150" width="352" height="44" fill="var(--panel-2)" stroke="var(--rule-2)"/>
+        <text x="16" y="170" font-size="12.5" fill="var(--ink)">core/go — conformance</text>
+        <text x="16" y="186" font-size="10.5" fill="var(--ink-3)">recomputes; ignores the expected value</text>
+
+        <rect x="4" y="202" width="352" height="44" fill="var(--panel-2)" stroke="var(--rule-2)"/>
+        <text x="16" y="222" font-size="12.5" fill="var(--ink)">core/ts — conformance</text>
+        <text x="16" y="238" font-size="10.5" fill="var(--ink-3)">recomputes; ignores the expected value</text>
+
+        <g stroke="var(--ink-3)" stroke-width="1.2" fill="none" style="color:var(--ink-3)">
+          <path d="M180 246 L180 276" marker-end="url(#ar)"/>
+        </g>
+        <text x="190" y="266" font-size="10.5" fill="var(--ink-3)">NDJSON, in input order</text>
+
+        <rect x="4" y="282" width="352" height="86" fill="var(--panel)" stroke="var(--rule-2)"/>
+        <text x="16" y="302" font-size="10" letter-spacing="1.3" fill="var(--ink-3)">COMPARATOR</text>
+        <text x="16" y="322" font-size="11.5" fill="var(--ink)">canonical JSON — keys sorted</text>
+        <text x="16" y="339" font-size="11.5" fill="var(--ink)">case names asserted positionally</text>
+        <text x="16" y="358" font-size="10.5" fill="var(--ink-3)">key order can never decide a pass</text>
+
+        <text x="180" y="398" font-size="13" font-weight="600" text-anchor="middle" fill="var(--agree)">all cores agree:</text>
+        <text x="180" y="418" font-size="13" font-weight="600" text-anchor="middle" fill="var(--agree)">180 case-checks, 3 core(s)</text>
+        <text x="180" y="444" font-size="10.5" text-anchor="middle" fill="var(--ink-3)">on every push and every pull request</text>
+      </g>
+    </svg>
+
+    <figcaption><b>The oracle is the authority, not a fourth core.</b> Because the expected values are written from the standards rather than captured from an implementation, all three cores can be wrong together — and be caught. 60 cases × 3 cores = 180 case-checks, on every push and pull request, on Linux and on Windows.</figcaption>
+  </figure>
+
+  <figure style="margin-top:30px">
+    <div class="plate">
+      <div class="plate-head"><p class="label">The seven families</p><p class="label">60 cases</p></div>
+      <div class="families">
+        <div>
+          <p class="lane-name">pubkey_from_seed · 3</p>
+          <p class="val">public-key derivation, RFC 8032 §5.1.5</p>
+        </div>
+        <div>
+          <p class="lane-name">key_encode · 3</p>
+          <p class="val">the canonical <span class="m">ed25519:&lt;hex&gt;</span> text</p>
+        </div>
+        <div>
+          <p class="lane-name">keycodec · 15</p>
+          <p class="val">PKCS#8 v1 / SPKI PEM — <span style="color:var(--refuse)">11 of the 15 are rejections</span></p>
+        </div>
+        <div>
+          <p class="lane-name">signature_verify · 10</p>
+          <p class="val">verify semantics where implementations diverge — and a domain signature is never raw</p>
+        </div>
+        <div>
+          <p class="lane-name">hex_decode · 12</p>
+          <p class="val">typed fixed-size spellings — <span style="color:var(--refuse)">8 of the 12 are refusals</span></p>
+        </div>
+        <div>
+          <p class="lane-name">domain_sign · 5</p>
+          <p class="val">Ed25519ph with the domain as context — the signature itself, derived with OpenSSL</p>
+        </div>
+        <div>
+          <p class="lane-name">domain_verify · 12</p>
+          <p class="val">the crossings: domain A in B, raw in any domain — <span style="color:var(--refuse)">false</span>, cryptographically</p>
+        </div>
+      </div>
+    </div>
+    <figcaption><b>What a codec refuses is part of its contract.</b> Bad base64, a wrong OID, a short key, a non-zero unused-bits octet, trailing bytes, bare DER, PKCS#8 v2, and each decoder handed the other's PEM — all pinned as rejections. The reject <em>reason</em> is deliberately not pinned: an error message is a core's own diagnostic, the decision is what must agree.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ THE SURFACE ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <p class="label">The surface</p>
+    <h2>Fifteen functions, four modules</h2>
+    <p class="lede">That is the entire public API in each language. Note the signatures: <strong>the cores agree on bytes, not on call shapes</strong> — each door is idiomatic to its language, so argument order and error style differ on purpose.</p>
+  </div>
+
+  <div class="mod">
+    <div class="mod-head">
+      <h3>crypto</h3>
+      <p>Ed25519 over canonical bytes (RFC 8032). The message is whatever byte sequence the caller defines — archon has no opinion about what it means. Two ways to sign: <em>raw</em>, where the caller owns separation; and <em>in a domain</em> — Ed25519ph with the caller's domain as context — where a signature from one protocol can never verify in another, or raw, whatever the bytes.</p>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">derive</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>public_key_from_seed(&amp;[u8; 32]) -&gt; [u8; 32]</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>PublicKeyFromSeed(seed []byte) []byte</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>getPublicKey(seed: Uint8Array): Uint8Array</code></div>
+      </div>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">sign</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>sign(seed, message) -&gt; [u8; 64]</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>Sign(seed, message []byte) []byte</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>sign(message, seed): Uint8Array</code></div>
+      </div>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">verify</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>verify(pubkey, message, signature) -&gt; bool</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>Verify(pubkey, message, signature []byte) bool</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>verify(signature, message, pub): boolean</code></div>
+      </div>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">sign in domain</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>sign_in_domain(seed, domain: &amp;str, message) -&gt; Result&lt;[u8; 64], String&gt;</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>SignInDomain(seed []byte, domain string, message []byte) ([]byte, error)</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>signInDomain(seed, domain: string, message): Uint8Array <span style="color:var(--refuse)">// throws</span></code></div>
+      </div>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">verify in domain</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>verify_in_domain(pubkey, domain, message, signature) -&gt; bool</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>VerifyInDomain(pubkey []byte, domain string, message, signature []byte) bool</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>verifyInDomain(pub, domain, message, signature): boolean</code></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mod">
+    <div class="mod-head">
+      <h3>hexbytes</h3>
+      <p>Typed, fail-closed hex for the three fixed sizes the floor deals in. Exactly 32 or 64 bytes come back, or nothing does — the length guard every consumer used to write by hand, written once.</p>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">to hex</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>to_hex(&amp;[u8]) -&gt; String</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>ToHex(b []byte) string</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>toHex(bytes: Uint8Array): string</code></div>
+      </div>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">from hex, fixed size</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>seed_from_hex / pubkey_from_hex -&gt; Result&lt;[u8; 32], _&gt; · signature_from_hex -&gt; Result&lt;[u8; 64], _&gt;</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>SeedFromHex / PubkeyFromHex / SignatureFromHex(text string) ([]byte, error)</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>seedFromHex / pubkeyFromHex / signatureFromHex(text): Uint8Array <span style="color:var(--refuse)">// throws</span></code></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mod">
+    <div class="mod-head">
+      <h3>keytext</h3>
+      <p>The one human- and CLI-facing spelling of a public key: <span class="m">"ed25519:" + lowercaseHex(pubkey)</span>. Decode accepts either hex case; encode always emits lowercase.</p>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">encode</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>encode_key(&amp;[u8]) -&gt; String</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>EncodeKey(pubkey []byte) string</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>encodeKey(pubkey: Uint8Array): string</code></div>
+      </div>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">decode</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>decode_key(&amp;str) -&gt; Result&lt;Vec&lt;u8&gt;, String&gt;</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>DecodeKey(text string) ([]byte, error)</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>decodeKey(text: string): Uint8Array <span style="color:var(--refuse)">// throws</span></code></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mod">
+    <div class="mod-head">
+      <h3>keycodec</h3>
+      <p>SPKI (public) and PKCS#8 v1 (private) PEM, per RFC 5280 and RFC 5958. Pure and IO-free — see <em>What it refuses to be</em> below.</p>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">public key → PEM</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>pubkey_to_spki_pem</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>PubkeyToSPKIPEM</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>pubkeyToSpkiPem</code></div>
+      </div>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">seed → PEM</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>seed_to_pkcs8_pem</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>SeedToPKCS8PEM</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>seedToPkcs8Pem</code></div>
+      </div>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">PEM → public key</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>spki_pem_to_pubkey</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>SPKIPEMToPubkey</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>spkiPemToPubkey</code></div>
+      </div>
+    </div>
+    <div class="fn">
+      <div class="fn-what"><p class="label">PEM → seed</p></div>
+      <div class="sigs">
+        <div class="sig"><p class="lane-name">rust</p><code>pkcs8_pem_to_seed</code></div>
+        <div class="sig"><p class="lane-name">go</p><code>PKCS8PEMToSeed</code></div>
+        <div class="sig"><p class="lane-name">typescript</p><code>pkcs8PemToSeed</code></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ THE TEMPLATE ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <p class="label">The mechanism</p>
+    <h2>How three languages agree on DER without three ASN.1 libraries</h2>
+    <p class="lede">An Ed25519 key container is fixed-size. So encoding is a constant prefix with the 32 key bytes spliced in, and decoding is a bounded template match — small enough to read in full, and identical in every language.</p>
+  </div>
+
+  <figure>
+    <div class="plate">
+      <div class="plate-head">
+        <p class="label">SPKI — public key</p>
+        <p class="label">44 bytes = 12 constant + 32 key</p>
+      </div>
+      <div class="plate-body">
+        <ul class="bytes">
+          <li>30</li><li>2a</li><li>30</li><li>05</li><li>06</li><li>03</li>
+          <li class="oid">2b</li><li class="oid">65</li><li class="oid">70</li>
+          <li>03</li><li>21</li><li>00</li>
+          <li class="key wide">32 key bytes</li>
+        </ul>
+      </div>
+      <div class="plate-head" style="border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)">
+        <p class="label">PKCS#8 v1 — seed</p>
+        <p class="label">48 bytes = 16 constant + 32 key</p>
+      </div>
+      <div class="plate-body">
+        <ul class="bytes">
+          <li>30</li><li>2e</li><li>02</li><li>01</li><li>00</li><li>30</li><li>05</li><li>06</li><li>03</li>
+          <li class="oid">2b</li><li class="oid">65</li><li class="oid">70</li>
+          <li>04</li><li>22</li><li>04</li><li>20</li>
+          <li class="key wide">32 seed bytes</li>
+        </ul>
+        <ul class="keylegend">
+          <li><span class="swatch" aria-hidden="true"></span>constant template byte</li>
+          <li><span class="swatch oid" aria-hidden="true"></span><span class="m">2b 65 70</span> — the Ed25519 OID, 1.3.101.112</li>
+          <li><span class="swatch key" aria-hidden="true"></span>the only variable region</li>
+        </ul>
+      </div>
+    </div>
+    <figcaption>base64 is hand-rolled in every core rather than delegated — Node's <span class="m">Buffer.from(s,"base64")</span> silently strips invalid characters, so borrowing it would have made the TypeScript core <b>accept inputs the other two reject</b>. Matching what a codec refuses matters as much as matching what it emits.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ THE TIERS ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <p class="label">Above the floor</p>
+    <h2>The floor, and what stands on it</h2>
+    <p class="lede">Three things stand on the floor in this repository, to the same discipline: an <strong>sdk</strong> that answers the next questions every protocol asks — <em>can they sign for this channel? are these bytes theirs? may this ephemeral key act as them?</em> — the <span class="m">archon</span> command, and the <strong>login server</strong> a service mounts to answer the last one. Each is written three times; and <strong>every edge between them is a line in a manifest</strong>: the sdk on the floor alone; the command and the server on the floor and on the sdk's login scheme, which they consume and never re-implement.</p>
+  </div>
+
+  <figure>
+    <div class="tiers">
+      <div class="pair">
+      <div class="tier">
+        <div class="tier-head"><h3>cli · the <span class="m">archon</span> command</h3><p class="label">ADR 0006 / 0007 · three binaries · one command</p></div>
+        <div class="tier-lanes">
+          <div><p class="lane-name">rust</p><p class="val">archon-cli<span class="sub">cli/rs · cargo install --git, tag v0.5.0</span></p></div>
+          <div><p class="lane-name">go</p><p class="val">github.com/Bitspark/archon/cli/go<span class="sub">go install …/cmd/archon, tag cli/go/v0.5.0</span></p></div>
+          <div><p class="lane-name">typescript</p><p class="val">@bitspark/archon-cli<span class="sub">0.5.0 · github packages</span></p></div>
+        </div>
+        <p class="tier-pin"><b>cli/smoke.mjs</b> — <b>107</b> invocations × 3 binaries per push: stdout and exit code byte-identical across the three, and equal to the oracle or to OpenSSL, never to a lane — including a key sealed by one binary and opened by the other two, and a login from that key through the real server handler, the answer checked against the oracle's key. <b>vectors/keystore.json</b> — 37 cases · 3 families · <b>111</b> case-checks: the store's 134-byte file is a byte contract, so it is pinned like the sdk.</p>
+        <p class="tier-rule">A presentation and I/O layer, never part of the library. <span class="m">keygen</span> without <span class="m">--seed</span>, and the key store's salt and nonce, draw from the OS — the only randomness in any pinned tier lives here, in the command. <span class="m">login</span> shows you the statement before it unlocks anything, and signs it through the sdk's scheme, not its own.</p>
+      </div>
+      <div class="tier">
+        <div class="tier-head"><h3>server · the login handler</h3><p class="label">ADR 0007 §B · mounted, law-free, store-minimal</p></div>
+        <div class="tier-lanes">
+          <div><p class="lane-name">rust</p><p class="val">archon-server<span class="sub">server/rs · git tag v0.5.0</span></p></div>
+          <div><p class="lane-name">go</p><p class="val">github.com/Bitspark/archon/server/go<span class="sub">tag server/go/v0.5.0</span></p></div>
+          <div><p class="lane-name">typescript</p><p class="val">@bitspark/archon-server<span class="sub">0.5.0 · github packages</span></p></div>
+        </div>
+        <p class="tier-pin"><b>server/testdata/login-wire.json</b> — one wire for three lanes: the JSON key set of every route, <span class="m">audience</span> forbidden on every response, and an authority payload the three must carry <b>byte-for-byte</b> — six ways a re-encoding damages it, each asserted. Unpinnable by an oracle by construction (a clock, a store, the service's socket), so its pin is three suites reading one fixture.</p>
+        <p class="tier-rule">It opens no socket and starts no goroutine — the service's server does. The audience is configured, never read from the wire, and must be a fixed point of the sdk's grammar or the handler refuses to start. The authority payload is opaque bytes: the law's callback is the only thing that reads it, and what the browser collects is what the CLI sent. Since v0.5.0 it also takes an <em>offer</em>: the CLI registers what it will delegate under a code it minted, the page begins a request naming it, and a request that differs from the offer by a byte is refused before any key is involved.</p>
+      </div>
+      </div>
+      <p class="stands" aria-hidden="true">the command and the server consume the sdk's login scheme — and the floor directly, for everything else</p>
+      <div class="tier">
+        <div class="tier-head"><h3>sdk · possession + envelope + login</h3><p class="label">ADR 0004 / 0007 · one dependency: the floor</p></div>
+        <div class="tier-lanes">
+          <div><p class="lane-name">rust</p><p class="val">archon-sdk<span class="sub">sdk/rs · git tag v0.5.0</span></p></div>
+          <div><p class="lane-name">go</p><p class="val">github.com/Bitspark/archon/sdk/go<span class="sub">tag sdk/go/v0.5.0</span></p></div>
+          <div><p class="lane-name">typescript</p><p class="val">@bitspark/archon-sdk<span class="sub">0.5.0 · github packages</span></p></div>
+        </div>
+        <p class="tier-pin"><b>vectors/sdk.json</b> — 38 cases · 4 families · <b>114</b> case-checks per push; <b>vectors/login.json</b> — 105 cases · 6 families · <b>315</b>. Proofs, envelopes and login bindings are signatures, so their expected values are derived with OpenSSL outside all three lanes; the audience a URL yields is pinned too, so three parsers cannot bind three ways.</p>
+        <p class="tier-rule">Entropy, time and channel binding are <em>arguments</em>; it never sources them. That is what makes every byte it emits a deterministic function of its inputs — and therefore pinnable at all.</p>
+      </div>
+      <p class="stands" aria-hidden="true">the sdk depends on the floor, and on nothing else</p>
+      <div class="tier floor">
+        <div class="tier-head"><h3>floor · keys, spellings, containers, signing</h3><p class="label">fifteen functions · four modules</p></div>
+        <div class="tier-lanes">
+          <div><p class="lane-name">rust</p><p class="val">archon-core<span class="sub">core/rs · git tag v0.5.0</span></p></div>
+          <div><p class="lane-name">go</p><p class="val">github.com/Bitspark/archon/core/go<span class="sub">tag core/go/v0.5.0</span></p></div>
+          <div><p class="lane-name">typescript</p><p class="val">@bitspark/archon<span class="sub">0.5.0 · github packages</span></p></div>
+        </div>
+        <p class="tier-pin"><b>vectors/identity.json</b> — 60 cases · 7 families · <b>180</b> case-checks per push. Runtime dependencies: <span class="m">ed25519-dalek</span> · Go stdlib only · <span class="m">@noble/ed25519 + @noble/hashes</span>.</p>
+      </div>
+    </div>
+    <figcaption><b>The floor's discipline is inherited whole.</b> Each tier is three real implementations of one seam, driven as black boxes against an oracle that sits above them — the same instrument, pointed at two more layers; the server tier, which no oracle can pin, is held to one wire by a fixture its three suites share. What changes between tiers is only what is measured: the bytes of a key, the bytes of a proof, the bytes on stdout, the bytes on the wire. <b>The stack is drawn from the manifests</b>, not from tidiness: each edge in it is a line in a <span class="m">Cargo.toml</span>, a <span class="m">go.mod</span> and a <span class="m">package.json</span>, and every edge out of the repository is one ADR 0007 names: the key store's Argon2id and XChaCha20-Poly1305, and a lane's transport. <b>And they version together</b>: one release is one commit and one number across all three — <span class="m">v0.5.0</span> at <span class="m">e6f95ea</span>, five tags on that commit, four ledger lines declared in it (ADR 0005).</figcaption>
+  </figure>
+
+  <figure style="margin-top:30px">
+    <div class="plate">
+      <div class="plate-head">
+        <p class="label">possession — <em>can they sign, right now, for this channel?</em></p>
+        <p class="label">what the prover signs, in the caller's domain</p>
+      </div>
+      <div class="plate-body">
+        <ul class="bytes">
+          <li class="tag">01</li>
+          <li class="len">u16 len</li><li class="key wide">nonce — the challenger's, ≥ 16 bytes</li>
+          <li class="len">u16 len</li><li class="key wide">binding — the channel's, never empty</li>
+        </ul>
+        <p class="plate-note">The binding is what makes a proof unrelayable, so an empty one is <span style="color:var(--refuse)">refused</span> outright — an unbound proof looks like a proof and is not one. A nonce under 16 bytes is refused rather than weakened. Neither is generated here: the challenger supplies both.</p>
+      </div>
+      <div class="plate-head" style="border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)">
+        <p class="label">envelope — <em>these bytes, signed by this key, in this domain</em></p>
+        <p class="label">magic · version · domain · key · signature · payload</p>
+      </div>
+      <div class="plate-body">
+        <ul class="bytes">
+          <li>61</li><li>72</li><li>63</li><li>6e</li><li class="tag">01</li>
+          <li class="len">u8 len</li><li class="key wide">domain</li>
+          <li class="key wide">pubkey — 32 bytes</li>
+          <li class="key wide">sig — 64 bytes = sign_in_domain(seed, domain, 02 ‖ payload)</li>
+          <li class="key wide">payload</li>
+        </ul>
+        <ul class="keylegend">
+          <li><span class="swatch" aria-hidden="true"></span><span>constant — <span class="m">61 72 63 6e</span> is <span class="m">"arcn"</span>, then the version byte</span></li>
+          <li><span class="swatch key" aria-hidden="true"></span><span>variable — the caller's, or derived from the caller's</span></li>
+        </ul>
+        <div class="inout">
+          <div class="in">
+            <p class="label">In — JWS, never JWT</p>
+            <ul><li>version</li><li>domain</li><li>key</li><li>signature</li><li>payload</li></ul>
+          </div>
+          <div class="out">
+            <p class="label">Out, permanently</p>
+            <ul><li>expiry</li><li>issuer</li><li>audience</li><li>key-id</li><li>nonce</li></ul>
+            <p>Each is either policy — whose clock, whose trust? — or a second spelling of the key. Both are the consumer's to add, above this layer.</p>
+          </div>
+        </div>
+      </div>
+    <div class="plate-head" style="border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)">
+      <p class="label">login binding — <em>may this ephemeral key act as me, here, for this, for this long?</em></p>
+      <p class="label">what P signs, in domain archon-login/1, through the possession scheme</p>
+    </div>
+    <div class="plate-body">
+      <ul class="bytes">
+        <li class="tag">01</li>
+        <li class="len">u16 len</li><li class="key wide">audience — derived from the URL by one pinned grammar, never on the wire</li>
+        <li class="key wide">K — the browser's key, 32 bytes</li>
+        <li class="len">u16 len</li><li class="key wide">id — the server's</li>
+        <li class="len">u16 n</li><li class="key wide">scope entries, each u16 len ‖ entry</li>
+        <li class="key wide">u32 valid_for</li>
+      </ul>
+      <p class="plate-note">Role <span class="m">01</span> is the person's login proof; <span class="m">02</span> the browser's collect proof, constructible only by the key the request names. <b>The scope and the validity are inside the signed bytes</b>, so what the person read before unlocking is what the proof covers — a delegation cannot be wider than the lines the CLI printed. The whole thing is one possession message (<span class="m">01 ‖ nonce ‖ binding</span>) with the server's nonce, so it inherits every refusal above.</p>
+    </div>
+    </div>
+    <figcaption><b>Three schemes, one discipline: the verifier's terms are in the signed bytes, never in a field the prover fills in.</b> <span class="m">open</span> takes the domain the <em>verifier</em> expects and refuses an envelope claiming another: the verifier chooses the domain, never the envelope. The one-byte scheme tags — <span class="m">01</span> possession, <span class="m">02</span> envelope, the first byte of what is signed — keep the two from ever being the same signed bytes in the same domain, and a possession signature presented as an envelope is pinned as rejected. Whether to trust the key an envelope names is the verifier's question; the sdk answers only whether these bytes are what that key signed.</figcaption>
+  </figure>
+
+  <figure style="margin-top:30px">
+    <div class="plate">
+      <div class="plate-head">
+        <p class="label">The masthead's seed, through the command</p>
+        <p class="label" style="color:var(--agree)">verified 2026-09-09</p>
+      </div>
+      <div class="stage">
+        <div class="stage-label">
+          <p class="label">archon key pub --seed 11…11</p>
+          <p class="stage-note">the same seed the strip above derives — <span class="m">11</span>×32 — spelled by three separately-built binaries</p>
+        </div>
+        <div class="lanes">
+          <div class="lane">
+            <p class="lane-name">rust · cli/rs</p>
+            <p class="val">ed25519:d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737</p>
+          </div>
+          <div class="lane">
+            <p class="lane-name">go · cli/go</p>
+            <p class="val">ed25519:d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737</p>
+          </div>
+          <div class="lane">
+            <p class="lane-name">typescript · cli/ts</p>
+            <p class="val">ed25519:d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737</p>
+          </div>
+        </div>
+        <div class="lanes-narrow">
+          <p class="val">ed25519:d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737</p>
+          <p class="witnesses">
+            <span class="witness">rust =</span><span class="witness">go =</span><span class="witness">typescript =</span>
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="usage">
+      <p class="label">One command</p>
+      <pre>archon &lt;keygen|key|login|sign|verify|version&gt; [args]</pre>
+      <p><span class="m">key encode · decode</span> — raw bytes ⇄ the canonical text · <span class="m">key pkcs8 · spki encode · decode</span> — a seed or public key ⇄ its PEM · <span class="m">key pub</span> — the public key of a private one · <span class="m">keygen</span> — a pair, public text on stdout, private PEM to a file you name, or <span class="m">--store &lt;name&gt;</span> to keep it · <span class="m">key add · list · rm · default · export --reveal</span> — a named, password-protected seed store under <span class="m">~/.archon/keys</span>: an existing name is refused, <span class="m">list</span> needs no password, <span class="m">export</span> refuses without <span class="m">--reveal</span>, the password never travels in argv, one file format opens in all three binaries, and <span class="m">login</span> signs from it by default, asking for the password only after you have said yes · <span class="m">sign</span> / <span class="m">verify</span> — bytes, domain-aware · <span class="m">login &lt;url&gt;</span> — prove possession of your key to the service at that URL so the browser key it names may act as you, for a scope and a time you read before you sign; the audience is derived from the URL by the sdk's grammar, never taken from the server · <span class="m">login --audience &lt;base&gt; --scope … --valid-for …</span> — the same login started from your side: the command registers an offer under a code it minted and prints the address to open, the page begins the request, the command re-checks it against what you typed and signs without asking again, and prints what it delegated and to which key; the store is unlocked only after that re-check. Every hex input goes through the floor's typed decoders: a 31-byte "public key" is refused here exactly as the library refuses it.</p>
+    </div>
+    <figcaption>Exit code and stdout are pinned together — <span class="m">verify</span> prints <span class="m">valid</span> with exit 0 or <span class="m">invalid</span> with exit 1, and a signature made in one domain is <span class="m">invalid</span> in every other and when presented raw. Two edges are deliberately unpinned: <span class="m">keygen</span> without <span class="m">--seed</span>, checked for shape only because it is not a function of its inputs; and <span class="m">login</span>'s round-trip to a service, which the smoke never makes — it pins the ten refusals that happen before any network is touched, and the proof itself is the sdk's, pinned there.</figcaption>
+  </figure>
+</section>
+
+<!-- ============ ATTACH ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <p class="label">Attach</p>
+    <h2>Three doors, one command</h2>
+    <p class="lede">The doors are peers — none is a binding over another. Rust is named canonical only for settling a semantics dispute, and in practice the three cannot drift apart: CI fails on the first disagreement. The floor's coordinates first; the sdk and the command attach the same way, one line under each.</p>
+  </div>
+
+  <div class="doors">
+    <div class="door">
+      <div class="door-head"><p class="label">rust</p><p class="label">git tag</p></div>
+      <div class="door-body">
+        <pre># Cargo.toml
+archon-core = {
+  git = "https://github.com/Bitspark/archon",
+  tag = "v0.5.0"
+}</pre>
+        <p class="door-note">No root workspace manifest: cargo walks the clone and finds <span class="m">core/rs</span>. One runtime dependency, <span class="m">ed25519-dalek</span>.</p>
+        <p class="door-note"><b>sdk</b> — the same line with <span class="m">archon-sdk</span>; <b>server</b> — with <span class="m">archon-server</span>. <b>command</b> — <span class="m">cargo install --git https://github.com/Bitspark/archon --tag v0.5.0 archon-cli</span> puts <span class="m">archon</span> on your PATH.</p>
+      </div>
+    </div>
+    <div class="door">
+      <div class="door-head"><p class="label">go</p><p class="label">git tag</p></div>
+      <div class="door-body">
+        <pre>go get github.com/Bitspark/archon/core/go@v0.5.0</pre>
+        <p class="door-note">Tagged <span class="m">core/go/v0.5.0</span>. Zero runtime dependencies — the standard library only.</p>
+        <p class="door-note"><b>sdk</b> — <span class="m">go get github.com/Bitspark/archon/sdk/go/login@v0.5.0</span> (tagged <span class="m">sdk/go/v0.5.0</span>; it pulls the floor at the same version). <b>server</b> — <span class="m">go get github.com/Bitspark/archon/server/go/login@v0.5.0</span> (tagged <span class="m">server/go/v0.5.0</span>), an <span class="m">http.Handler</span> to mount. <b>command</b> — <span class="m">go install github.com/Bitspark/archon/cli/go/cmd/archon@v0.5.0</span> puts <span class="m">archon</span> in your <span class="m">GOBIN</span>.</p>
+      </div>
+    </div>
+    <div class="door">
+      <div class="door-head"><p class="label">typescript</p><p class="label">github packages</p></div>
+      <div class="door-body">
+        <pre>npm i @bitspark/archon
+# registry: https://npm.pkg.github.com</pre>
+        <p class="door-note">ESM, synchronous throughout. Depends on <span class="m">@noble/ed25519</span> and <span class="m">@noble/hashes</span> — both public.</p>
+        <p class="door-note"><b>sdk</b> — <span class="m">npm i @bitspark/archon-sdk</span>. <b>command</b> — <span class="m">npm i @bitspark/archon-cli</span> puts <span class="m">archon</span> in <span class="m">node_modules/.bin</span>. <b>server</b> — <span class="m">npm i @bitspark/archon-server</span>, a fetch-style handler. All three depend on <span class="m">@bitspark/archon ^0.5.0</span> from the same registry; the command and the server also on <span class="m">@bitspark/archon-sdk ^0.5.0</span>.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="cmd">
+    <p class="label">Prove it yourself — from a fresh clone, no arguments, any directory</p>
+    <pre>$ node conformance/check.mjs
+
+build go … ok
+build rs … ok
+build ts … ok
+build sdk go … ok
+build sdk rs … ok
+build sdk ts … ok
+all cores agree: 180 case-checks, 3 core(s)
+all cores agree: 114 case-checks, 3 core(s)
+all cores agree: 315 case-checks, 3 core(s)
+all cores agree: 111 case-checks, 3 core(s)</pre>
+    <p class="door-note" style="color:var(--ink-2)">Builds all three cores and the three sdk lanes, and drives each set over its own vectors; <span class="m">node cli/smoke.mjs</span> does the same for the three binaries of the command. Needs a Rust toolchain, Go 1.25 and Node 22 on PATH; <span class="m">npm ci</span> for the TypeScript core runs itself if <span class="m">node_modules</span> is missing. This is the same command CI runs — there is no second, blessed invocation that only the robot knows.</p>
+  </div>
+</section>
+
+<!-- ============ RULES ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <p class="label">Before you build on it</p>
+    <h2>The rules that change how it is used</h2>
+  </div>
+
+  <div class="rules">
+    <div class="rule-item refuse">
+      <h3>verify fails closed</h3>
+      <p>Every shape failure — wrong-sized key or signature, malformed point — collapses to <span class="m">false</span>. It never panics and never throws. That is deliberate: Go's stdlib <span class="m">ed25519.Verify</span> <em>panics</em> on a mis-sized public key, making every unguarded call site a latent crash. Writing the guard once, pinned across three languages, is a large part of why this repository exists.</p>
+    </div>
+    <div class="rule-item refuse">
+      <h3>derive panics on a bad seed</h3>
+      <p>Asymmetric with verify, on purpose. A seed that is not 32 bytes is a programming error, not a runtime condition to handle — so it fails loudly rather than silently.</p>
+    </div>
+    <div class="rule-item agree">
+      <h3>it holds no key</h3>
+      <p>The codec reads no file, writes no file, and draws no randomness. <span class="m">seedToPkcs8Pem</span> takes a seed it is <em>given</em>; it never invents one. Key generation is custody, and custody is a security boundary that lives in a repository you have to go get.</p>
+    </div>
+    <div class="rule-item agree">
+      <h3>it has no opinion about authority</h3>
+      <p>No <span class="m">is_root</span>, no admission, no grants — those words appear nowhere in the code, only in comments explaining their absence. That a signature is <em>well-formed</em> is archon's; what a signature <em>means</em> belongs to the layer above.</p>
+    </div>
+    <div class="rule-item agree">
+      <h3>the key is the principal</h3>
+      <p>There is no rotation-preserving identity and no re-key path. Loss or compromise means re-genesis. If you need succession, it is not here and was deliberately not taken.</p>
+    </div>
+    <div class="rule-item refuse">
+      <h3>PKCS#8 v1 only, PEM only</h3>
+      <p>v2 with an embedded public key is rejected; bare DER without armor is rejected; each decoder rejects the other's PEM. Decode is total — any shape it does not recognise is a clean error, never a partial result.</p>
+    </div>
+  </div>
+
+  <p class="label" style="margin:30px 0 0">Deliberately not owned — measured, not assumed</p>
+  <ul class="nots">
+    <li><b>Succession, rotation, epochs</b> — owned by the law layer above, and independently re-ruled there.</li>
+    <li><b>The possession <em>protocol</em></b> — the handshake, the custody-mode discriminator, the connection itself: the transport's. The <em>scheme</em> — what is signed, with what binding — was re-ruled into the sdk on 2026-09-09 (ADR 0004), because the repository that owned it had the vocabulary and no code.</li>
+    <li><b>Connection setup</b> — the sdk hands a server the bytes to move and never opens a socket. It <em>is</em> the transport.</li>
+    <li><b>Expiry, issuer, audience, key-id</b> — each is policy or a second spelling of the key. The envelope is JWS, never JWT, and stays that way.</li>
+    <li><b>Root trust-anchor designations</b> — removed from all three cores. That is authority vocabulary.</li>
+    <li><b>Key generation, storage, encryption at rest</b> — custody.</li>
+    <li><b>A Merkle inclusion primitive</b> — argued for, then withdrawn after the argument was refuted.</li>
+  </ul>
+</section>
+
+<!-- ============ COUNTER-CASE ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <p class="label">The honest test</p>
+    <h2>When <em>not</em> to adopt archon</h2>
+  </div>
+
+  <div class="counter prose" style="max-width:none">
+    <p style="max-width:68ch">The nearest adjacent consumer archon could plausibly have served needed Ed25519 and could not import the layer above. archon asked whether it should be the backend — and <strong>sent its own answer, no, as the question</strong>. It was confirmed, with measurements:</p>
+
+    <table class="tally" style="max-width:520px">
+      <caption class="label" style="text-align:left;padding-bottom:8px">At that consumer's seam</caption>
+      <tbody>
+        <tr><th scope="row">key / signature types</th><td>raw bytes</td></tr>
+        <tr><th scope="row">hand-authored vectors carrying a signer</th><td>0</td></tr>
+        <tr><th scope="row">SPKI / PKCS-8 / PEM anywhere</th><td>0</td></tr>
+        <tr><th scope="row"><span class="m">ed25519:&lt;hex&gt;</span> spellings</th><td>0</td></tr>
+      </tbody>
+    </table>
+
+    <blockquote>That repository already had a canonical byte-to-text spelling of its own. Introducing <span class="m">ed25519:&lt;hex&gt;</span> beside it would <strong>create</strong> the second spelling archon exists to eliminate.
+      <cite>docs/extraction-plan.md §4</cite></blockquote>
+
+    <p style="max-width:68ch;margin-bottom:0"><strong>The general rule, and it is the one to apply to your own repository:</strong> archon replaces <em>N</em> spellings with one. That is a strong argument in a codebase with zero canonical spellings across several languages, and an argument <em>against</em> archon in a codebase that already has exactly one. Its value is real and it is not universal — a ten-line direct call to a mature Ed25519 crate is the thing a dependency wraps, not a dependency.</p>
+  </div>
+</section>
+
+<!-- ============ STATUS + NEXT ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <p class="label">Status</p>
+    <h2>The floor the law above stands on</h2>
+    <p class="lede">Three cores, a dependency list you can read in one breath, and a harness that turns "the cores agreed once" into "the cores agree". <strong>The switch is done.</strong> The law layer above deleted its own copy of these bytes and now links these — <span class="m">stele</span> since 2026-08-23, <span class="m">thesmos</span> since 2026-08-27 — so there is one implementation of the identity floor, and it is this one. What the law keeps is its own trust anchor, which it now pins <em>through</em> this derivation rather than beside it.</p>
+  </div>
+
+  <ul class="status">
+    <li><span class="label">floor · sdk · cli · server</span><span class="m">v0.5.0, one commit (e6f95ea)</span></li>
+    <li><span class="label">license</span><span class="m">MIT</span></li>
+    <li><span class="label">cases</span><span class="m">60 × 3 = 180 floor · (38 + 105) × 3 = 429 sdk · 37 × 3 = 111 key store · 107 × 3 command smoke</span></li>
+    <li><span class="label">floor source, excl. tests</span><span class="m">rs 654 · go 327 · ts 368 lines</span></li>
+    <li><span class="label">constellation deps</span><span class="m">none</span></li>
+  </ul>
+
+  <div class="nexts">
+    <a class="next" href="../conformance/README.md">
+      <p class="label">Run it</p>
+      <strong>node conformance/check.mjs</strong>
+      <span>Build all three cores and the three sdk lanes and watch them agree — or find out which one does not.</span>
+    </a>
+    <a class="next" href="../vectors/identity.json">
+      <p class="label">Read the contract</p>
+      <strong>vectors/identity.json</strong>
+      <span>All 60 floor cases, each with a note explaining what it pins and why — and <span class="m">sdk.json</span> beside it, the 36 for the layer above.</span>
+    </a>
+    <a class="next" href="../docs/architecture/decisions/0002-keycodec-is-a-byte-codec-not-key-custody.md">
+      <p class="label">Read the boundary</p>
+      <strong>ADR 0002 — codec, not custody</strong>
+      <span>Why the key codec will never grow a file read, and where custody lives instead.</span>
+    </a>
+  </div>
+
+  <details>
+    <summary>Appendix — the conformance <span class="m">v1</span> protocol</summary>
+    <div class="details-body">
+      <p style="font-size:13.5px;color:var(--ink-2);max-width:68ch">A CLI is invoked as <span class="m">&lt;cli&gt; &lt;family&gt;</span>, receives the whole oracle document on stdin, selects its family's cases, recomputes each result from the inputs while ignoring the expected value, and writes one NDJSON line per case to stdout in input order.</p>
+      <div class="scroll-x">
+        <table class="proto">
+          <thead>
+            <tr><th scope="col">family</th><th scope="col">in</th><th scope="col">out</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>pubkey_from_seed</td><td>{name, seed}</td><td>{"name","pubkey":"&lt;64-hex&gt;"}</td></tr>
+            <tr><td>key_encode</td><td>{name, pubkey}</td><td>{"name","text":"&lt;key text&gt;"}</td></tr>
+            <tr><td>keycodec</td><td>{name, kind, key or pem}</td><td>{"name","result":{"ok":"…"} or {"error":true}}</td></tr>
+            <tr><td>signature_verify</td><td>{name, pubkey, message, sig}</td><td>{"name","valid":&lt;bool&gt;}</td></tr>
+            <tr><td>hex_decode</td><td>{name, kind, hex}</td><td>{"name","result":{"ok":"&lt;hex&gt;"} or {"error":true}}</td></tr>
+            <tr><td>domain_sign</td><td>{name, seed, domain, message}</td><td>{"name","result":{"ok":"&lt;128-hex&gt;"} or {"error":true}}</td></tr>
+            <tr><td>domain_verify</td><td>{name, pubkey, domain, message, sig}</td><td>{"name","valid":&lt;bool&gt;}</td></tr>
+            <tr><td colspan="3" style="color:var(--ink-3)">vectors/sdk.json — the same protocol, the sdk's three CLIs</td></tr>
+            <tr><td>possession_prove</td><td>{name, seed, domain, nonce, binding}</td><td>{"name","result":{"ok":"&lt;128-hex&gt;"} or {"error":true}}</td></tr>
+            <tr><td>possession_verify</td><td>{name, pubkey, domain, nonce, binding, sig}</td><td>{"name","valid":&lt;bool&gt;}</td></tr>
+            <tr><td>envelope_seal</td><td>{name, seed, domain, payload}</td><td>{"name","result":{"ok":"&lt;hex&gt;"} or {"error":true}}</td></tr>
+            <tr><td>envelope_open</td><td>{name, envelope, domain}</td><td>{"name","result":{"ok":{"pubkey","payload"}} or {"error":true}}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:13px;color:var(--ink-3);margin:14px 0 0;max-width:68ch">CI runs the same check on Linux and Windows. The Windows leg was promoted to blocking on measurement rather than elapsed time — 17 of 17 runs had passed it, confirmed by reading per-job status, because a non-blocking check reports on itself only if you ask it directly.</p>
+    </div>
+  </details>
+</section>
+
+<footer class="wrap">
+  <p style="margin:0">archon · <span lang="grc">ἄρχων</span>, the one who bears the office · MIT · <a href="https://github.com/Bitspark/archon">github.com/Bitspark/archon</a></p>
+  <p style="margin:6px 0 0">Every claim on this page is sourced in <a href="SEAM.md">poster/SEAM.md</a> with a <span class="m">path:line</span> citation. The round-trip, the openssl read-back and the ZIP-215 divergence were run against this repository on 2026-08-26; the command's round-trip, both conformance passes and the three registry installs on 2026-09-09.</p>
+</footer>
+
+</body>
+</html>

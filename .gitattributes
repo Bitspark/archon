@@ -1,0 +1,25 @@
+# Source stays LF in every checkout, so gofmt -l, cargo fmt, diffs and the conformance
+# harness's byte comparisons mean the same thing on Windows and Linux.
+* text=auto eol=lf
+*.go text eol=lf
+*.rs text eol=lf
+*.ts text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+
+# The oracle and the fixtures the three cores are compared against byte for byte. A CRLF
+# here would make one core disagree with the other two on a checkout, which is exactly the
+# failure this repository exists to detect — and it would be an artefact, not a real one.
+vectors/** text eol=lf
+cli/testdata/** text eol=lf
+server/testdata/** text eol=lf
+
+# PEM fixtures carry their own line endings inside JSON string literals; the surrounding
+# file is still LF.
+*.pem text eol=lf

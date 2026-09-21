@@ -1,0 +1,391 @@
+{
+  "_why": "The JSON shapes of docs/login.md §4 and §4.1 (the offers form), pinned across the three server lanes. A cross-lane smoke run is impractical here (each lane needs its own socket and runtime), so this file is where go, rs and ts are held to one wire format instead. Each lane's suite reads THIS file and asserts the exact key set it emits per route — not the values, which carry a random id and nonce, but the KEYS and their types, which is where lanes drift.",
+  "_read_by": [
+    "server/go/login/login_test.go",
+    "server/rs (tests)",
+    "server/ts (tests)"
+  ],
+  "_note_on_absence": "`audience` appears in NO response, by design (review Finding 1). Its absence is asserted as a key that must NOT be present, because a CLI that could read an audience is a CLI that can be told to sign for someone else.",
+  "responses": {
+    "begin": {
+      "status": 201,
+      "keys": [
+        "id",
+        "nonce",
+        "browser",
+        "scope",
+        "valid_for",
+        "expires_in",
+        "interval",
+        "verification_uri"
+      ],
+      "types": {
+        "id": "hex",
+        "nonce": "hex",
+        "browser": "keytext",
+        "scope": "list<string>",
+        "valid_for": "number",
+        "expires_in": "number",
+        "interval": "number",
+        "verification_uri": "string"
+      },
+      "forbidden_keys": [
+        "audience"
+      ]
+    },
+    "read": {
+      "status": 200,
+      "keys": [
+        "id",
+        "nonce",
+        "browser",
+        "scope",
+        "valid_for",
+        "expires"
+      ],
+      "types": {
+        "id": "hex",
+        "nonce": "hex",
+        "browser": "keytext",
+        "scope": "list<string>",
+        "valid_for": "number",
+        "expires": "rfc3339"
+      },
+      "forbidden_keys": [
+        "audience"
+      ]
+    },
+    "answer": {
+      "status": 204,
+      "keys": [],
+      "types": {},
+      "forbidden_keys": []
+    },
+    "collect": {
+      "status": 200,
+      "keys": [
+        "principal",
+        "possession"
+      ],
+      "optional_keys": [
+        "authority"
+      ],
+      "types": {
+        "principal": "keytext",
+        "possession": "hex",
+        "authority": "opaque"
+      },
+      "forbidden_keys": [
+        "audience"
+      ]
+    },
+    "offer": {
+      "_why": "docs/login.md §4.1: the prover registers what it is willing to delegate, to a key it does not know yet. `page` is present only when the service is configured with one, and then carries the code in its fragment (`<configured page>#<code>`); a lane without a page configured must emit no `page` key at all.",
+      "status": 201,
+      "keys": [
+        "code",
+        "scope",
+        "valid_for",
+        "expires_in",
+        "interval"
+      ],
+      "optional_keys": [
+        "page"
+      ],
+      "types": {
+        "code": "hex",
+        "scope": "list<string>",
+        "valid_for": "number",
+        "expires_in": "number",
+        "interval": "number",
+        "page": "string"
+      },
+      "forbidden_keys": [
+        "audience"
+      ]
+    },
+    "offer_read": {
+      "_why": "Read once by the page and polled by the prover until `request` is set. The route hands the offered scope and validity to whoever holds the code — which is why the code is confidential until the offer is taken. It is NOT paced (ADR 0007 §C.7, amendment #39): two parties poll it, and one reference time would let the prover's period lock the page out.",
+      "status": 200,
+      "keys": [
+        "code",
+        "scope",
+        "valid_for",
+        "request",
+        "expires"
+      ],
+      "types": {
+        "code": "hex",
+        "scope": "list<string>",
+        "valid_for": "number",
+        "request": "hex|null",
+        "expires": "rfc3339"
+      },
+      "forbidden_keys": [
+        "audience"
+      ]
+    },
+    "begin_on_offer": {
+      "_why": "§4 begin with `\"offer\": \"<code>\"` added. The response is EXACTLY begin's: the offer is not echoed and no key beyond begin's appears, so a browser client needs no second shape.",
+      "status": 201,
+      "keys": [
+        "id",
+        "nonce",
+        "browser",
+        "scope",
+        "valid_for",
+        "expires_in",
+        "interval",
+        "verification_uri"
+      ],
+      "types": {
+        "id": "hex",
+        "nonce": "hex",
+        "browser": "keytext",
+        "scope": "list<string>",
+        "valid_for": "number",
+        "expires_in": "number",
+        "interval": "number",
+        "verification_uri": "string"
+      },
+      "forbidden_keys": [
+        "audience",
+        "offer"
+      ]
+    }
+  },
+  "errors": {
+    "_shape": "every error body is exactly {\"error\": \"<code>\"} and carries nothing else — no description, no echoed id, so a stranger probing ids learns nothing from the difference",
+    "keys": [
+      "error"
+    ],
+    "codes": {
+      "begin_malformed": {
+        "status": 400,
+        "error": "invalid_request"
+      },
+      "read_unknown_or_expired": {
+        "status": 404,
+        "error": "expired_token"
+      },
+      "answer_malformed": {
+        "status": 400,
+        "error": "invalid_request"
+      },
+      "answer_proof_refused": {
+        "status": 403,
+        "error": "invalid_grant"
+      },
+      "answer_authority_refused": {
+        "status": 403,
+        "error": "invalid_grant"
+      },
+      "answer_expired": {
+        "status": 404,
+        "error": "expired_token"
+      },
+      "answer_already_answered": {
+        "status": 409,
+        "error": "invalid_request"
+      },
+      "collect_proof_refused": {
+        "status": 403,
+        "error": "invalid_grant"
+      },
+      "collect_pending": {
+        "status": 202,
+        "error": "authorization_pending"
+      },
+      "collect_too_fast": {
+        "status": 429,
+        "error": "slow_down"
+      },
+      "collect_expired": {
+        "status": 404,
+        "error": "expired_token"
+      },
+      "offer_malformed": {
+        "_why": "docs/login.md §4.1 refusals: a malformed offer body, a code that is not lowercase hex of even length ≥ 32 characters, a valid_for of 0, a scope entry that could not be displayed or could not bind — each refused at the door, nothing registered.",
+        "status": 400,
+        "error": "invalid_request"
+      },
+      "offer_code_taken": {
+        "_why": "a code already registered and unexpired; an expired one is free again",
+        "status": 409,
+        "error": "invalid_request"
+      },
+      "offer_unknown_or_expired": {
+        "_why": "GET /offers/<code> for an unknown, expired, orphaned (its request gone) or MALFORMED code — a registered code is always well-formed, so a malformed one is unknown by construction and a stranger learns nothing from the difference. Each suite drives this one entry with all three.",
+        "status": 404,
+        "error": "expired_token"
+      },
+      "begin_offer_unknown_or_expired": {
+        "_why": "a begin naming an unknown, expired, orphaned or MALFORMED offer — the same predicate as the offer route behind all three routes, the same 404 as the poll: a registered code is always well-formed, so a malformed `offer` member names nothing. Each suite drives this one entry with all three.",
+        "status": 404,
+        "error": "expired_token"
+      },
+      "begin_offer_taken": {
+        "_why": "one offer, one request (§4.1 rule 5): conflict semantics, the same status as an answer to a request already answered",
+        "status": 409,
+        "error": "invalid_request"
+      },
+      "begin_offer_mismatch": {
+        "_why": "the request's scope or valid_for differs from the offer's in any way — refused before anything is stored, before any key is involved; the shapes of 'differs' are the offer_mismatch family below",
+        "status": 400,
+        "error": "invalid_request"
+      }
+    }
+  },
+  "authority_roundtrip": {
+    "_why": "The authority payload is OPAQUE BYTES (ADR 0007 §B), and `responses` above cannot see a lane that rebuilds it: that section pins KEY SETS, and a rebuilt payload has the same keys. This is a VALUE pin. caa found the defect on #28/#29 with this probe: go handed the bytes through (json.RawMessage), rs delivered them sorted, normalised and unescaped (serde_json::Value), and ts changed the integer outright (JSON.stringify at 2^53). One answer, three payloads.",
+    "_and_then_a_second_probe": "The first version of this payload had no whitespace and no & or <, and GO PASSED A PIN IT VIOLATED: json.NewEncoder.Encode COMPACTS a json.RawMessage and HTML-ESCAPES it, so the law saw the CLI bytes and the browser saw {\"u\":\"https://x?a=1\\\\u0026b=2\"}. A pin is only as good as the payload it carries — hence the space after the first comma, the & in a URL and the < in a tag.",
+    "_stored_as_a_string_on_purpose": "If `payload` were a JSON value here, every lane reading this file would parse it — and the parse is the defect. A string survives the read intact, so each suite puts these bytes on the wire itself.",
+    "payload": "{\"z\":1, \"a\":9007199254740993,\"f\":1.10,\"s\":\"\\u00e9\",\"u\":\"https://x?a=1&b=2\",\"t\":\"<b>\"}",
+    "damage_a_round_trip_does": {
+      "9007199254740993": "becomes 9007199254740992 wherever a JSON number is a double",
+      "1.10": "becomes 1.1",
+      "\\u00e9": "becomes the character it escapes",
+      "z before a": "becomes a before z wherever an object is a sorted map",
+      "the space after the first comma": "is dropped by any compaction, Go Encode included",
+      "& and <": "become \\u0026 and \\u003c wherever HTML escaping is on by default (Go)"
+    },
+    "asserted_by_every_lane": [
+      "the bytes handed to the AdmitAuthority callback are byte-identical to `payload`",
+      "the `authority` member of the collect response is byte-identical to `payload`",
+      "and each of the six damages above is named and asserted separately, so a regression says WHICH one came back"
+    ],
+    "_read_by": [
+      "server/go/login/authority_test.go",
+      "server/rs/tests/login.rs",
+      "server/ts/test/login.test.ts"
+    ]
+  },
+  "offer_mismatch": {
+    "_why": "docs/login.md §4.1, rule 5 and the refusals table: a request naming an offer whose `scope` or `valid_for` differ IN ANY WAY is 400, refused before anything is stored and before any key is involved. Stated as a family rather than one case because 'differs' has more than one shape — a lane that compared sets instead of ordered lists, or lengths instead of entries, or that let a prefix through, would pass some of these and fail others, and the prover (rule 2) re-checks the same shapes itself.",
+    "_how_each_suite_uses_this": "Register `offer` under a fresh code. For each case, begin with `\"offer\": \"<code>\"` and the case's `scope` and `valid_for`, and require `status` and `error`. Then the FRAMING, without which the cases prove nothing: `GET /offers/<code>` still answers `request: null` (nothing was taken by any refused begin), a begin carrying the offer's EXACT scope and valid_for is 201 (the base is accepted), and the same begin once more is 409 (one offer, one request).",
+    "_read_by": [
+      "server/go/login/login_test.go",
+      "server/rs/tests/login.rs",
+      "server/ts/test/login.test.ts"
+    ],
+    "offer": {
+      "scope": [
+        "read:projects",
+        "read:campaigns"
+      ],
+      "valid_for": 28800
+    },
+    "cases": [
+      {
+        "name": "an extra entry",
+        "scope": [
+          "read:projects",
+          "read:campaigns",
+          "write:projects"
+        ],
+        "valid_for": 28800,
+        "status": 400,
+        "error": "invalid_request"
+      },
+      {
+        "name": "a reordered entry",
+        "scope": [
+          "read:campaigns",
+          "read:projects"
+        ],
+        "valid_for": 28800,
+        "status": 400,
+        "error": "invalid_request",
+        "_why_this_one": "the same set, another order: the binding is over an ORDERED list (§3.2) and the person typed the entries in an order, so a set comparison would let a page reorder what was offered"
+      },
+      {
+        "name": "a changed entry",
+        "scope": [
+          "read:projects",
+          "read:campaign"
+        ],
+        "valid_for": 28800,
+        "status": 400,
+        "error": "invalid_request",
+        "_why_this_one": "one character off, same length: a length-only or prefix comparison passes it"
+      },
+      {
+        "name": "a changed validity",
+        "scope": [
+          "read:projects",
+          "read:campaigns"
+        ],
+        "valid_for": 28801,
+        "status": 400,
+        "error": "invalid_request"
+      },
+      {
+        "name": "a dropped entry",
+        "scope": [
+          "read:projects"
+        ],
+        "valid_for": 28800,
+        "status": 400,
+        "error": "invalid_request",
+        "_why_this_one": "narrower is still different: the prover offered two entries and signs only a request for exactly those two, so a page cannot shrink an offer into one the person did not type either"
+      }
+    ]
+  },
+  "malformed_bodies": {
+    "_why": "A malformed body handled three ways is the same class of defect as a payload rebuilt three ways, and the `errors` section above cannot see it: that section pins the code for a refusal, not WHICH bodies are refused.",
+    "_how_each_suite_uses_this": "For each case: build a VALID body for `route` against a live handler, WITHOUT its closing brace; append `append_to_a_valid_body`; close the brace; send it and require `status` and `error`. Then send the SAME body without the appended members and require `base_status`. That second send is the point — without it a case can pass because the request was refused for some unrelated reason, which is exactly how the door-check tests fooled themselves.",
+    "_why_every_route": "The duplicate case is stated for EVERY route that takes a body — answer, begin and, since §4.1, offer — on purpose. go refuses duplicates in its shared decoder and serde refuses them for any struct, so both lanes covered every route for free — while ts checked only where it wanted a span, and answered 201 to a begin body with a repeated `browser`. One route at a time is how a cross-lane pin misses a cross-lane divergence.",
+    "_read_by": [
+      "server/go/login/authority_test.go",
+      "server/rs/tests/login.rs",
+      "server/ts/test/login.test.ts"
+    ],
+    "cases": [
+      {
+        "name": "a repeated top-level key, on answer",
+        "route": "answer",
+        "append_to_a_valid_body": ",\"authority\":{\"a\":1},\"authority\":{\"a\":2}",
+        "status": 400,
+        "error": "invalid_request",
+        "base_status": 204,
+        "_why_this_one": "Two `authority` members are two candidate payloads with no reason to prefer either. encoding/json keeps the last, serde refuses, and a span scanner would have to choose — so without a rule the three lanes admit different payloads from one body. The authority is opaque BYTES (ADR 0007 §B); which bytes must not be a matter of taste."
+      },
+      {
+        "name": "a repeated top-level key, on begin",
+        "route": "begin",
+        "append_to_a_valid_body": ",\"scope\":[\"read:projects\"]",
+        "status": 400,
+        "error": "invalid_request",
+        "base_status": 201,
+        "_why_this_one": "Nothing on begin is carried verbatim, so no payload is at stake here — the point is that the answer to \"which of the two did you mean\" must not depend on which lane a service mounted."
+      },
+      {
+        "name": "a repeated top-level key, on offer",
+        "route": "offer",
+        "append_to_a_valid_body": ",\"scope\":[\"read:projects\"]",
+        "status": 400,
+        "error": "invalid_request",
+        "base_status": 201,
+        "_why_this_one": "The third route a body enters by (docs/login.md §4.1). Nothing on offer is carried verbatim either; the point is the same as on begin — which of the two the service meant must not depend on the lane. The base body is a fresh, well-formed code, so its 201 is the framing that the refusal above was for the repeat and nothing else."
+      },
+      {
+        "name": "an offer member that is null, on begin",
+        "route": "begin",
+        "append_to_a_valid_body": ",\"offer\":null",
+        "status": 400,
+        "error": "invalid_request",
+        "base_status": 201,
+        "_why_this_one": "A member that is PRESENT must be a code string. `null` is not 'no offer' — the page-started form leaves the member out — and a lane that read null as absent would begin a login on a body another lane refuses: go's *string and rs's Option<String> both did, while ts answered 404 (caa's review of #40). Refused, not normalised — the §2.1 rule, on a body."
+      },
+      {
+        "name": "an offer member that is not a string, on begin",
+        "route": "begin",
+        "append_to_a_valid_body": ",\"offer\":5",
+        "status": 400,
+        "error": "invalid_request",
+        "base_status": 201,
+        "_why_this_one": "The same rule from the other side: a number where a code string belongs is a MALFORMED BODY (400), not an unknown offer (404) — ts answered 404 here while go and rs answered 400. The 404 is for a code-shaped string that names nothing; a value that is not a string at all never reached the code predicate."
+      }
+    ]
+  }
+}

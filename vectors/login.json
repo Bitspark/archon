@@ -1,0 +1,1792 @@
+{
+  "version": 1,
+  "note": "archon login-scheme conformance vectors (docs/login.md): the audience derivation (§2.1: one grammar, refused not normalised), the binding both proofs are made over, the person's login proof, the browser's collect proof, and their verification — all in the SDK's possession scheme, domain archon-login/1. Scope entries are given as hex so that a non-UTF-8 entry can be a case; a lane decodes them before calling the scheme (a failed decode is the same refusal). Audience is a UTF-8 string. Entropy (nonce, id, keys) and time (valid_for) are case INPUTS — the scheme never sources them — which is what makes every output deterministic and pinnable. Signatures derived with OpenSSL 3.2.4, outside all three cores (vectors/tools/login-vectors.py).",
+  "login_audience": [
+    {
+      "note": "derive_audience (docs/login.md §2.1): input {url}; expected {\"ok\": {audience, id hex}} or {\"error\": true}. The grammar is accepted exactly and everything else is REFUSED, never normalised — one URL yields one audience in every lane. The id is returned decoded.",
+      "name": "basic",
+      "url": "https://dawn.example/api/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "https://dawn.example/api",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "an explicit default port is omitted from the audience.",
+      "name": "default-port-https",
+      "url": "https://dawn.example:443/api/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "https://dawn.example/api",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "80 is http's default.",
+      "name": "default-port-http",
+      "url": "http://localhost:80/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "http://localhost",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "a non-default port is kept as written.",
+      "name": "non-default-port",
+      "url": "http://localhost:8080/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "http://localhost:8080",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "scheme and host are lowercased; path segments keep their case.",
+      "name": "uppercase-scheme-host",
+      "url": "HTTPS://Dawn.Example/API/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "https://dawn.example/API",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "wss folds to https.",
+      "name": "wss-folds",
+      "url": "wss://dawn.example/api/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "https://dawn.example/api",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "ws folds to http, whose default port 80 is then omitted.",
+      "name": "ws-default-port",
+      "url": "ws://dawn.example:80/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "http://dawn.example",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "after the fold to https, 80 is not the default and is kept.",
+      "name": "wss-port-80-kept",
+      "url": "wss://dawn.example:80/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "https://dawn.example:80",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "a well-formed percent-escape is kept as written, never decoded.",
+      "name": "percent-escape-kept",
+      "url": "https://dawn.example/a/b%2Fc/v1/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "https://dawn.example/a/b%2Fc/v1",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "an IPv6 literal keeps its brackets; the port is kept.",
+      "name": "ipv6-non-default",
+      "url": "https://[::1]:8443/api/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "https://[::1]:8443/api",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "an IPv6 literal is lowercased; the default port is omitted.",
+      "name": "ipv6-default-port",
+      "url": "https://[2001:DB8::1]:443/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "https://[2001:db8::1]",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "an IPv4 host is a reg-name.",
+      "name": "ipv4",
+      "url": "https://10.0.0.7/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "https://10.0.0.7",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "a service mounted at its origin: the audience has no path.",
+      "name": "no-base-path",
+      "url": "https://dawn.example/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "https://dawn.example",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "RFC 3986 pchar is accepted as written.",
+      "name": "sub-delims-in-segment",
+      "url": "https://dawn.example/a:b@c!$&'()*+,;=/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "ok": {
+          "audience": "https://dawn.example/a:b@c!$&'()*+,;=",
+          "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978"
+        }
+      }
+    },
+    {
+      "note": "a one-byte id is the minimum.",
+      "name": "min-id",
+      "url": "https://dawn.example/login/00",
+      "result": {
+        "ok": {
+          "audience": "https://dawn.example",
+          "id": "00"
+        }
+      }
+    },
+    {
+      "note": "no scheme.",
+      "name": "no-scheme-rejected",
+      "url": "dawn.example/api/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "only http(s) and ws(s).",
+      "name": "scheme-rejected",
+      "url": "ftp://dawn.example/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "no path at all.",
+      "name": "no-path-rejected",
+      "url": "https://dawn.example",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the penultimate segment must be `login` and an id must follow.",
+      "name": "no-id-rejected",
+      "url": "https://dawn.example/login",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the penultimate segment is not `login`.",
+      "name": "penultimate-rejected",
+      "url": "https://dawn.example/api/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a trailing slash is an empty segment — refused, not trimmed.",
+      "name": "trailing-slash-rejected",
+      "url": "https://dawn.example/api/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978/",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "`//` is an empty segment.",
+      "name": "empty-segment-rejected",
+      "url": "https://dawn.example//login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "`.` is refused, not resolved.",
+      "name": "dot-segment-rejected",
+      "url": "https://dawn.example/./login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "`..` is refused, not resolved.",
+      "name": "dotdot-segment-rejected",
+      "url": "https://dawn.example/../login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "userinfo is refused — measured: net/url and WHATWG drop it, a hand-written split reads it as the host (lane B, 2026-09-10).",
+      "name": "userinfo-rejected",
+      "url": "https://user@dawn.example/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "userinfo with a password is refused; a lenient parser would also swallow the base path.",
+      "name": "userinfo-password-rejected",
+      "url": "https://user:pass@dawn.example/api/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a query is refused.",
+      "name": "query-rejected",
+      "url": "https://dawn.example/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978?x=1",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a fragment is refused.",
+      "name": "fragment-rejected",
+      "url": "https://dawn.example/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978#f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the id is lowercase hex — uppercase is refused, not folded.",
+      "name": "id-uppercase-rejected",
+      "url": "https://dawn.example/api/login/8F3C",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "odd length.",
+      "name": "id-odd-rejected",
+      "url": "https://dawn.example/api/login/8f3",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "not hex.",
+      "name": "id-not-hex-rejected",
+      "url": "https://dawn.example/api/login/zz",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an empty id is an empty segment.",
+      "name": "id-empty-rejected",
+      "url": "https://dawn.example/api/login/",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "port 0.",
+      "name": "port-zero-rejected",
+      "url": "https://dawn.example:0/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "port 65536.",
+      "name": "port-too-big-rejected",
+      "url": "https://dawn.example:65536/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a leading zero is refused, not normalised to 443.",
+      "name": "port-leading-zero-rejected",
+      "url": "https://dawn.example:0443/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a non-digit port.",
+      "name": "port-not-digits-rejected",
+      "url": "https://dawn.example:4a3/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a colon with no port.",
+      "name": "port-empty-rejected",
+      "url": "https://dawn.example:/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an empty label.",
+      "name": "host-trailing-dot-rejected",
+      "url": "https://dawn.example./login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a byte outside the host alphabet.",
+      "name": "host-underscore-rejected",
+      "url": "https://dawn_example/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "non-ASCII anywhere is refused — an IDN must be given as punycode.",
+      "name": "host-non-ascii-rejected",
+      "url": "https://dawn.exämple/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "unterminated literal.",
+      "name": "ipv6-unterminated-rejected",
+      "url": "https://[::1/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a zone id is refused.",
+      "name": "ipv6-zone-rejected",
+      "url": "https://[fe80::1%25eth0]/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "whitespace is refused.",
+      "name": "space-rejected",
+      "url": "https://dawn.example/a b/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a malformed percent-escape.",
+      "name": "escape-malformed-rejected",
+      "url": "https://dawn.example/a%2/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a malformed percent-escape.",
+      "name": "escape-not-hex-rejected",
+      "url": "https://dawn.example/a%zz/login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "no host.",
+      "name": "empty-host-rejected",
+      "url": "https:///login/8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "nothing.",
+      "name": "empty-rejected",
+      "url": "",
+      "result": {
+        "error": true
+      }
+    }
+  ],
+  "login_binding": [
+    {
+      "note": "the pinned layout: role ‖ u16 len ‖ audience ‖ browser[32] ‖ u16 len ‖ id ‖ u16 count ‖ (u16 len ‖ entry)* ‖ u32 valid_for (docs/login.md §3.2). Inputs {role, audience (utf-8 string), request{id, nonce, browser, scope[hex entries], valid_for}}; expected {\"ok\": hex} or {\"error\": true}. The nonce is not part of the binding. Oversize refusals (a field over the u16 prefix, a binding over the possession scheme's u16 field) are per-lane unit tests, not 130 KB vectors.",
+      "name": "login-role",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": "01001868747470733a2f2f6461776e2e6578616d706c652f617069a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f000108f3c1d2e4b5a69780f1e2d3c4b5a69780002000d726561643a70726f6a65637473000e726561643a63616d706169676e7300007080"
+      }
+    },
+    {
+      "note": "the collect role differs in the first byte only.",
+      "name": "collect-role",
+      "role": 2,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": "02001868747470733a2f2f6461776e2e6578616d706c652f617069a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f000108f3c1d2e4b5a69780f1e2d3c4b5a69780002000d726561643a70726f6a65637473000e726561643a63616d706169676e7300007080"
+      }
+    },
+    {
+      "note": "an empty scope list is allowed by the scheme (count 0); the law may refuse it.",
+      "name": "empty-scope",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": "01001868747470733a2f2f6461776e2e6578616d706c652f617069a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f000108f3c1d2e4b5a69780f1e2d3c4b5a6978000000007080"
+      }
+    },
+    {
+      "note": "scope entries are UTF-8 bytes, bound as given (NFC or not — the scheme does not normalise).",
+      "name": "unicode-scope",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "7075626c6973683a70726f6a656b74652fc3bc6265727369636874"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": "01001868747470733a2f2f6461776e2e6578616d706c652f617069a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f000108f3c1d2e4b5a69780f1e2d3c4b5a69780002000d726561643a70726f6a65637473001b7075626c6973683a70726f6a656b74652fc3bc626572736963687400007080"
+      }
+    },
+    {
+      "note": "300 entries: the count is u16, the order is the list's.",
+      "name": "many-entries",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a6974656d2f30",
+          "726561643a6974656d2f31",
+          "726561643a6974656d2f32",
+          "726561643a6974656d2f33",
+          "726561643a6974656d2f34",
+          "726561643a6974656d2f35",
+          "726561643a6974656d2f36",
+          "726561643a6974656d2f37",
+          "726561643a6974656d2f38",
+          "726561643a6974656d2f39",
+          "726561643a6974656d2f3130",
+          "726561643a6974656d2f3131",
+          "726561643a6974656d2f3132",
+          "726561643a6974656d2f3133",
+          "726561643a6974656d2f3134",
+          "726561643a6974656d2f3135",
+          "726561643a6974656d2f3136",
+          "726561643a6974656d2f3137",
+          "726561643a6974656d2f3138",
+          "726561643a6974656d2f3139",
+          "726561643a6974656d2f3230",
+          "726561643a6974656d2f3231",
+          "726561643a6974656d2f3232",
+          "726561643a6974656d2f3233",
+          "726561643a6974656d2f3234",
+          "726561643a6974656d2f3235",
+          "726561643a6974656d2f3236",
+          "726561643a6974656d2f3237",
+          "726561643a6974656d2f3238",
+          "726561643a6974656d2f3239",
+          "726561643a6974656d2f3330",
+          "726561643a6974656d2f3331",
+          "726561643a6974656d2f3332",
+          "726561643a6974656d2f3333",
+          "726561643a6974656d2f3334",
+          "726561643a6974656d2f3335",
+          "726561643a6974656d2f3336",
+          "726561643a6974656d2f3337",
+          "726561643a6974656d2f3338",
+          "726561643a6974656d2f3339",
+          "726561643a6974656d2f3430",
+          "726561643a6974656d2f3431",
+          "726561643a6974656d2f3432",
+          "726561643a6974656d2f3433",
+          "726561643a6974656d2f3434",
+          "726561643a6974656d2f3435",
+          "726561643a6974656d2f3436",
+          "726561643a6974656d2f3437",
+          "726561643a6974656d2f3438",
+          "726561643a6974656d2f3439",
+          "726561643a6974656d2f3530",
+          "726561643a6974656d2f3531",
+          "726561643a6974656d2f3532",
+          "726561643a6974656d2f3533",
+          "726561643a6974656d2f3534",
+          "726561643a6974656d2f3535",
+          "726561643a6974656d2f3536",
+          "726561643a6974656d2f3537",
+          "726561643a6974656d2f3538",
+          "726561643a6974656d2f3539",
+          "726561643a6974656d2f3630",
+          "726561643a6974656d2f3631",
+          "726561643a6974656d2f3632",
+          "726561643a6974656d2f3633",
+          "726561643a6974656d2f3634",
+          "726561643a6974656d2f3635",
+          "726561643a6974656d2f3636",
+          "726561643a6974656d2f3637",
+          "726561643a6974656d2f3638",
+          "726561643a6974656d2f3639",
+          "726561643a6974656d2f3730",
+          "726561643a6974656d2f3731",
+          "726561643a6974656d2f3732",
+          "726561643a6974656d2f3733",
+          "726561643a6974656d2f3734",
+          "726561643a6974656d2f3735",
+          "726561643a6974656d2f3736",
+          "726561643a6974656d2f3737",
+          "726561643a6974656d2f3738",
+          "726561643a6974656d2f3739",
+          "726561643a6974656d2f3830",
+          "726561643a6974656d2f3831",
+          "726561643a6974656d2f3832",
+          "726561643a6974656d2f3833",
+          "726561643a6974656d2f3834",
+          "726561643a6974656d2f3835",
+          "726561643a6974656d2f3836",
+          "726561643a6974656d2f3837",
+          "726561643a6974656d2f3838",
+          "726561643a6974656d2f3839",
+          "726561643a6974656d2f3930",
+          "726561643a6974656d2f3931",
+          "726561643a6974656d2f3932",
+          "726561643a6974656d2f3933",
+          "726561643a6974656d2f3934",
+          "726561643a6974656d2f3935",
+          "726561643a6974656d2f3936",
+          "726561643a6974656d2f3937",
+          "726561643a6974656d2f3938",
+          "726561643a6974656d2f3939",
+          "726561643a6974656d2f313030",
+          "726561643a6974656d2f313031",
+          "726561643a6974656d2f313032",
+          "726561643a6974656d2f313033",
+          "726561643a6974656d2f313034",
+          "726561643a6974656d2f313035",
+          "726561643a6974656d2f313036",
+          "726561643a6974656d2f313037",
+          "726561643a6974656d2f313038",
+          "726561643a6974656d2f313039",
+          "726561643a6974656d2f313130",
+          "726561643a6974656d2f313131",
+          "726561643a6974656d2f313132",
+          "726561643a6974656d2f313133",
+          "726561643a6974656d2f313134",
+          "726561643a6974656d2f313135",
+          "726561643a6974656d2f313136",
+          "726561643a6974656d2f313137",
+          "726561643a6974656d2f313138",
+          "726561643a6974656d2f313139",
+          "726561643a6974656d2f313230",
+          "726561643a6974656d2f313231",
+          "726561643a6974656d2f313232",
+          "726561643a6974656d2f313233",
+          "726561643a6974656d2f313234",
+          "726561643a6974656d2f313235",
+          "726561643a6974656d2f313236",
+          "726561643a6974656d2f313237",
+          "726561643a6974656d2f313238",
+          "726561643a6974656d2f313239",
+          "726561643a6974656d2f313330",
+          "726561643a6974656d2f313331",
+          "726561643a6974656d2f313332",
+          "726561643a6974656d2f313333",
+          "726561643a6974656d2f313334",
+          "726561643a6974656d2f313335",
+          "726561643a6974656d2f313336",
+          "726561643a6974656d2f313337",
+          "726561643a6974656d2f313338",
+          "726561643a6974656d2f313339",
+          "726561643a6974656d2f313430",
+          "726561643a6974656d2f313431",
+          "726561643a6974656d2f313432",
+          "726561643a6974656d2f313433",
+          "726561643a6974656d2f313434",
+          "726561643a6974656d2f313435",
+          "726561643a6974656d2f313436",
+          "726561643a6974656d2f313437",
+          "726561643a6974656d2f313438",
+          "726561643a6974656d2f313439",
+          "726561643a6974656d2f313530",
+          "726561643a6974656d2f313531",
+          "726561643a6974656d2f313532",
+          "726561643a6974656d2f313533",
+          "726561643a6974656d2f313534",
+          "726561643a6974656d2f313535",
+          "726561643a6974656d2f313536",
+          "726561643a6974656d2f313537",
+          "726561643a6974656d2f313538",
+          "726561643a6974656d2f313539",
+          "726561643a6974656d2f313630",
+          "726561643a6974656d2f313631",
+          "726561643a6974656d2f313632",
+          "726561643a6974656d2f313633",
+          "726561643a6974656d2f313634",
+          "726561643a6974656d2f313635",
+          "726561643a6974656d2f313636",
+          "726561643a6974656d2f313637",
+          "726561643a6974656d2f313638",
+          "726561643a6974656d2f313639",
+          "726561643a6974656d2f313730",
+          "726561643a6974656d2f313731",
+          "726561643a6974656d2f313732",
+          "726561643a6974656d2f313733",
+          "726561643a6974656d2f313734",
+          "726561643a6974656d2f313735",
+          "726561643a6974656d2f313736",
+          "726561643a6974656d2f313737",
+          "726561643a6974656d2f313738",
+          "726561643a6974656d2f313739",
+          "726561643a6974656d2f313830",
+          "726561643a6974656d2f313831",
+          "726561643a6974656d2f313832",
+          "726561643a6974656d2f313833",
+          "726561643a6974656d2f313834",
+          "726561643a6974656d2f313835",
+          "726561643a6974656d2f313836",
+          "726561643a6974656d2f313837",
+          "726561643a6974656d2f313838",
+          "726561643a6974656d2f313839",
+          "726561643a6974656d2f313930",
+          "726561643a6974656d2f313931",
+          "726561643a6974656d2f313932",
+          "726561643a6974656d2f313933",
+          "726561643a6974656d2f313934",
+          "726561643a6974656d2f313935",
+          "726561643a6974656d2f313936",
+          "726561643a6974656d2f313937",
+          "726561643a6974656d2f313938",
+          "726561643a6974656d2f313939",
+          "726561643a6974656d2f323030",
+          "726561643a6974656d2f323031",
+          "726561643a6974656d2f323032",
+          "726561643a6974656d2f323033",
+          "726561643a6974656d2f323034",
+          "726561643a6974656d2f323035",
+          "726561643a6974656d2f323036",
+          "726561643a6974656d2f323037",
+          "726561643a6974656d2f323038",
+          "726561643a6974656d2f323039",
+          "726561643a6974656d2f323130",
+          "726561643a6974656d2f323131",
+          "726561643a6974656d2f323132",
+          "726561643a6974656d2f323133",
+          "726561643a6974656d2f323134",
+          "726561643a6974656d2f323135",
+          "726561643a6974656d2f323136",
+          "726561643a6974656d2f323137",
+          "726561643a6974656d2f323138",
+          "726561643a6974656d2f323139",
+          "726561643a6974656d2f323230",
+          "726561643a6974656d2f323231",
+          "726561643a6974656d2f323232",
+          "726561643a6974656d2f323233",
+          "726561643a6974656d2f323234",
+          "726561643a6974656d2f323235",
+          "726561643a6974656d2f323236",
+          "726561643a6974656d2f323237",
+          "726561643a6974656d2f323238",
+          "726561643a6974656d2f323239",
+          "726561643a6974656d2f323330",
+          "726561643a6974656d2f323331",
+          "726561643a6974656d2f323332",
+          "726561643a6974656d2f323333",
+          "726561643a6974656d2f323334",
+          "726561643a6974656d2f323335",
+          "726561643a6974656d2f323336",
+          "726561643a6974656d2f323337",
+          "726561643a6974656d2f323338",
+          "726561643a6974656d2f323339",
+          "726561643a6974656d2f323430",
+          "726561643a6974656d2f323431",
+          "726561643a6974656d2f323432",
+          "726561643a6974656d2f323433",
+          "726561643a6974656d2f323434",
+          "726561643a6974656d2f323435",
+          "726561643a6974656d2f323436",
+          "726561643a6974656d2f323437",
+          "726561643a6974656d2f323438",
+          "726561643a6974656d2f323439",
+          "726561643a6974656d2f323530",
+          "726561643a6974656d2f323531",
+          "726561643a6974656d2f323532",
+          "726561643a6974656d2f323533",
+          "726561643a6974656d2f323534",
+          "726561643a6974656d2f323535",
+          "726561643a6974656d2f323536",
+          "726561643a6974656d2f323537",
+          "726561643a6974656d2f323538",
+          "726561643a6974656d2f323539",
+          "726561643a6974656d2f323630",
+          "726561643a6974656d2f323631",
+          "726561643a6974656d2f323632",
+          "726561643a6974656d2f323633",
+          "726561643a6974656d2f323634",
+          "726561643a6974656d2f323635",
+          "726561643a6974656d2f323636",
+          "726561643a6974656d2f323637",
+          "726561643a6974656d2f323638",
+          "726561643a6974656d2f323639",
+          "726561643a6974656d2f323730",
+          "726561643a6974656d2f323731",
+          "726561643a6974656d2f323732",
+          "726561643a6974656d2f323733",
+          "726561643a6974656d2f323734",
+          "726561643a6974656d2f323735",
+          "726561643a6974656d2f323736",
+          "726561643a6974656d2f323737",
+          "726561643a6974656d2f323738",
+          "726561643a6974656d2f323739",
+          "726561643a6974656d2f323830",
+          "726561643a6974656d2f323831",
+          "726561643a6974656d2f323832",
+          "726561643a6974656d2f323833",
+          "726561643a6974656d2f323834",
+          "726561643a6974656d2f323835",
+          "726561643a6974656d2f323836",
+          "726561643a6974656d2f323837",
+          "726561643a6974656d2f323838",
+          "726561643a6974656d2f323839",
+          "726561643a6974656d2f323930",
+          "726561643a6974656d2f323931",
+          "726561643a6974656d2f323932",
+          "726561643a6974656d2f323933",
+          "726561643a6974656d2f323934",
+          "726561643a6974656d2f323935",
+          "726561643a6974656d2f323936",
+          "726561643a6974656d2f323937",
+          "726561643a6974656d2f323938",
+          "726561643a6974656d2f323939"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": "01001868747470733a2f2f6461776e2e6578616d706c652f617069a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f000108f3c1d2e4b5a69780f1e2d3c4b5a6978012c000b726561643a6974656d2f30000b726561643a6974656d2f31000b726561643a6974656d2f32000b726561643a6974656d2f33000b726561643a6974656d2f34000b726561643a6974656d2f35000b726561643a6974656d2f36000b726561643a6974656d2f37000b726561643a6974656d2f38000b726561643a6974656d2f39000c726561643a6974656d2f3130000c726561643a6974656d2f3131000c726561643a6974656d2f3132000c726561643a6974656d2f3133000c726561643a6974656d2f3134000c726561643a6974656d2f3135000c726561643a6974656d2f3136000c726561643a6974656d2f3137000c726561643a6974656d2f3138000c726561643a6974656d2f3139000c726561643a6974656d2f3230000c726561643a6974656d2f3231000c726561643a6974656d2f3232000c726561643a6974656d2f3233000c726561643a6974656d2f3234000c726561643a6974656d2f3235000c726561643a6974656d2f3236000c726561643a6974656d2f3237000c726561643a6974656d2f3238000c726561643a6974656d2f3239000c726561643a6974656d2f3330000c726561643a6974656d2f3331000c726561643a6974656d2f3332000c726561643a6974656d2f3333000c726561643a6974656d2f3334000c726561643a6974656d2f3335000c726561643a6974656d2f3336000c726561643a6974656d2f3337000c726561643a6974656d2f3338000c726561643a6974656d2f3339000c726561643a6974656d2f3430000c726561643a6974656d2f3431000c726561643a6974656d2f3432000c726561643a6974656d2f3433000c726561643a6974656d2f3434000c726561643a6974656d2f3435000c726561643a6974656d2f3436000c726561643a6974656d2f3437000c726561643a6974656d2f3438000c726561643a6974656d2f3439000c726561643a6974656d2f3530000c726561643a6974656d2f3531000c726561643a6974656d2f3532000c726561643a6974656d2f3533000c726561643a6974656d2f3534000c726561643a6974656d2f3535000c726561643a6974656d2f3536000c726561643a6974656d2f3537000c726561643a6974656d2f3538000c726561643a6974656d2f3539000c726561643a6974656d2f3630000c726561643a6974656d2f3631000c726561643a6974656d2f3632000c726561643a6974656d2f3633000c726561643a6974656d2f3634000c726561643a6974656d2f3635000c726561643a6974656d2f3636000c726561643a6974656d2f3637000c726561643a6974656d2f3638000c726561643a6974656d2f3639000c726561643a6974656d2f3730000c726561643a6974656d2f3731000c726561643a6974656d2f3732000c726561643a6974656d2f3733000c726561643a6974656d2f3734000c726561643a6974656d2f3735000c726561643a6974656d2f3736000c726561643a6974656d2f3737000c726561643a6974656d2f3738000c726561643a6974656d2f3739000c726561643a6974656d2f3830000c726561643a6974656d2f3831000c726561643a6974656d2f3832000c726561643a6974656d2f3833000c726561643a6974656d2f3834000c726561643a6974656d2f3835000c726561643a6974656d2f3836000c726561643a6974656d2f3837000c726561643a6974656d2f3838000c726561643a6974656d2f3839000c726561643a6974656d2f3930000c726561643a6974656d2f3931000c726561643a6974656d2f3932000c726561643a6974656d2f3933000c726561643a6974656d2f3934000c726561643a6974656d2f3935000c726561643a6974656d2f3936000c726561643a6974656d2f3937000c726561643a6974656d2f3938000c726561643a6974656d2f3939000d726561643a6974656d2f313030000d726561643a6974656d2f313031000d726561643a6974656d2f313032000d726561643a6974656d2f313033000d726561643a6974656d2f313034000d726561643a6974656d2f313035000d726561643a6974656d2f313036000d726561643a6974656d2f313037000d726561643a6974656d2f313038000d726561643a6974656d2f313039000d726561643a6974656d2f313130000d726561643a6974656d2f313131000d726561643a6974656d2f313132000d726561643a6974656d2f313133000d726561643a6974656d2f313134000d726561643a6974656d2f313135000d726561643a6974656d2f313136000d726561643a6974656d2f313137000d726561643a6974656d2f313138000d726561643a6974656d2f313139000d726561643a6974656d2f313230000d726561643a6974656d2f313231000d726561643a6974656d2f313232000d726561643a6974656d2f313233000d726561643a6974656d2f313234000d726561643a6974656d2f313235000d726561643a6974656d2f313236000d726561643a6974656d2f313237000d726561643a6974656d2f313238000d726561643a6974656d2f313239000d726561643a6974656d2f313330000d726561643a6974656d2f313331000d726561643a6974656d2f313332000d726561643a6974656d2f313333000d726561643a6974656d2f313334000d726561643a6974656d2f313335000d726561643a6974656d2f313336000d726561643a6974656d2f313337000d726561643a6974656d2f313338000d726561643a6974656d2f313339000d726561643a6974656d2f313430000d726561643a6974656d2f313431000d726561643a6974656d2f313432000d726561643a6974656d2f313433000d726561643a6974656d2f313434000d726561643a6974656d2f313435000d726561643a6974656d2f313436000d726561643a6974656d2f313437000d726561643a6974656d2f313438000d726561643a6974656d2f313439000d726561643a6974656d2f313530000d726561643a6974656d2f313531000d726561643a6974656d2f313532000d726561643a6974656d2f313533000d726561643a6974656d2f313534000d726561643a6974656d2f313535000d726561643a6974656d2f313536000d726561643a6974656d2f313537000d726561643a6974656d2f313538000d726561643a6974656d2f313539000d726561643a6974656d2f313630000d726561643a6974656d2f313631000d726561643a6974656d2f313632000d726561643a6974656d2f313633000d726561643a6974656d2f313634000d726561643a6974656d2f313635000d726561643a6974656d2f313636000d726561643a6974656d2f313637000d726561643a6974656d2f313638000d726561643a6974656d2f313639000d726561643a6974656d2f313730000d726561643a6974656d2f313731000d726561643a6974656d2f313732000d726561643a6974656d2f313733000d726561643a6974656d2f313734000d726561643a6974656d2f313735000d726561643a6974656d2f313736000d726561643a6974656d2f313737000d726561643a6974656d2f313738000d726561643a6974656d2f313739000d726561643a6974656d2f313830000d726561643a6974656d2f313831000d726561643a6974656d2f313832000d726561643a6974656d2f313833000d726561643a6974656d2f313834000d726561643a6974656d2f313835000d726561643a6974656d2f313836000d726561643a6974656d2f313837000d726561643a6974656d2f313838000d726561643a6974656d2f313839000d726561643a6974656d2f313930000d726561643a6974656d2f313931000d726561643a6974656d2f313932000d726561643a6974656d2f313933000d726561643a6974656d2f313934000d726561643a6974656d2f313935000d726561643a6974656d2f313936000d726561643a6974656d2f313937000d726561643a6974656d2f313938000d726561643a6974656d2f313939000d726561643a6974656d2f323030000d726561643a6974656d2f323031000d726561643a6974656d2f323032000d726561643a6974656d2f323033000d726561643a6974656d2f323034000d726561643a6974656d2f323035000d726561643a6974656d2f323036000d726561643a6974656d2f323037000d726561643a6974656d2f323038000d726561643a6974656d2f323039000d726561643a6974656d2f323130000d726561643a6974656d2f323131000d726561643a6974656d2f323132000d726561643a6974656d2f323133000d726561643a6974656d2f323134000d726561643a6974656d2f323135000d726561643a6974656d2f323136000d726561643a6974656d2f323137000d726561643a6974656d2f323138000d726561643a6974656d2f323139000d726561643a6974656d2f323230000d726561643a6974656d2f323231000d726561643a6974656d2f323232000d726561643a6974656d2f323233000d726561643a6974656d2f323234000d726561643a6974656d2f323235000d726561643a6974656d2f323236000d726561643a6974656d2f323237000d726561643a6974656d2f323238000d726561643a6974656d2f323239000d726561643a6974656d2f323330000d726561643a6974656d2f323331000d726561643a6974656d2f323332000d726561643a6974656d2f323333000d726561643a6974656d2f323334000d726561643a6974656d2f323335000d726561643a6974656d2f323336000d726561643a6974656d2f323337000d726561643a6974656d2f323338000d726561643a6974656d2f323339000d726561643a6974656d2f323430000d726561643a6974656d2f323431000d726561643a6974656d2f323432000d726561643a6974656d2f323433000d726561643a6974656d2f323434000d726561643a6974656d2f323435000d726561643a6974656d2f323436000d726561643a6974656d2f323437000d726561643a6974656d2f323438000d726561643a6974656d2f323439000d726561643a6974656d2f323530000d726561643a6974656d2f323531000d726561643a6974656d2f323532000d726561643a6974656d2f323533000d726561643a6974656d2f323534000d726561643a6974656d2f323535000d726561643a6974656d2f323536000d726561643a6974656d2f323537000d726561643a6974656d2f323538000d726561643a6974656d2f323539000d726561643a6974656d2f323630000d726561643a6974656d2f323631000d726561643a6974656d2f323632000d726561643a6974656d2f323633000d726561643a6974656d2f323634000d726561643a6974656d2f323635000d726561643a6974656d2f323636000d726561643a6974656d2f323637000d726561643a6974656d2f323638000d726561643a6974656d2f323639000d726561643a6974656d2f323730000d726561643a6974656d2f323731000d726561643a6974656d2f323732000d726561643a6974656d2f323733000d726561643a6974656d2f323734000d726561643a6974656d2f323735000d726561643a6974656d2f323736000d726561643a6974656d2f323737000d726561643a6974656d2f323738000d726561643a6974656d2f323739000d726561643a6974656d2f323830000d726561643a6974656d2f323831000d726561643a6974656d2f323832000d726561643a6974656d2f323833000d726561643a6974656d2f323834000d726561643a6974656d2f323835000d726561643a6974656d2f323836000d726561643a6974656d2f323837000d726561643a6974656d2f323838000d726561643a6974656d2f323839000d726561643a6974656d2f323930000d726561643a6974656d2f323931000d726561643a6974656d2f323932000d726561643a6974656d2f323933000d726561643a6974656d2f323934000d726561643a6974656d2f323935000d726561643a6974656d2f323936000d726561643a6974656d2f323937000d726561643a6974656d2f323938000d726561643a6974656d2f32393900007080"
+      }
+    },
+    {
+      "note": "valid_for is u32 big-endian; the maximum is representable.",
+      "name": "max-validity",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 4294967295
+      },
+      "result": {
+        "ok": "01001868747470733a2f2f6461776e2e6578616d706c652f617069a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f000108f3c1d2e4b5a69780f1e2d3c4b5a69780002000d726561643a70726f6a65637473000e726561643a63616d706169676e73ffffffff"
+      }
+    },
+    {
+      "note": "a one-byte id is the minimum.",
+      "name": "min-id",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "00",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": "01001868747470733a2f2f6461776e2e6578616d706c652f617069a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f00001000002000d726561643a70726f6a65637473000e726561643a63616d706169676e7300007080"
+      }
+    },
+    {
+      "note": "an unknown role is refused.",
+      "name": "role-unknown-rejected",
+      "role": 3,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an empty audience is refused: it is the field that makes the proof unrelayable.",
+      "name": "audience-empty-rejected",
+      "role": 1,
+      "audience": "",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a control character in the audience is refused (it is displayed before signing).",
+      "name": "audience-control-rejected",
+      "role": 1,
+      "audience": "https://dawn.example/api\n",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the browser key must be exactly 32 bytes.",
+      "name": "browser-short-rejected",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the browser key must be exactly 32 bytes.",
+      "name": "browser-long-rejected",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f000",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an empty id is refused.",
+      "name": "id-empty-rejected",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an empty scope entry is refused (the list may be empty; an entry may not).",
+      "name": "scope-entry-empty-rejected",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          ""
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a control character (U+0007) in a scope entry is refused: the CLI prints entries verbatim.",
+      "name": "scope-control-rejected",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a0770726f6a65637473"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "U+007F in a scope entry is refused.",
+      "name": "scope-del-rejected",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a7f70726f6a65637473"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a scope entry that is not valid UTF-8 (0xff) is refused.",
+      "name": "scope-not-utf8-rejected",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643aff70726f6a65637473"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "valid_for 0 is refused.",
+      "name": "validity-zero-rejected",
+      "role": 1,
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 0
+      },
+      "result": {
+        "error": true
+      }
+    }
+  ],
+  "login_prove": [
+    {
+      "note": "the login proof: possession by P in domain archon-login/1 over the request's nonce and the login binding — Ed25519ph, context-string archon-login/1, over 0x01 ‖ u16 len ‖ nonce ‖ u16 len ‖ binding. Inputs {seed, audience, request}; expected {\"ok\": 128 hex} or {\"error\": true}. Signatures derived with OpenSSL 3.2.4 — an implementation outside all three cores.",
+      "name": "basic",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401"
+      }
+    },
+    {
+      "note": "empty scope list proves.",
+      "name": "empty-scope",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": "c186b0443df1bf14819cbfefe927bfaab9c329d5c1eb2e3aed090f1bbd84e66014626e36dd0c65987d00f86567cd79687243302aaaa2aecc576dd11aa6af4606"
+      }
+    },
+    {
+      "note": "unicode scope entries prove over their UTF-8 bytes.",
+      "name": "unicode-scope",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "7075626c6973683a70726f6a656b74652fc3bc6265727369636874"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": "361cf8c6d605fb5d89943e86f3bed8fde32702d430ad0778661491bbd2cd7a5d6ca5e1716fc99895cf3c0b764611f30701b5b950f59cb3e9e0d9771fdcb3e405"
+      }
+    },
+    {
+      "note": "a 15-byte nonce is refused by the possession scheme.",
+      "name": "nonce-short-rejected",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "every binding refusal is a prove refusal: empty audience.",
+      "name": "audience-empty-rejected",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "audience": "",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "every binding refusal is a prove refusal: zero validity.",
+      "name": "validity-zero-rejected",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 0
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a 31-byte seed is refused by the floor.",
+      "name": "seed-short-rejected",
+      "seed": "11111111111111111111111111111111111111111111111111111111111111",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    }
+  ],
+  "login_verify": [
+    {
+      "note": "verify the login proof: inputs {pubkey, audience, request, sig}; expected {valid: bool}. Total: every shape failure is false. The substitutions are the content — each bound field must bind, and no signature of another shape is a proof.",
+      "name": "basic",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": true
+    },
+    {
+      "note": "the same proof at another audience is not a proof there — the relay case.",
+      "name": "wrong-audience",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://evil.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "the audience is bound byte-for-byte: a trailing slash is a different audience (the CLI trims it before binding; the server's configuration must match).",
+      "name": "audience-trailing-slash",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api/",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "another browser key.",
+      "name": "wrong-browser",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "another request id.",
+      "name": "wrong-id",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "00000000000000000000000000000000",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "another nonce.",
+      "name": "wrong-nonce",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "abababababababababababababababab",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "the scope list is ordered.",
+      "name": "scope-reordered",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a63616d706169676e73",
+          "726561643a70726f6a65637473"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "one entry changed.",
+      "name": "scope-entry-changed",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "77726974653a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "one entry added.",
+      "name": "scope-entry-added",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73",
+          "61646d696e"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "one entry removed.",
+      "name": "scope-entry-removed",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "valid_for changed by one second.",
+      "name": "validity-changed",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28801
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "another key's proof does not verify under P.",
+      "name": "wrong-key",
+      "pubkey": "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "a possession proof in archon-login/2 is not a login proof.",
+      "name": "other-domain",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "43f9655ea006bd9605d0a5ef036c677ebc922592037949a60f6db6e5468fe5083a88b203cc2d58772e9d0101f023df07d22faa3ac419292fc4b47b88e1566f07",
+      "valid": false
+    },
+    {
+      "note": "a plain Ed25519 signature over the possession message is not a proof (no context).",
+      "name": "raw-signature",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "45187a231360a30884745f779e32fac6c3ae3fc8b2709a1021fd6692e62b9a7541df5c82ccc5ec9610f9945e49925708235d78fa95f1bc2ba86cb7c069d30b0a",
+      "valid": false
+    },
+    {
+      "note": "Ed25519ph without the context is not a proof.",
+      "name": "ph-without-context",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "603caa7613225cfddbe5260be98b7cf104fafdcc1ab432b5a50249d2de8f587568d80e5d4087b86e280efd34d180abd74d16716ed331e05779a4622e9b936507",
+      "valid": false
+    },
+    {
+      "note": "a signature over the nonce alone is not a proof.",
+      "name": "bare-nonce",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "f9f513bf97aad2d239db88de3165047f4e0a8ab830fe9567f023350551ee5df69e7814e8264c24f9f04476ab945dad22ba8adf9cfcdf582630f9427472c4240f",
+      "valid": false
+    },
+    {
+      "note": "a signature over the binding without the possession layout is not a proof.",
+      "name": "binding-without-possession-layout",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "f84946266fb5b074a77bbaf729ae02ac3143bf27c4cfa1f37a2b5213e590e31d06d4a6e9e960c394f3d666c6c93d151f742f7a4d3a52aef9828acbb09ba87a06",
+      "valid": false
+    },
+    {
+      "note": "the collect-role proof, even by P, is not a login proof.",
+      "name": "collect-role",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "053ed3487d67ed93551ec8f864893323ee64760938615eb447843ee76ce31b37e13dc53efd241fd391a04bf5a49e61c9bf91625ea739f8d2a0c9baa118caca04",
+      "valid": false
+    },
+    {
+      "note": "63 bytes.",
+      "name": "sig-truncated",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf4",
+      "valid": false
+    },
+    {
+      "note": "one bit flipped.",
+      "name": "sig-flipped",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fa5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "31-byte key.",
+      "name": "pubkey-short",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "a 15-byte nonce is false even with a matching signature shape.",
+      "name": "nonce-short",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    },
+    {
+      "note": "a control character in the request is false, not an error.",
+      "name": "scope-control",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a0770726f6a65637473"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "fb5f1c997095d170d8d2757356d41cc0e058c70a5732e15ec3a4f489eb73cd40eddf6ae6d9615a4e8397d3da455d76c578f8bfe990500cc73f7312ba0c0bf401",
+      "valid": false
+    }
+  ],
+  "login_collect_prove": [
+    {
+      "note": "the collect proof: possession by K (the key the request names as browser) in archon-login/1 over the nonce and the collect binding (role 0x02). Inputs {seed, audience, request}; expected {\"ok\": 128 hex} or {\"error\": true}. Derived with OpenSSL 3.2.4.",
+      "name": "basic",
+      "seed": "2222222222222222222222222222222222222222222222222222222222222222",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": "61821eec3dbc91e83ecc0874ef436c630a25b1b70ff4d7f9af9dee70f0cae3e88d353c595f96135da55f75fb676f707dfb9ac3c5e29d8273b19586afc9448905"
+      }
+    },
+    {
+      "note": "a seed whose public key is not the request's browser is refused: only K may collect.",
+      "name": "not-the-browser-key-rejected",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "binding refusals apply: empty audience.",
+      "name": "audience-empty-rejected",
+      "seed": "2222222222222222222222222222222222222222222222222222222222222222",
+      "audience": "",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a short nonce is refused.",
+      "name": "nonce-short-rejected",
+      "seed": "2222222222222222222222222222222222222222222222222222222222222222",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    }
+  ],
+  "login_collect_verify": [
+    {
+      "note": "verify the collect proof under the request's own browser key: inputs {audience, request, sig}; expected {valid: bool}. Total.",
+      "name": "basic",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "61821eec3dbc91e83ecc0874ef436c630a25b1b70ff4d7f9af9dee70f0cae3e88d353c595f96135da55f75fb676f707dfb9ac3c5e29d8273b19586afc9448905",
+      "valid": true
+    },
+    {
+      "note": "another audience.",
+      "name": "wrong-audience",
+      "audience": "https://evil.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "61821eec3dbc91e83ecc0874ef436c630a25b1b70ff4d7f9af9dee70f0cae3e88d353c595f96135da55f75fb676f707dfb9ac3c5e29d8273b19586afc9448905",
+      "valid": false
+    },
+    {
+      "note": "K's login-role proof is not a collect proof.",
+      "name": "login-role",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "266caed99b4f57011b41743b5099649bf9be3826bc566fe3be39f693706a860b237c39a6e9bd67586eb6e95664c1d45857666715181325af649fb9de9a66980c",
+      "valid": false
+    },
+    {
+      "note": "the request names another browser key, so the proof is checked under that key and fails.",
+      "name": "wrong-browser",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "61821eec3dbc91e83ecc0874ef436c630a25b1b70ff4d7f9af9dee70f0cae3e88d353c595f96135da55f75fb676f707dfb9ac3c5e29d8273b19586afc9448905",
+      "valid": false
+    },
+    {
+      "note": "valid_for changed.",
+      "name": "validity-changed",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28801
+      },
+      "sig": "61821eec3dbc91e83ecc0874ef436c630a25b1b70ff4d7f9af9dee70f0cae3e88d353c595f96135da55f75fb676f707dfb9ac3c5e29d8273b19586afc9448905",
+      "valid": false
+    },
+    {
+      "note": "63 bytes.",
+      "name": "sig-truncated",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "sig": "61821eec3dbc91e83ecc0874ef436c630a25b1b70ff4d7f9af9dee70f0cae3e88d353c595f96135da55f75fb676f707dfb9ac3c5e29d8273b19586afc94489",
+      "valid": false
+    }
+  ]
+}

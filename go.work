@@ -1,0 +1,22 @@
+// Workspace: the floor and the layer above it resolve each other locally, so a change
+// to core/go is visible to sdk/go without a push and a pseudo-version bump. Consumers
+// never see this file — they resolve sdk/go's require line from GitHub.
+go 1.25
+
+use (
+	./cli/go
+	./server/go
+	./core/go
+	./sdk/go
+)
+
+// `use` above already points at these directories, and for a build made only of workspace
+// modules that is enough. The moment a member gains a dependency from OUTSIDE the
+// workspace — custody brought cli/go its first (ADR 0007 §A) — the module graph is
+// computed the ordinary way, and the require lines below are looked up as real versions.
+// Bitspark/archon is private, so a CI runner has no credentials for that lookup and the
+// build dies on `git ls-remote` while a developer machine sails through on GOPRIVATE plus
+// a token. These replaces say what `use` already means, unconditionally.
+replace github.com/Bitspark/archon/core/go v0.6.0 => ./core/go
+
+replace github.com/Bitspark/archon/sdk/go v0.6.0 => ./sdk/go

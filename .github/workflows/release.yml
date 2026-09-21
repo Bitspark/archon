@@ -1,0 +1,224 @@
+# Release: publish the four npm packages and the four crates for a tagged version, then
+# create the GitHub release. Modelled on nightseam's release.yml, which is the org's public
+# release shape; the npm rewrite and round-trip steps are carried over from archon's own
+# GitHub-Packages publish workflow, where they are proven.
+#
+# ⛔ THE TAG-PUSH TRAP. GitHub creates NO `push` event for a push that creates MORE THAN
+#    THREE TAGS. archon tags FIVE per release — `vX` plus `core/go/vX`, `sdk/go/vX`,
+#    `cli/go/vX`, `server/go/vX` — so pushing them together fires nothing, reds nothing, and
+#    is indistinguishable from a workflow with nothing to do. Two releases were lost this way
+#    before it was diagnosed. Either:
+#      * push the family tag `vX` ALONE first (it triggers this), then the four module tags; or
+#      * push them all and run this by `workflow_dispatch` with the tag as input.
+#    The dispatch path is not a fallback — it is a first-class entry point, and it is also how
+#    a release is REHEARSED without publishing anything.
+#
+# ⚠ Go modules are not published anywhere: the module proxy fetches them from this repository
+#   on demand. What a Go consumer needs is the per-module TAGS, which this workflow verifies
+#   exist rather than creates. A missing `core/go/vX` is a release that looks complete and is
+#   not resolvable.
+#
+# Secrets this needs, as repository secrets (neither is inherited):
+#   NPM_TOKEN             — a granular npm token for the @bitspark scope
+#   CARGO_REGISTRY_TOKEN  — a crates.io token
+#
+# Runners are hosted, deliberately and without exception: see conformance.yml.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The version to publish or rehearse, e.g. v0.6.0."
+        required: true
+      rehearse:
+        description: "true = build, check and pack, but publish NOTHING and create no release."
+        required: false
+        default: "true"
+
+permissions:
+  contents: write   # create the GitHub release
+  id-token: write   # npm provenance is minted from a short-lived OIDC token
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Every run — a tag's or a rehearsal's — waits here for the reviewer the environment
+    # names before a single step runs. nightseam does the same, and the reason is that a
+    # publish cannot be taken back: a version burned on npm or crates.io stays burned.
+    # The environment is also what a trusted publisher is scoped to on both registries.
+    environment: release
+    timeout-minutes: 45
+    env:
+      TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+      REHEARSE: ${{ github.event_name == 'workflow_dispatch' && inputs.rehearse || 'false' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref || inputs.tag }}
+          fetch-depth: 0
+
+      - name: Hold the remote tag to the checked-out commit
+        # A dispatch takes a tag NAME; nothing guarantees the ref it resolved to is still the
+        # one being released. Compare explicitly rather than trusting the checkout.
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          remote=$(git rev-list -n1 "$TAG")
+          head=$(git rev-parse HEAD)
+          [ "$remote" = "$head" ] || { echo "::error::$TAG is $remote but HEAD is $head" >&2; exit 1; }
+          echo "releasing $TAG at $head"
+
+      - name: Hold every manifest version to the tag
+        # Eight manifests carry a version, and a release in which one of them disagrees is a
+        # release that publishes two different things under one name. The floor's version is
+        # also what the dependent packages' ranges are derived from at publish time, so a
+        # mismatch here is not cosmetic.
+        run: |
+          set -euo pipefail
+          want="${TAG#v}"
+          fail=0
+          for f in core/ts/package.json sdk/ts/package.json cli/ts/package.json server/ts/package.json; do
+            got=$(node -p "require('./$f').version")
+            [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
+          done
+          for f in core/rs/Cargo.toml sdk/rs/Cargo.toml cli/rs/Cargo.toml server/rs/Cargo.toml; do
+            got=$(grep -m1 '^version = ' "$f" | sed 's/version = "\(.*\)"/\1/')
+            [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
+          done
+          exit $fail
+
+      - name: Hold the Go module tags to the same version
+        # Go publishes nothing; the tags ARE the release. Verify all four exist for this
+        # version, because their absence is invisible until a consumer cannot resolve them.
+        run: |
+          set -euo pipefail
+          fail=0
+          for m in core sdk cli server; do
+            git rev-parse -q --verify "refs/tags/$m/go/$TAG" >/dev/null \
+              || { echo "::error::missing Go module tag $m/go/$TAG — see the tag-push trap in this file's header"; fail=1; }
+          done
+          exit $fail
+
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.25" }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+
+      - name: The three cores agree
+        # The release gate is the same one every push runs. A version that cannot demonstrate
+        # tri-core agreement is not publishable in any language.
+        run: node conformance/check.mjs
+
+      - name: Check what provenance needs
+        # npm provenance requires a PUBLIC repository and id-token: write. Fail here with a
+        # sentence rather than at `npm publish` with a token error.
+        run: |
+          set -euo pipefail
+          vis=$(gh repo view "$GITHUB_REPOSITORY" --json visibility --jq .visibility)
+          [ "$vis" = "PUBLIC" ] || { echo "::error::repository is $vis; npm provenance requires PUBLIC" >&2; exit 1; }
+          echo "public repository and id-token: write — provenance can be minted"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Publish to npm, floor first
+        # Order is a dependency order, not a preference: the sdk names the floor, the command
+        # names the sdk, and each must be on the registry before the next is published.
+        #
+        # The repository commits `file:` links so conformance.yml can build the tiers against
+        # THIS checkout's floor with no registry auth. That is unpublishable as-is, so the
+        # links are rewritten to registry ranges HERE, in the runner's working tree only.
+        # Nothing commits it. The range is derived from the floor's version in this checkout,
+        # so a dependent always names the floor it was just tested against.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          DRY=""; [ "$REHEARSE" = "true" ] && DRY="--dry-run"
+          FLOOR=$(node -p "require('./core/ts/package.json').version")
+
+          publish() {
+            d="$1"; shift
+            ( cd "$d"
+              for dep in "$@"; do npm pkg set "dependencies.$dep=^$FLOOR"; done
+              PKG=$(node -p "require('./package.json').name")
+              VER=$(node -p "require('./package.json').version")
+              if npm view "$PKG@$VER" version >/dev/null 2>&1; then
+                echo "$PKG@$VER already on the registry — skipping"
+              else
+                npm publish --access public --provenance $DRY
+              fi )
+          }
+
+          publish core/ts
+          publish sdk/ts    "@bitspark/archon"
+          publish cli/ts    "@bitspark/archon" "@bitspark/archon-sdk"
+          publish server/ts "@bitspark/archon" "@bitspark/archon-sdk"
+
+      # crates.io trusted publishing: exchange this run's OIDC identity for a ~30-minute
+      # token, so no long-lived CARGO_REGISTRY_TOKEN is stored. It only works once a trusted
+      # publisher exists for the crate, which requires the crate to exist, which requires one
+      # manual first publish. Until then the step is skipped and the secret is used instead.
+      - name: Mint a crates.io token from this run's identity
+        id: cratesio-auth
+        if: vars.CRATES_IO_TRUSTED_PUBLISHING == 'true'
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish to crates.io, floor first
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.cratesio-auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          DRY=""; [ "$REHEARSE" = "true" ] && DRY="--dry-run"
+          # All four publish under the `bitspark-` prefix (operator ruling): crates.io has one
+          # flat namespace, and `archon-cli` and bare `archon` are held by an unrelated project.
+          # The prefix is a REGISTRY name only -- [lib] name is pinned in each manifest, so
+          # consumers still write `use archon_core::` and the installed binary is `archon`.
+          # Order is dependency order; server and cli both name core and sdk.
+          for c in core/rs sdk/rs server/rs cli/rs; do
+            ( cd "$c"
+              # crates.io serves a new version a moment after it accepts it; a dependent
+              # published immediately can fail to resolve the floor it names.
+              cargo publish $DRY --allow-dirty || {
+                echo "::error::cargo publish failed in $c" >&2; exit 1; }
+            )
+            [ -z "$DRY" ] && sleep 30 || true
+          done
+
+      - name: The round trip against what was published
+        if: env.REHEARSE != 'true'
+        # "On the registry" is a claim until an install from nothing proves it. A clean
+        # directory installs the published floor and imports it — no file: link exists here.
+        run: |
+          set -euo pipefail
+          VER="${TAG#v}"
+          d=$(mktemp -d); cd "$d"; npm init -y >/dev/null
+          for i in 1 2 3 4 5 6; do
+            npm install --no-audit --no-fund "@bitspark/archon@$VER" && break
+            echo "registry not serving @bitspark/archon@$VER yet (try $i) — waiting"; sleep 10
+          done
+          node --input-type=module -e "
+            import * as a from '@bitspark/archon';
+            const n = Object.keys(a);
+            if (!n.length) throw new Error('empty module');
+            console.log('@bitspark/archon exports ' + n.length + ': ' + n.join(', '));
+          "
+
+      - name: Create the GitHub release
+        if: env.REHEARSE != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
+
+      - name: What a rehearsal did not do
+        if: env.REHEARSE == 'true'
+        run: |
+          echo "REHEARSAL — nothing was published and no release was created."
+          echo "The tag, the eight manifest versions, the four Go module tags, tri-core"
+          echo "agreement and both dry-run packs were checked. Re-run with rehearse=false"
+          echo "to publish."

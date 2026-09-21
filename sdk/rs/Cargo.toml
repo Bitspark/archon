@@ -1,0 +1,35 @@
+# archon-sdk: the layer ABOVE the identity floor — what a key does with itself once it can
+# sign in a domain: prove possession to a challenger, and seal bytes in a signed envelope.
+#
+# It depends on archon-core and nothing else. It takes entropy, time and channel binding
+# as ARGUMENTS and never sources them, so every byte it emits is a deterministic function
+# of its inputs and the tri-core oracle (vectors/sdk.json) pins it the way the floor is
+# pinned. Connection setup is not here and never will be: that is the transport's
+# (ADR 0004).
+[package]
+name = "bitspark-archon-sdk"
+version = "0.6.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/Bitspark/archon"
+description = "archon-sdk: proof of possession and the signed envelope, one layer above the identity floor. Deterministic given its inputs; no RNG, no clock, no socket."
+
+[lib]
+name = "archon_sdk"
+path = "src/lib.rs"
+
+[dependencies]
+# The floor. The ONLY dependency.
+bitspark-archon-core = { path = "../../core/rs", version = "0.6.0" }
+
+# Conformance CLI ONLY — optional, off by default, behind the `conformance-cli` feature.
+serde_json = { version = "1", optional = true }
+
+[features]
+default = []
+conformance-cli = ["dep:serde_json"]
+
+[[bin]]
+name = "conformance"
+path = "src/bin/conformance.rs"
+required-features = ["conformance-cli"]

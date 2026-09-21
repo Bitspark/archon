@@ -1,0 +1,40 @@
+node_modules/
+*.log
+.DS_Store
+.env
+
+# Agent worktrees and per-checkout local state.
+.worktrees/
+.claude/settings.local.json
+.agw.json
+
+# Build artefacts of the three cores and the tiers above them.
+core/rs/target/
+core/ts/node_modules/
+core/ts/dist/
+sdk/rs/target/
+sdk/ts/node_modules/
+sdk/ts/dist/
+cli/rs/target/
+cli/ts/node_modules/
+cli/ts/dist/
+server/rs/target/
+server/ts/node_modules/
+server/ts/dist/
+
+# A bare `go build` inside a directory named `go` writes its output as `go` / `go.exe` — a
+# compiled binary wearing the toolchain's name, which on Windows a process lookup from that
+# cwd can resolve before PATH. The cli's main package lives at cli/go/cmd/archon so that
+# `go install` names the binary `archon`, but `go build ./...` from cli/go still drops an
+# `archon` / `archon.exe` there. Build with -o; never commit any of these.
+cli/go/go
+cli/go/go.exe
+cli/go/archon
+cli/go/archon.exe
+sdk/go/go
+sdk/go/go.exe
+
+# Conformance binaries built by conformance/check.mjs — the REPO-ROOT bin/ only. The
+# leading slash is load-bearing: a bare `bin/` matches a directory named bin at ANY depth,
+# and would silently swallow core/rs/src/bin/conformance.rs.
+/bin/

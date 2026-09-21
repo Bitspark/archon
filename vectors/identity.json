@@ -1,0 +1,527 @@
+{
+  "version": 1,
+  "note": "archon identity-floor conformance vectors. Every case here is stated entirely in RFC 8032 (Ed25519), RFC 5280 (SPKI) and RFC 5958 (PKCS#8) vocabulary: a seed, a public key, a signature, an opaque message, a key text, a PEM. No case needs the words root, admission, grant, fact, receipt or epoch to say what it means. That is the one-change-authority test, and it is why these four families live below the law rather than inside it. The first four families were copied from thesmos vectors/authority.json @ d878832 on 2026-08-22; thesmos deleted its copy at the switch (2026-08-27, thesmos) and drives its retained cases through archon. The hex_decode, domain_sign and domain_verify families are archon-authored (2026-09-09, docs/growth-plan.md).",
+  "provenance": {
+    "repo": "Bitspark/thesmos (private)",
+    "file": "vectors/authority.json",
+    "commit": "d878832",
+    "copied": "2026-08-22"
+  },
+  "pubkey_from_seed": [
+    {
+      "note": "the seed used by the signing_bytes/signature fixtures.",
+      "name": "seed-11",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"
+    },
+    {
+      "note": "the root seed used throughout the authorize family.",
+      "name": "seed-22",
+      "seed": "2222222222222222222222222222222222222222222222222222222222222222",
+      "pubkey": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0"
+    },
+    {
+      "note": "the non-root granter seed (grant-not-from-root-fails-anchor).",
+      "name": "seed-33",
+      "seed": "3333333333333333333333333333333333333333333333333333333333333333",
+      "pubkey": "17cb79fb2b4120f2b1ec65e4198d6e08b28e813feb01e4a400839b85e18080ce"
+    }
+  ],
+  "key_encode": [
+    {
+      "note": "the canonical key text for the seed-11 public key (pubkey_from_seed/seed-11) — ed25519:<lowercase-hex>. Fixed format, hand-authored from the spec.",
+      "name": "seed-11-pubkey",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "text": "ed25519:d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"
+    },
+    {
+      "note": "an all-aa 32-byte pubkey — encode is a pure prefix+lowercase-hex, so any byte slice round-trips (the bytes need not be a derived key).",
+      "name": "all-aa",
+      "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "text": "ed25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "note": "the all-zero 32-byte pubkey — the minimal encoding shape.",
+      "name": "all-zero",
+      "pubkey": "0000000000000000000000000000000000000000000000000000000000000000",
+      "text": "ed25519:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "keycodec": [
+    {
+      "note": "the ed25519-key-codec-v1 PKCS#8/SPKI PEM codec (spec Appendix A.8). Each case names a `kind` selecting one of the four conversions; encode_* carries a raw-32 `key` (hex) and expects {\"ok\":\"<PEM>\"}, decode_* carries a `pem` and expects {\"ok\":\"<raw-32 hex>\"} or {\"error\":true}. Authored from the fixed DER templates in A.8 via an independent base64, NOT pasted from a core; confirmed identical on all three cores before pinning. The pubkey input is arbitrary 32 bytes (abab…) — the codec is byte-agnostic about key content. PKCS#8 is v1-only; v2 and bare DER are rejected.",
+      "name": "encode-pkcs8-v1",
+      "kind": "encode_pkcs8",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "result": {
+        "ok": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f\n-----END PRIVATE KEY-----\n"
+      }
+    },
+    {
+      "name": "encode-spki",
+      "kind": "encode_spki",
+      "key": "abababababababababababababababababababababababababababababababab",
+      "result": {
+        "ok": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=\n-----END PUBLIC KEY-----\n"
+      }
+    },
+    {
+      "note": "encode rejects a key that is not exactly 32 bytes (here 31).",
+      "name": "encode-pkcs8-wrong-length",
+      "kind": "encode_pkcs8",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "decode-pkcs8-v1",
+      "kind": "decode_pkcs8",
+      "pem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f\n-----END PRIVATE KEY-----\n",
+      "result": {
+        "ok": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+      }
+    },
+    {
+      "name": "decode-spki",
+      "kind": "decode_spki",
+      "pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=\n-----END PUBLIC KEY-----\n",
+      "result": {
+        "ok": "abababababababababababababababababababababababababababababababab"
+      }
+    },
+    {
+      "note": "CRLF line endings are tolerated on decode (the same key as decode-pkcs8-v1).",
+      "name": "decode-pkcs8-crlf",
+      "kind": "decode_pkcs8",
+      "pem": "-----BEGIN PRIVATE KEY-----\r\nMC4CAQAwBQYDK2VwBCIEIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f\r\n-----END PRIVATE KEY-----\r\n",
+      "result": {
+        "ok": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+      }
+    },
+    {
+      "note": "PKCS#8 v2 (version 1 + embedded [1] public key) is rejected — v1-only (spec A.8).",
+      "name": "decode-pkcs8-v2-rejected",
+      "kind": "decode_pkcs8",
+      "pem": "-----BEGIN PRIVATE KEY-----\nMFECAQEwBQYDK2VwBCIEIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fgSEAq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=\n-----END PRIVATE KEY-----\n",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "wrong algorithm OID (X25519 1.3.101.110) — rejected.",
+      "name": "decode-spki-wrong-oid",
+      "kind": "decode_spki",
+      "pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VuAyEAq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=\n-----END PUBLIC KEY-----\n",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "wrong key length (31 bytes) — rejected.",
+      "name": "decode-spki-short-key",
+      "kind": "decode_spki",
+      "pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urqw==\n-----END PUBLIC KEY-----\n",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "non-zero BIT STRING unused-bits octet (0xff instead of 0x00) — rejected.",
+      "name": "decode-spki-bad-unused-bits",
+      "kind": "decode_spki",
+      "pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyH/q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=\n-----END PUBLIC KEY-----\n",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "trailing byte after the 48-byte template — rejected.",
+      "name": "decode-pkcs8-trailing-garbage",
+      "kind": "decode_pkcs8",
+      "pem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fAA==\n-----END PRIVATE KEY-----\n",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "bare DER with no PEM armor — rejected (decode is PEM-only).",
+      "name": "decode-spki-bare-der",
+      "kind": "decode_spki",
+      "pem": "MCowBQYDK2VwAyEAq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "invalid base64 in the PEM body — rejected.",
+      "name": "decode-spki-bad-base64",
+      "kind": "decode_spki",
+      "pem": "-----BEGIN PUBLIC KEY-----\n!!!not base64!!!\n-----END PUBLIC KEY-----\n",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "cross-template: a valid SPKI (PUBLIC KEY) PEM handed to the PKCS#8 decoder — rejected on the header label.",
+      "name": "decode-pkcs8-from-spki",
+      "kind": "decode_pkcs8",
+      "pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=\n-----END PUBLIC KEY-----\n",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "cross-template: a valid PKCS#8 (PRIVATE KEY) PEM handed to the SPKI decoder — rejected.",
+      "name": "decode-spki-from-pkcs8",
+      "kind": "decode_spki",
+      "pem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f\n-----END PRIVATE KEY-----\n",
+      "result": {
+        "error": true
+      }
+    }
+  ],
+  "signature_verify": [
+    {
+      "note": "Ed25519 VERIFY edge-cases (issue #52), distinct from the `signature` (sign) family. Inputs {pubkey, message, sig} are raw hex; expected {valid: bool} is hand-authored AND confirmed to agree on the real Rust (ed25519-dalek), Go (crypto/ed25519), and TS (@noble/ed25519) libraries before pinning — only cases all three demonstrably accept/reject identically are here. A valid signature: seed-11 pubkey over message 'Hello' (48656c6c6f).",
+      "name": "valid",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "message": "48656c6c6f",
+      "sig": "72010468e752d1ab7e2388c3c9fe431b0036793a40f655c9286b685fddaf45ee1a26b03542ff1506544924162bd7b556bb6007f999c5e94b2dd7795121227a05",
+      "valid": true
+    },
+    {
+      "note": "a single-bit-flipped signature (low bit of byte 0): rejected.",
+      "name": "bit-flipped-sig",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "message": "48656c6c6f",
+      "sig": "73010468e752d1ab7e2388c3c9fe431b0036793a40f655c9286b685fddaf45ee1a26b03542ff1506544924162bd7b556bb6007f999c5e94b2dd7795121227a05",
+      "valid": false
+    },
+    {
+      "note": "an all-zero 64-byte signature: rejected.",
+      "name": "all-zero-sig",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "message": "48656c6c6f",
+      "sig": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "valid": false
+    },
+    {
+      "note": "a wrong-length signature (63 bytes, the valid sig truncated by one byte): rejected on the shape guard before any point math.",
+      "name": "wrong-length-sig",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "message": "48656c6c6f",
+      "sig": "72010468e752d1ab7e2388c3c9fe431b0036793a40f655c9286b685fddaf45ee1a26b03542ff1506544924162bd7b556bb6007f999c5e94b2dd7795121227a",
+      "valid": false
+    },
+    {
+      "note": "a wrong-length public key (31 bytes, the valid key truncated by one byte): rejected on the shape guard (Go crypto/ed25519.Verify would panic on a mis-sized key, so the cores guard length to false).",
+      "name": "wrong-length-pubkey",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787",
+      "message": "48656c6c6f",
+      "sig": "72010468e752d1ab7e2388c3c9fe431b0036793a40f655c9286b685fddaf45ee1a26b03542ff1506544924162bd7b556bb6007f999c5e94b2dd7795121227a05",
+      "valid": false
+    },
+    {
+      "note": "the valid signature against a DIFFERENT message (last byte of 'Hello' changed o->p): rejected.",
+      "name": "wrong-message",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "message": "48656c6c70",
+      "sig": "72010468e752d1ab7e2388c3c9fe431b0036793a40f655c9286b685fddaf45ee1a26b03542ff1506544924162bd7b556bb6007f999c5e94b2dd7795121227a05",
+      "valid": false
+    },
+    {
+      "note": "a non-canonical S (the valid sig's S replaced by S+L, L the group order): rejected. Go stdlib and ed25519-dalek (both its non-strict verify and verify_strict) reject the non-reduced scalar identically, and @noble/ed25519 enforces S < L by default — so all three agree.",
+      "name": "non-canonical-s",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "message": "48656c6c6f",
+      "sig": "72010468e752d1ab7e2388c3c9fe431b0036793a40f655c9286b685fddaf45ee07faa5925c62285e2ae61bb909d1946bbb6007f999c5e94b2dd7795121227a15",
+      "valid": false
+    },
+    {
+      "note": "a SMALL-ORDER public key (an order-8 torsion point, one of the eight documented Ed25519 small-order point encodings) with sig R=A,S=0 over 'Hello': rejected. This is the cofactored-verification (ZIP-215) gap from issue #106 — ZIP-215 ACCEPTS such keys (S=0 makes the verification equation [8](S·B) = [8](R + h·A) collapse since R=A is order-8 and h·A is also torsion), whereas RFC 8032 verification (Go crypto/ed25519, ed25519-dalek v2, and @noble/ed25519 with {zip215:false}) REJECTS it. The TS core previously accepted it under @noble's default zip215:true, admitting Head/fact evidence the canonical Rust core rejects; this vector byte-pins the rejection so all three cores agree. Authored from a documented small-order point, not pasted from a core.",
+      "name": "small-order-pubkey-order8",
+      "pubkey": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+      "message": "48656c6c6f",
+      "sig": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a0000000000000000000000000000000000000000000000000000000000000000",
+      "valid": false
+    },
+    {
+      "note": "a SMALL-ORDER public key (an order-4 torsion point) with sig R=A,S=0 over 'Hello': rejected. Same ZIP-215-vs-RFC8032 divergence as small-order-pubkey-order8 (issue #106), a different torsion order to widen the guard. RFC 8032 verification across all three cores rejects it; this pins that.",
+      "name": "small-order-pubkey-order4",
+      "pubkey": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+      "message": "48656c6c6f",
+      "sig": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc050000000000000000000000000000000000000000000000000000000000000000",
+      "valid": false
+    },
+    {
+      "note": "a domain-separated signature (domain_sign/v1-hello, Ed25519ph with context) presented to RAW verify: rejected. Domain separation is cryptographic, not a byte convention — the same bytes under the same key are not a raw signature. Expected values derived with OpenSSL 3.2.4 (`pkeyutl -rawin -pkeyopt instance:Ed25519ph -pkeyopt context-string:<domain>`), an implementation outside all three cores, per vectors/README.md: a vector captured from a core pins that core's bugs; one derived independently lets all three be wrong together and be caught.",
+      "name": "domain-sig-never-raw",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "message": "68656c6c6f",
+      "sig": "6608574ea7800d10158d90b3c81318b998505ccc09e9f66e35d47fefe1daa13354bdc3e378a4348b224e7dbe21afb1503a2454a5fa6a27464118d7fad3d5c600",
+      "valid": false
+    }
+  ],
+  "hex_decode": [
+    {
+      "note": "typed fixed-size hex decoders (hexbytes): `kind` selects seed (32) | pubkey (32) | signature (64); the case carries `hex` and expects {\"ok\":\"<lowercase hex of the decoded bytes>\"} or {\"error\":true}. Either case is accepted on input; output is always lowercase. No 0x, no whitespace. The decision (accept/reject) must agree across cores; the reject reason is each core's own.",
+      "name": "seed-lowercase",
+      "kind": "seed",
+      "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "result": {
+        "ok": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    },
+    {
+      "name": "seed-uppercase-normalises",
+      "kind": "seed",
+      "hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "result": {
+        "ok": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    },
+    {
+      "name": "pubkey-mixed-case",
+      "kind": "pubkey",
+      "hex": "D04AB232742BB4AB3A1368BD4615E4E6D0224AB71A016BAF8520A332C9778737",
+      "result": {
+        "ok": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"
+      }
+    },
+    {
+      "name": "signature-64",
+      "kind": "signature",
+      "hex": "6608574ea7800d10158d90b3c81318b998505ccc09e9f66e35d47fefe1daa13354bdc3e378a4348b224e7dbe21afb1503a2454a5fa6a27464118d7fad3d5c600",
+      "result": {
+        "ok": "6608574ea7800d10158d90b3c81318b998505ccc09e9f66e35d47fefe1daa13354bdc3e378a4348b224e7dbe21afb1503a2454a5fa6a27464118d7fad3d5c600"
+      }
+    },
+    {
+      "name": "seed-31-bytes",
+      "kind": "seed",
+      "hex": "11111111111111111111111111111111111111111111111111111111111111",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "seed-33-bytes",
+      "kind": "seed",
+      "hex": "111111111111111111111111111111111111111111111111111111111111111111",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "seed-odd-digits",
+      "kind": "seed",
+      "hex": "111111111111111111111111111111111111111111111111111111111111111",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "seed-non-hex",
+      "kind": "seed",
+      "hex": "11111111111111111111111111111111111111111111111111111111111111zz",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "seed-0x-prefix",
+      "kind": "seed",
+      "hex": "0x11111111111111111111111111111111111111111111111111111111111111",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "pubkey-empty",
+      "kind": "pubkey",
+      "hex": "",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "signature-is-not-a-key",
+      "kind": "signature",
+      "hex": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "name": "pubkey-is-not-a-signature",
+      "kind": "pubkey",
+      "hex": "6608574ea7800d10158d90b3c81318b998505ccc09e9f66e35d47fefe1daa13354bdc3e378a4348b224e7dbe21afb1503a2454a5fa6a27464118d7fad3d5c600",
+      "result": {
+        "error": true
+      }
+    }
+  ],
+  "domain_sign": [
+    {
+      "note": "domain-separated signing: Ed25519ph (RFC 8032 §5.1) with the domain as the context string. Inputs {seed, domain, message}; expected {\"ok\":\"<128-hex signature>\"} or {\"error\":true}. A domain is 1..=255 bytes; the empty domain is rejected on purpose (\"sign in no domain\" is what this exists to make impossible). Expected values derived with OpenSSL 3.2.4 (`pkeyutl -rawin -pkeyopt instance:Ed25519ph -pkeyopt context-string:<domain>`), an implementation outside all three cores, per vectors/README.md: a vector captured from a core pins that core's bugs; one derived independently lets all three be wrong together and be caught.",
+      "name": "v1-hello",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "archon/test/v1",
+      "message": "68656c6c6f",
+      "result": {
+        "ok": "6608574ea7800d10158d90b3c81318b998505ccc09e9f66e35d47fefe1daa13354bdc3e378a4348b224e7dbe21afb1503a2454a5fa6a27464118d7fad3d5c600"
+      }
+    },
+    {
+      "note": "same key, same message, different domain: a different signature.",
+      "name": "v2-hello",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "archon/test/v2",
+      "message": "68656c6c6f",
+      "result": {
+        "ok": "aae9285f5ac5c15fbad109e96e084d1eeff8cd5577f6a3f1644e7707892a9c219db92dc093cacb2baa49bf484753f7addc3a540cd55b1d3c3561ae948ea4de08"
+      }
+    },
+    {
+      "note": "the longest legal domain: 255 bytes.",
+      "name": "domain-255",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "message": "68656c6c6f",
+      "result": {
+        "ok": "61c7451547ae7744dff1033b5aa9467fda8cd62d136361c9a1620c9b7e637d73ae72112cc4fff35ba6b482094d71dac09e8b5b5b8720b8d907ca0f96a95f6d09"
+      }
+    },
+    {
+      "note": "the empty domain is refused.",
+      "name": "domain-empty-rejected",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "",
+      "message": "68656c6c6f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "256 bytes exceeds the RFC 8032 context bound: refused.",
+      "name": "domain-256-rejected",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "domain": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "message": "68656c6c6f",
+      "result": {
+        "error": true
+      }
+    }
+  ],
+  "domain_verify": [
+    {
+      "note": "domain-separated verify: inputs {pubkey, domain, message, sig}, expected {valid: bool}. Total, like signature_verify: every shape failure — including an empty or over-long domain — is false. The cases that matter are the crossings: a signature from domain A in domain B, and a raw signature in any domain, are both false, cryptographically. Expected values derived with OpenSSL 3.2.4 (`pkeyutl -rawin -pkeyopt instance:Ed25519ph -pkeyopt context-string:<domain>`), an implementation outside all three cores, per vectors/README.md: a vector captured from a core pins that core's bugs; one derived independently lets all three be wrong together and be caught.",
+      "name": "v1-in-v1",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/v1",
+      "message": "68656c6c6f",
+      "sig": "6608574ea7800d10158d90b3c81318b998505ccc09e9f66e35d47fefe1daa13354bdc3e378a4348b224e7dbe21afb1503a2454a5fa6a27464118d7fad3d5c600",
+      "valid": true
+    },
+    {
+      "note": "the v1 signature presented in domain v2: rejected.",
+      "name": "v1-in-v2-rejected",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/v2",
+      "message": "68656c6c6f",
+      "sig": "6608574ea7800d10158d90b3c81318b998505ccc09e9f66e35d47fefe1daa13354bdc3e378a4348b224e7dbe21afb1503a2454a5fa6a27464118d7fad3d5c600",
+      "valid": false
+    },
+    {
+      "note": "the v2 signature in its own domain: accepted (both directions of the crossing are pinned).",
+      "name": "v2-in-v2",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/v2",
+      "message": "68656c6c6f",
+      "sig": "aae9285f5ac5c15fbad109e96e084d1eeff8cd5577f6a3f1644e7707892a9c219db92dc093cacb2baa49bf484753f7addc3a540cd55b1d3c3561ae948ea4de08",
+      "valid": true
+    },
+    {
+      "note": "a RAW Ed25519 signature over the same message under the same key, presented in a domain: rejected. Raw never crosses into a domain.",
+      "name": "raw-never-in-domain",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/v1",
+      "message": "68656c6c6f",
+      "sig": "edbf4dd3087f7b7c7201a4aa3e05ec8f56e35b1b86fc949ea59b1475179daa4540c7340eec80a9f5e12920b57ed3aca905fc8c6c1ed71636c7d9f8a661fee60d",
+      "valid": false
+    },
+    {
+      "note": "255-byte domain: accepted.",
+      "name": "domain-255",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "message": "68656c6c6f",
+      "sig": "61c7451547ae7744dff1033b5aa9467fda8cd62d136361c9a1620c9b7e637d73ae72112cc4fff35ba6b482094d71dac09e8b5b5b8720b8d907ca0f96a95f6d09",
+      "valid": true
+    },
+    {
+      "note": "empty domain: always false, whatever the signature.",
+      "name": "domain-empty-rejected",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "",
+      "message": "68656c6c6f",
+      "sig": "6608574ea7800d10158d90b3c81318b998505ccc09e9f66e35d47fefe1daa13354bdc3e378a4348b224e7dbe21afb1503a2454a5fa6a27464118d7fad3d5c600",
+      "valid": false
+    },
+    {
+      "note": "256-byte domain: always false.",
+      "name": "domain-256-rejected",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "message": "68656c6c6f",
+      "sig": "61c7451547ae7744dff1033b5aa9467fda8cd62d136361c9a1620c9b7e637d73ae72112cc4fff35ba6b482094d71dac09e8b5b5b8720b8d907ca0f96a95f6d09",
+      "valid": false
+    },
+    {
+      "note": "another message in the right domain: rejected.",
+      "name": "other-message-rejected",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/v1",
+      "message": "776f726c64",
+      "sig": "6608574ea7800d10158d90b3c81318b998505ccc09e9f66e35d47fefe1daa13354bdc3e378a4348b224e7dbe21afb1503a2454a5fa6a27464118d7fad3d5c600",
+      "valid": false
+    },
+    {
+      "note": "bit-flipped signature (low bit of byte 0): rejected.",
+      "name": "bit-flipped-sig",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/v1",
+      "message": "68656c6c6f",
+      "sig": "6708574ea7800d10158d90b3c81318b998505ccc09e9f66e35d47fefe1daa13354bdc3e378a4348b224e7dbe21afb1503a2454a5fa6a27464118d7fad3d5c600",
+      "valid": false
+    },
+    {
+      "note": "31-byte public key: shape failure, false — never a panic.",
+      "name": "pubkey-31-bytes",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c97787",
+      "domain": "archon/test/v1",
+      "message": "68656c6c6f",
+      "sig": "6608574ea7800d10158d90b3c81318b998505ccc09e9f66e35d47fefe1daa13354bdc3e378a4348b224e7dbe21afb1503a2454a5fa6a27464118d7fad3d5c600",
+      "valid": false
+    },
+    {
+      "note": "63-byte signature: shape failure, false.",
+      "name": "sig-63-bytes",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/v1",
+      "message": "68656c6c6f",
+      "sig": "6608574ea7800d10158d90b3c81318b998505ccc09e9f66e35d47fefe1daa13354bdc3e378a4348b224e7dbe21afb1503a2454a5fa6a27464118d7fad3d5c6",
+      "valid": false
+    },
+    {
+      "note": "the zero signature: rejected.",
+      "name": "zero-sig",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/test/v1",
+      "message": "68656c6c6f",
+      "sig": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "valid": false
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "_why": "The statement is the one thing all three archon CLI lanes must print BYTE-IDENTICALLY, and it is the thing the person reads before signing. cli/smoke.mjs pins exactly ONE rendered statement — the store-key login it runs against the server it hosts itself — and this fixture pins every OTHER source line, with no network: each lane's unit suite reads THIS file and asserts its renderer reproduces `statement` exactly. Change the wording here and all three suites fail until all three lanes agree again. `offer_cases` is the same pin for the offers form (docs/login.md §4.1 rule 4): the LEDGER the CLI prints AFTER answering, the same fields the statement shows before signing, with the service's verdict as its last line — and never the code.",
+  "_read_by": [
+    "cli/go/cmd/archon/cmd_login_test.go",
+    "cli/rs/src/cmd/login.rs (mod tests)",
+    "cli/ts/test/login.test.ts"
+  ],
+  "cases": [
+    {
+      "name": "a scope of two entries",
+      "audience": "https://prover.core.example.dev/api",
+      "keySource": "the seed file /keys/julia",
+      "nowUnix": 1789034640,
+      "request": {
+        "id": "8f3c",
+        "nonce": "abababababababababababababababab",
+        "browser": "ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f",
+        "scope": [
+          "read:projects",
+          "read:campaigns"
+        ],
+        "valid_for": 28800
+      },
+      "statement": "https://prover.core.example.dev/api asks you to let browser key ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f act as you:\n  read:projects\n  read:campaigns\nfor 8h0m0s, until 2026-09-10T18:04:00Z\nsigning with the seed file /keys/julia\n"
+    },
+    {
+      "name": "an empty scope (a proof-only service)",
+      "audience": "https://h.example",
+      "keySource": "the seed given on the command line",
+      "nowUnix": 0,
+      "request": {
+        "id": "8f3c",
+        "nonce": "abababababababababababababababab",
+        "browser": "ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f",
+        "scope": [],
+        "valid_for": 300
+      },
+      "statement": "https://h.example asks you to let browser key ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f act as you:\n  (no scope entries — the service asks only for proof of your key)\nfor 5m0s, until 1970-01-01T00:05:00Z\nsigning with the seed given on the command line\n"
+    }
+    ,
+    {
+      "name": "a key in the store (login --key, or the store's default)",
+      "audience": "https://h.example/api",
+      "keySource": "the store key julia",
+      "nowUnix": 1789034640,
+      "request": {
+        "id": "8f3c",
+        "nonce": "abababababababababababababababab",
+        "browser": "ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f",
+        "scope": [
+          "read:projects"
+        ],
+        "valid_for": 3600
+      },
+      "statement": "https://h.example/api asks you to let browser key ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f act as you:\n  read:projects\nfor 1h0m0s, until 2026-09-10T11:04:00Z\nsigning with the store key julia\n"
+    }
+  ],
+  "offer_cases": [
+    {
+      "name": "an accepted offer of two entries, signed with a store key",
+      "audience": "https://prover.core.example.dev/api",
+      "keySource": "the store key julia",
+      "nowUnix": 1789034640,
+      "request": {
+        "id": "8f3c",
+        "nonce": "abababababababababababababababab",
+        "browser": "ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f",
+        "scope": [
+          "read:projects",
+          "read:campaigns"
+        ],
+        "valid_for": 28800
+      },
+      "verdict": "accepted",
+      "ledger": "you offered https://prover.core.example.dev/api to let browser key ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f act as you:\n  read:projects\n  read:campaigns\nfor 8h0m0s, until 2026-09-10T18:04:00Z\nsigned with the store key julia\nthe service accepted the login. the browser is in.\n"
+    },
+    {
+      "name": "a refused offer with an empty scope, signed with a seed file",
+      "audience": "https://h.example",
+      "keySource": "the seed file /keys/julia",
+      "nowUnix": 0,
+      "request": {
+        "id": "8f3c",
+        "nonce": "abababababababababababababababab",
+        "browser": "ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f",
+        "scope": [],
+        "valid_for": 300
+      },
+      "verdict": "refused:invalid_grant",
+      "ledger": "you offered https://h.example to let browser key ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f act as you:\n  (no scope entries — the service asks only for proof of your key)\nfor 5m0s, until 1970-01-01T00:05:00Z\nsigned with the seed file /keys/julia\nthe service refused the login (invalid_grant). the browser is not in.\n"
+    }
+  ],
+  "_verified": "Each lane's pin was PROVEN to fire: perturbing `statement` here fails the Go, Rust and TypeScript suites. A fixture nobody can fail is not a pin, so it was checked rather than assumed.",
+  "_go_cache_caveat": "This file lives OUTSIDE the cli/go module, so Go's test cache does not treat it as an input: after editing ONLY this file, `go test ./...` can report `ok (cached)` and miss the change. Use `go test -count=1 ./...` when you change the wording. CI is unaffected — it runs on a fresh checkout with no cache. Rust and TypeScript re-read it every run."
+}
