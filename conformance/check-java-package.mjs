@@ -14,7 +14,7 @@
 //     and a jar that shipped them would be leaking a dev artifact into the library surface.
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,17 @@ const isWindows = process.platform === "win32";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const javaDir = join(root, "core", "java");
 const mvn = isWindows ? "mvn.cmd" : "mvn";
+
+// The version comes from the POM, never from a literal here. It was hardcoded once, and the
+// release bump to 0.7.0 left this script asking Maven for an 0.6.2 artifact that no longer
+// existed — a package check that fails for its own reason, not the package's, is worse than
+// no check, because the red says "your jar is broken" and means "my script is stale".
+const POM = readFileSync(join(javaDir, "pom.xml"), "utf8");
+const VERSION = (POM.match(/<artifactId>archon-core<\/artifactId>\s*<version>([^<]+)<\/version>/) ?? [])[1];
+if (!VERSION) {
+  console.error("check-java-package: could not read the version from core/java/pom.xml");
+  process.exit(1);
+}
 
 function run(label, args, cwd, extra = []) {
   process.stdout.write(`${label} … `);
@@ -55,7 +66,7 @@ try {
   // The jar must not carry the conformance CLI or its JSON dependency.
   const listing = spawnSync(
     "jar",
-    ["tf", join(javaDir, "target", "archon-core-0.6.2.jar")],
+    ["tf", join(javaDir, "target", `archon-core-${VERSION}.jar`)],
     { encoding: "utf8", shell: isWindows },
   );
   if (listing.status === 0) {
@@ -90,7 +101,7 @@ try {
     <dependency>
       <groupId>dev.bitspark</groupId>
       <artifactId>archon-core</artifactId>
-      <version>0.6.2</version>
+      <version>${VERSION}</version>
     </dependency>
   </dependencies>
 </project>
