@@ -216,10 +216,13 @@ observable and is not a patch. A rollback must not restore the former acceptance
 "legacy" path.
 
 Language reach is staged on it: six complete implementations — Go, Rust, TypeScript,
-Python, Java, C++ — each held to the 105 cases, before eight. Swift and Haskell bind a
-**complete ph-with-context implementation** (OpenSSL ≥ 3.2 via its signature-operation
-parameters; BoringSSL's public API is raw Ed25519 only and does not qualify) and are
-released when they pass the same oracle, never as "the 43 non-domain cases".
+Python, Java, C++ — each held to the 105 cases, before eight. C++, Swift and Haskell share
+one binding problem and therefore one decision: OpenSSL ≥ 3.2 is the **complete
+ph-with-context implementation** (via its signature-operation parameters; BoringSSL's public
+API is raw Ed25519 only and does not qualify) and it validates nothing, so each of the three
+also binds **libsodium ≥ 1.0.21** for lines 2–3 — see Consequences for why the floor is that
+version and not "libsodium". They are released when they pass the same oracle and a clean
+differential run, never as "the 43 non-domain cases".
 
 ## Consequences
 
@@ -236,10 +239,22 @@ released when they pass the same oracle, never as "the 43 non-domain cases".
   does **no** point validation — `EVP_PKEY_public_check` accepts all eight torsion points,
   the identity and the non-canonical spellings — and exposes no public Ed25519 point API,
   so the C++ core needs a second component for lines 2–3 (libsodium's
-  `crypto_core_ed25519_is_valid_point` is exactly the predicate; libsodium cannot do the
-  ph-with-context signing, OpenSSL cannot do the validation) — a blocklist does not meet
-  line 2. Whether a given library's *equation* is cofactored is a separate question from
-  its accepted set and is not claimed here for any library that was not measured on it.
+  `crypto_core_ed25519_is_valid_point`; libsodium cannot do the ph-with-context signing,
+  OpenSSL cannot do the validation) — a blocklist does not meet line 2. The C++ core on
+  OpenSSL alone measures 83/105: every miss a profile case, both universal cases included.
+  Whether a given library's *equation* is cofactored is a separate question from its
+  accepted set and is not claimed here for any library that was not measured on it.
+- **libsodium is the predicate only from 1.0.21, and the floor is written down because
+  nothing but the oracle would notice.** libsodium's own documentation records that in
+  versions ≤ 1.0.20 `crypto_core_ed25519_is_valid_point` accepted points of order 2L, 4L
+  and 8L — mixed-order points, i.e. `profile-mixed-order-A-k-divisible`, one half of the
+  pair every outside consumer asserts *because* every unprofiled implementation accepted
+  it. A core built against 1.0.20 would ship the defect this decision exists to forbid
+  with a green build and a passing unit suite; only the oracle and the differential run
+  would catch it. 1.0.21 (2026-01-06) and 1.0.22 (2026-04-09) satisfy it; msys2 packages
+  1.0.22. Every OpenSSL-bound core states `libsodium >= 1.0.21` in its build files and
+  asserts it at configure time. This is the backend-admission policy of §7 doing its job:
+  "identified version and features", not a library name.
 - **The differential run exists, and it found something on its first pass.**
   `profile-cases.mjs differential --seed N --per-class N <cli>…` draws fresh members of
   every class — random torsion component, nonce, message and domain — plus genuine
