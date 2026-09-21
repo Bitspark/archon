@@ -37,14 +37,18 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 | **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance (0.6.2) |
 | **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 105/105 | ⏳ PyPI, once the pending publisher is registered (see `release.yml`) |
 | **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ⏳ Maven Central; publishes with 0.7.0 |
-| **C++** | 🔧 in review | — | — | — | CMake package | 60/60 on the pre-0008 oracle; the profile classes pending | — |
+| **C++** | 🔧 signing works, profile does not | — | — | — | CMake package | 83/105 — all 22 failures are profile cases (OpenSSL validates no points) | — |
 | **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs a binding to a complete Ed25519ph-with-context implementation (0008 §8) |
 | **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same binding (0008 §8) |
 
 A published version is a version that was published: 0.6.2 is on the three registries;
-0.7.0, the profile, is the next release, and it is the one that carries Java. The C++ row
-says "pre-0008" because a core that agrees with the 60 cases and has not yet been run on the
-36 profile classes has not been asked the question that ADR 0008 exists to ask.
+0.7.0, the profile, is the next release, and it is the one that carries Java. C++ is the row
+to read carefully: its signing is correct — OpenSSL ≥ 3.2 reproduces every `domain_sign`
+vector byte for byte — and it fails only on acceptance. `EVP_PKEY_public_check` validates
+nothing for Ed25519, and OpenSSL exposes no scalar multiplication for the curve, so the
+profile predicate cannot be written against its public API at all. That is a packaging
+question, not a coding one, and [ADR 0008 §8](architecture/decisions/0008-the-ed25519-verification-profile.md)
+is where it is owed an answer.
 
 The registry prefixes differ by ecosystem because the namespaces do. crates.io and PyPI are
 flat, so those carry `bitspark-`; npm has scopes, so it carries `@bitspark/`. **The prefix is
