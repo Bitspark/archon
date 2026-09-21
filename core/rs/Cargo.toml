@@ -10,7 +10,7 @@
 # never the curve.
 [package]
 name = "bitspark-archon-core"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/Bitspark/archon"

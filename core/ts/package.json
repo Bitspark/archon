@@ -1,6 +1,6 @@
 {
   "name": "@bitspark/archon",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "archon: Ed25519 primitives, the canonical key spelling, and the SPKI/PKCS-8 key codec. The identity floor beneath the law.",
   "license": "Apache-2.0",
   "repository": {
@@ -14,7 +14,7 @@
     "dist/src"
   ],
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

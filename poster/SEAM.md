@@ -96,7 +96,7 @@ audited Ed25519; what archon writes three times is its **encodings**.
 |---|---|---|
 | rust | crate `archon-core`, git `https://github.com/Bitspark/archon`, tag `v0.5.0` | `substrate/release-facts.json`, `.github/workflows/publish-npm.yml` header |
 | go | module `github.com/Bitspark/archon/core/go` | `core/go/go.mod:1`, `substrate/release-facts.json:11-13` |
-| typescript | package `@bitspark/archon` on `https://npm.pkg.github.com` | `core/ts/package.json:2`, `core/ts/package.json:18-20` |
+| typescript | package `@bitspark/archon` on `https://registry.npmjs.org` | `core/ts/package.json:2`, `core/ts/package.json:18-20` |
 
 Rust is named **canonical** in-source when semantics are disputed
 (`core/ts/src/crypto.ts:36` — "the canonical Rust core and the TS core admit exactly the

@@ -9,6 +9,6 @@ go 1.25
 // Local builds resolve both through the repository's go.work; `go get` resolves them from
 // GitHub at these versions.
 require (
-	github.com/Bitspark/archon/core/go v0.6.0
-	github.com/Bitspark/archon/sdk/go v0.6.0
+	github.com/Bitspark/archon/core/go v0.6.1
+	github.com/Bitspark/archon/sdk/go v0.6.1
 )

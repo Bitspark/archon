@@ -1,6 +1,6 @@
 {
   "name": "@bitspark/archon-cli",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "archon CLI: key / keygen / sign / verify over the identity floor.",
   "license": "Apache-2.0",
   "repository": {
@@ -15,7 +15,7 @@
     "dist/src"
   ],
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
