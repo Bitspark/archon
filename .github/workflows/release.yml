@@ -409,6 +409,7 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
 
       - name: Publish signed artifacts to Maven Central
+        id: maven_publish
         if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true'
         working-directory: core/java
         env:
@@ -423,7 +424,103 @@ jobs:
           : "${MAVEN_CENTRAL_USERNAME:?Configure the Central Portal user-token username.}"
           : "${MAVEN_CENTRAL_PASSWORD:?Configure the Central Portal user-token password.}"
           : "${MAVEN_GPG_PASSPHRASE:?Configure the signing-key passphrase.}"
-          mvn -B -ntp -s release-settings.xml -Prelease deploy
+
+          # Idempotence. npm and crates.io both skip a version they already carry, so a
+          # re-dispatch that finishes a good release does not fail on what is already done;
+          # this step did not, and Central REFUSES a duplicate version — so re-running a
+          # dispatch to complete a release would have turned it red on the one lane that had
+          # actually succeeded.
+          #
+          # Checked against the public repository rather than the Portal API, because the
+          # question is whether consumers can already get it. Note the gap this cannot
+          # close: between Central accepting a deployment and serving it (PUBLISHING state,
+          # which took over 18 minutes for 0.7.0) this check still says "absent" while a
+          # redeploy would still be refused. Use the verify-only dispatch in that window.
+          VER="${TAG#v}"
+          POM="https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/$VER/archon-core-$VER.pom"
+          if curl --fail --silent --max-time 20 "$POM" -o /dev/null; then
+            echo "  dev.bitspark:archon-core:$VER is already on Central — nothing to deploy"
+            exit 0
+          fi
+
+          # The plugin returns once the deployment is VALIDATED, not once it is served, and
+          # prints the id it created. Keep it: it is the only handle on what Central is
+          # doing afterwards, and without it the next step can only guess.
+          mvn -B -ntp -s release-settings.xml -Prelease deploy 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          id=$(grep -oE 'deploymentId: [0-9a-fA-F-]{36}' "$RUNNER_TEMP/deploy.log" | head -n1 | awk '{print $2}')
+          if [ -z "$id" ]; then
+            echo "::warning::could not read a deploymentId from the plugin output; the deploy itself succeeded"
+          fi
+          echo "deployment-id=$id" >> "$GITHUB_OUTPUT"
+
+      - name: What Central says it is doing with the deployment
+        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true'
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          DEPLOYMENT_ID: ${{ steps.maven_publish.outputs.deployment-id }}
+        # The deploy returns when the bundle is VALIDATED, which is not when it is SERVED,
+        # and the gap is long — measured at over 36 minutes for the first archon-core
+        # publication. So this run cannot prove Central serves the artifact. It can prove
+        # what Central believes, which is the useful half and takes one request.
+        #
+        # FAILED is a real failed publish and fails the step. Every other state is normal
+        # asynchronous progress and is reported, not punished: a publish run that went red
+        # because a CDN had not caught up is exactly the false alarm this whole lane exists
+        # to stop producing.
+        #
+        # Read-only. The bearer is assembled in memory and never printed; the response is
+        # parsed for state and errors, both of which describe the ARTIFACT, not the account.
+        shell: python
+        run: |
+          import base64, json, os, urllib.request, urllib.error
+
+          deployment = os.environ.get("DEPLOYMENT_ID", "").strip()
+          if not deployment:
+              print("No deployment was created in this run — archon-core was already on "
+                    "Central, or the plugin printed no id. Nothing to ask about.")
+              raise SystemExit(0)
+
+          username = os.environ["MAVEN_CENTRAL_USERNAME"]
+          password = os.environ["MAVEN_CENTRAL_PASSWORD"]
+          token = base64.b64encode(f"{username}:{password}".encode()).decode()
+          request = urllib.request.Request(
+              "https://central.sonatype.com/api/v1/publisher/status?id=" + deployment,
+              data=b"", method="POST",
+              headers={"Authorization": "Bearer " + token},
+          )
+
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  body = json.loads(response.read().decode() or "{}")
+          except urllib.error.HTTPError as error:
+              error.close()
+              print(f"::warning::the Portal status endpoint answered HTTP {error.code}. The "
+                    f"deploy itself SUCCEEDED; this step only reports what Central thinks.")
+              raise SystemExit(0)
+          except Exception:
+              print("::warning::could not reach the Portal status endpoint. The deploy itself "
+                    "SUCCEEDED; this step only reports what Central thinks.")
+              raise SystemExit(0)
+
+          state = body.get("deploymentState", "UNKNOWN")
+          errors = body.get("errors") or {}
+          print(f"deployment {deployment}: {state}")
+          if errors:
+              print("Central reported errors against the artifact:")
+              print(json.dumps(errors, indent=2)[:4000])
+
+          if state == "FAILED":
+              print("::error::Central FAILED the deployment. This is a failed publish, not a "
+                    "slow one — read the errors above; nothing will ever appear on "
+                    "repo.maven.apache.org for this version.")
+              raise SystemExit(1)
+
+          print(f"::notice::Central has the deployment in state {state}. Serving on "
+                f"repo.maven.apache.org is asynchronous and has taken over half an hour for a "
+                f"first publication, so it is NOT verified here. Dispatch this workflow again "
+                f"with verify_only to run the Maven Central consumer against the published "
+                f"bytes; that is the run in which Java counts as published.")
 
       - name: Pack the Java artifacts without publishing (rehearsal)
         if: env.REHEARSE == 'true'
@@ -597,9 +694,20 @@ jobs:
           go run .
 
       - name: The Maven Central consumer, outside the checkout
-        if: env.REHEARSE != 'true'
-        # Central serves later than it accepts, like every other registry here, so the wait
-        # comes first and its expiry is NOT a failed publish.
+        if: env.VERIFY_ONLY == 'true'
+        # THIS STEP DOES NOT RUN IN A PUBLISH RUN, and the reason is measured rather than
+        # cautious. Central accepted and validated archon-core 0.7.0 at 15:15:38Z and was
+        # still not serving it 36 minutes later. This step began life waiting 10 minutes;
+        # the job's whole remaining budget is about 37. So there is no number that fits
+        # inside a publish run — widening it again would only have bought a longer red on a
+        # release that had in fact succeeded, which is how 5 minutes became 10 and 10 became
+        # wrong.
+        #
+        # npm, crates.io and the Go proxy serve fast enough to verify in the same run.
+        # Central does not, at least for a first publication into a namespace. So for Java
+        # verification is a SECOND ACT: `verify_only` publishes nothing and runs every check,
+        # and that is the run in which the Java row of docs/languages.md earns the word
+        # "published". The publish run instead asks the Portal what it knows — see below.
         #
         # Then the real question: can a stranger USE it? The consumer under
         # tooling/conformance/consumers/java is not a module of core/java — it resolves the

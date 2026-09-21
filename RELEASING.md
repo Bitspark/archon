@@ -107,6 +107,15 @@ serve later than they accept, and the round trips wait for that with a bounded r
 replace a published version with changed source. A registry is "published" in the matrix
 only when its public, unauthenticated installation check has passed.
 
+**For Maven Central, `verify_only` is not recovery — it is the normal second act.** The
+other registries serve fast enough to verify in the run that published them. Central does
+not: for archon-core 0.7.0 it validated the bundle at 15:15:38Z and was still not serving
+the artifact 36 minutes later, against a job whose entire remaining budget was about 37.
+So the Maven Central consumer runs **only** under `verify_only`, and the publish run asks
+the Portal what state the deployment is in instead. Expect two runs for a Java release: one
+that publishes, one that verifies. A publish run that ends green has not proved Central
+serves anything, and the matrix should not say "published" until the second run is green.
+
 ## Not yet in the workflow
 
 Swift, C++ and Haskell will be consumed from the immutable public tag (SwiftPM through the
