@@ -276,10 +276,16 @@ jobs:
         run: npm ci
       - name: tri-core agreement
         # check.mjs builds all three cores, then runs the harness over vectors/identity.json
-        # (60 cases × 3 cores = 180 case-checks), then builds the three sdk CLIs and runs it
+        # (105 cases × 3 cores = 315 case-checks), then builds the three sdk CLIs and runs it
         # over vectors/sdk.json (36 × 3 = 108). It exits non-zero on the FIRST disagreement,
         # naming the family, the case, and the two byte strings that differ.
         run: node conformance/check.mjs
+      - name: differential — the profile's classes, fresh members, no oracle
+        # ADR 0008: the fixed vectors pin one member per class; this draws new ones (random
+        # torsion component, nonce, message, domain) and fails on any case the three cores
+        # answer differently. It found PyCryptodome's identity test on its first run; it is
+        # here so the next such thing is found before a release, not by a consumer.
+        run: node conformance/check-differential.mjs
 
   # The `archon` CLI tier: three native binaries, one command. cli/smoke.mjs builds all
   # three and pins their stdout + exit codes against each other AND against the oracle /
