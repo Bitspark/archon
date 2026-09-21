@@ -32,19 +32,57 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 
 | Language | core | sdk | cli | server | Coordinates | Conforming | Published |
 |---|---|---|---|---|---|---|---|
-| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ public proxy + checksum db (0.6.2) |
-| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io (0.6.2) |
-| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance (0.6.2) |
+| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ proxy + checksum db — **0.7.0**, and automatically (see below) |
+| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.6.1** |
+| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.6.1** |
 | **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 105/105 | ⏳ PyPI, once the pending publisher is registered (see `release.yml`) |
-| **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 60/60 on the pre-0008 oracle; the profile classes pending | ⏳ Maven Central; secrets installed, workflow pending |
-| **C++** | 🔧 in review | — | — | — | CMake package | 60/60 on the pre-0008 oracle; the profile classes pending | — |
-| **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs a binding to a complete Ed25519ph-with-context implementation (0008 §8) |
-| **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same binding (0008 §8) |
+| **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ⏳ Maven Central; the lane is built and publishes with 0.7.0 |
+| **C++** | 🔧 signs, does not yet accept | — | — | — | CMake package | 83/105 — all 22 failures are profile cases | needs the same two (0008 §8) |
+| **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs **two** libraries — a signer and a validator (0008 §8) |
+| **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same two (0008 §8) |
 
-A published version is a version that was published: 0.6.2 is on the three registries;
-0.7.0, the profile, is the next release. The Java and C++ rows say "pre-0008" because a core
-that agrees with the 60 cases and has not yet been run on the 36 profile classes has not been
-asked the question that ADR 0008 exists to ask.
+A published version is a version that was published — which is not the same as a version that
+was tagged, and right now the two have come apart. Measured against the registries themselves
+rather than against the tag list:
+
+| registry | has | how it got there |
+|---|---|---|
+| Go proxy + `sum.golang.org` | v0.6.0, v0.6.1, v0.6.2, **v0.7.0** | **automatically** — the proxy fetches any tag of a public repo on demand |
+| npm | 0.6.1 | the release workflow |
+| crates.io | 0.6.1 | the release workflow |
+| PyPI | *nothing* | pending publisher |
+| Maven Central | *nothing* | lane built, not yet run |
+
+`v0.6.2` and `v0.7.0` are tagged but were never published to npm or crates.io, so those two
+sit a release behind. **Go is the asymmetry to keep in mind:** nobody publishes it, and
+nothing gates it. Pushing a tag to a public repo is enough for the proxy to serve that
+version and for `sum.golang.org` to pin its hash forever, which is why a tag can never be
+re-cut once it exists — and why `v0.7.0` is already immutable.
+
+0.7.0 is the next release for the other registries, and it carries Java — but only because
+the release workflow checks out **two trees**, which is worth understanding before changing
+anything there.
+
+A release checks out its own tag, so anything read from that tree is whatever existed when
+the tag was cut. `v0.7.0` is `9ce7589`: it contains `core/java` at 0.7.0 with the profile, so
+the Java artifact can be *built and published* from it — but it contains no
+`conformance/consumers/` at all, because those were added afterwards. A consumer step reading
+its program from the tag's tree would therefore fail on `v0.7.0` *after* the registries had
+been written to.
+
+So the workflow takes a second, sparse checkout of the ref the **workflow file itself** came
+from, into `tooling/`, and the consumer steps read their programs from there. The split is
+the point: **the product is the tag's, the tooling is the workflow's.** What gets published
+is the exact tagged source; what checks it is the current program.
+
+Re-cutting the tag was never an option. `core/go/v0.7.0` is already pinned in
+`sum.golang.org` — and on that note, see the Go row above. C++ is the row
+to read carefully: its signing is correct — OpenSSL ≥ 3.2 reproduces every `domain_sign`
+vector byte for byte — and it fails only on acceptance. `EVP_PKEY_public_check` validates
+nothing for Ed25519, and OpenSSL exposes no scalar multiplication for the curve, so the
+profile predicate cannot be written against its public API at all. That is a packaging
+question, not a coding one, and [ADR 0008 §8](architecture/decisions/0008-the-ed25519-verification-profile.md)
+is where it is owed an answer.
 
 The registry prefixes differ by ecosystem because the namespaces do. crates.io and PyPI are
 flat, so those carry `bitspark-`; npm has scopes, so it carries `@bitspark/`. **The prefix is
@@ -72,6 +110,15 @@ For Python those are `core/py/test` (22 tests), `conformance/check-py.mjs`, and
 into a fresh venv with `PYTHONPATH` stripped, and runs the conformance protocol again against
 the installed package.
 
+For Java they are `core/java/src/test`, `conformance/check-java.mjs`, and
+`conformance/check-java-package.mjs`. The third resolves `dev.bitspark:archon-core` into a
+local repository of its own and builds [`conformance/consumers/java`](../conformance/consumers/java)
+against it; the release workflow runs **that same program** against Maven Central, so the
+local check and the published check cannot drift. Its assertions were chosen by measurement
+rather than by plausibility: with the core's profile predicate disabled, the mixed-order case
+fails. The obvious candidate — the identity public key — does **not** fail, because Bouncy
+Castle refuses that one itself, so asserting it alone would have proved nothing about archon.
+
 ## What adding a language actually costs
 
 Not the signing. Two other things, both learned from Python:
@@ -94,6 +141,22 @@ through its signature-operation parameters; BoringSSL's public API is raw Ed2551
 does not qualify — and are released when they pass the whole oracle, not a subset of it.
 Note also that CryptoKit *randomises* signatures, so it could not be a core's signer even if
 it had the context.
+
+**One library is not enough, and C++ is the proof.** OpenSSL ≥ 3.2 signs correctly — the C++
+core reproduces every `domain_sign` vector byte for byte — and then fails 22 acceptance cases,
+because `EVP_PKEY_public_check` validates nothing for Ed25519 and OpenSSL exposes no scalar
+multiplication for the curve, so the profile predicate cannot be written against its public
+API at all. Swift and Haskell reach the same wall for the same reason: signing and accepting
+are separate problems, and binding a signer solves only the first.
+
+The second is libsodium's `crypto_core_ed25519_is_valid_point`, which is the profile predicate
+almost exactly — on the curve, canonical, on the main subgroup, not small order. **Require
+libsodium ≥ 1.0.21.** In 1.0.20 and earlier that function *accepted points in mixed-order
+subgroups* (2L, 4L, 8L) — which is precisely
+[`profile-mixed-order-A-k-divisible`](../conformance/profile-cases.mjs), the case the oracle
+keeps because every pre-0008 implementation accepted it. A core built against 1.0.20 would
+therefore ship the exact defect the profile exists to forbid. The oracle catches it, which is
+what the oracle is for, but the floor belongs in the build files rather than in a run log.
 
 **The acceptance profile.** Less obvious and more dangerous. RFC 8032 permits more than one
 verification equation, so implementations genuinely disagree about which signatures are

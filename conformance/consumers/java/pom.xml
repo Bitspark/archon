@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A consumer that knows nothing but the coordinates.
+
+  This project is deliberately NOT a module of core/java: it must resolve
+  dev.bitspark:archon-core from a repository, the way a stranger does, rather than from
+  the reactor. The version arrives as -Darchon.version so that nothing here needs editing
+  at release time, and so a stale literal cannot make the check pass against the wrong
+  artifact.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>example</groupId>
+  <artifactId>archon-consumer</artifactId>
+  <version>1.0</version>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>dev.bitspark</groupId>
+      <artifactId>archon-core</artifactId>
+      <version>${archon.version}</version>
+    </dependency>
+  </dependencies>
+</project>

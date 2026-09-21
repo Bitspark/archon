@@ -14,9 +14,9 @@
 //     and a jar that shipped them would be leaking a dev artifact into the library surface.
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const isWindows = process.platform === "win32";
@@ -82,58 +82,23 @@ try {
     console.log("jar carries no dev artifacts … ok");
   }
 
-  // A consumer project that knows nothing but the coordinates.
+  // The consumer is NOT written here. conformance/consumers/java is the same program the
+  // release workflow runs against Maven Central, and it exists once so that the local check
+  // and the registry check cannot drift: a consumer inlined in this file would be a second
+  // opinion about what a consumer needs, and the weaker of the two would never be noticed.
+  // Its assertions are load-bearing by measurement — disabling the core's profile check makes
+  // the mixed-order case fail — which an inline smoke test was not.
   const consumer = join(work, "consumer");
-  mkdirSync(join(consumer, "src", "main", "java"), { recursive: true });
-  writeFileSync(
-    join(consumer, "pom.xml"),
-    `<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0">
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>example</groupId>
-  <artifactId>consumer</artifactId>
-  <version>1.0</version>
-  <properties>
-    <maven.compiler.release>21</maven.compiler.release>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-  </properties>
-  <dependencies>
-    <dependency>
-      <groupId>dev.bitspark</groupId>
-      <artifactId>archon-core</artifactId>
-      <version>${VERSION}</version>
-    </dependency>
-  </dependencies>
-</project>
-`,
-  );
-  writeFileSync(
-    join(consumer, "src", "main", "java", "Consumer.java"),
-    `import dev.bitspark.archon.core.*;
-import java.nio.charset.StandardCharsets;
-
-public class Consumer {
-  public static void main(String[] a) {
-    byte[] seed = new byte[32];
-    for (int i = 0; i < 32; i++) seed[i] = (byte) i;
-    byte[] pub = Crypto.publicKeyFromSeed(seed);
-    byte[] msg = "hello".getBytes(StandardCharsets.UTF_8);
-    byte[] sig = Crypto.signInDomain(seed, "example.v1", msg);
-    if (!Crypto.verifyInDomain(pub, "example.v1", msg, sig)) throw new AssertionError("domain");
-    if (Crypto.verifyInDomain(pub, "other.v1", msg, sig)) throw new AssertionError("crossed");
-    if (Crypto.verify(pub, msg, sig)) throw new AssertionError("verified raw");
-    String text = KeyText.encodeKey(pub);
-    if (!java.util.Arrays.equals(pub, KeyText.decodeKey(text))) throw new AssertionError("keytext");
-    System.out.println("consumer ok: " + text);
-  }
-}
-`,
-  );
+  cpSync(join(root, "conformance", "consumers", "java"), consumer, {
+    recursive: true,
+    filter: (source) => basename(source) !== "target",
+  });
 
   // Offline after install: nothing may be fetched from the network to make this work, and
   // Bouncy Castle must arrive transitively from archon-core's own POM.
-  run("build the outside consumer", ["-q", "-B", "compile"], consumer, [localRepo]);
-  const ran = run("run it", ["-q", "-B", "exec:java", "-Dexec.mainClass=Consumer"], consumer, [
+  const version = `-Darchon.version=${VERSION}`;
+  run("build the outside consumer", ["-q", "-B", version, "compile"], consumer, [localRepo]);
+  const ran = run("run it", ["-q", "-B", version, "exec:java", "-Dexec.mainClass=example.Consumer"], consumer, [
     localRepo,
   ]);
   const line = (ran.stdout || "").split("\n").map((l) => l.trim()).find((l) => l.startsWith("consumer ok:"));
