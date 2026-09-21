@@ -38,3 +38,9 @@ sdk/go/go.exe
 # leading slash is load-bearing: a bare `bin/` matches a directory named bin at ANY depth,
 # and would silently swallow core/rs/src/bin/conformance.rs.
 /bin/
+
+# Python: the conformance venv, and build artefacts.
+core/py/.venv/
+core/py/dist/
+core/py/src/*.egg-info/
+core/py/**/__pycache__/
