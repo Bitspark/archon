@@ -44,3 +44,6 @@ core/py/.venv/
 core/py/dist/
 core/py/src/*.egg-info/
 core/py/**/__pycache__/
+
+# Java: Maven build output.
+core/java/target/
