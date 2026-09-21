@@ -50,6 +50,10 @@ on:
         description: "true = build, check and pack, but publish NOTHING and create no release."
         required: false
         default: "true"
+      verify_only:
+        description: "true = publish NOTHING; run the guards, the outside consumers against what the registries already serve, and create the GitHub release. The recovery for a run that published and then went red on verification."
+        required: false
+        default: "false"
 
 permissions:
   contents: write   # create the GitHub release
@@ -67,6 +71,12 @@ jobs:
     env:
       TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
       REHEARSE: ${{ github.event_name == 'workflow_dispatch' && inputs.rehearse || 'false' }}
+      # verify_only: every publish step is skipped and every verification runs. This is how a
+      # release that PUBLISHED and then went red on a slow registry is finished — 0.6.2 (npm,
+      # five minutes) and 0.7.0 (Central, ten) both did — instead of by hand, and without
+      # re-running publish steps that a registry would refuse as duplicates. Publishes are
+      # idempotent on npm and crates.io (they skip what is served) but NOT on Central.
+      VERIFY_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_only || 'false' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -192,6 +202,7 @@ jobs:
           java-version: "21"
 
       - name: Check Maven resolves the credentials, and that Central accepts them
+        if: env.VERIFY_ONLY != 'true'
         working-directory: core/java
         env:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
@@ -282,6 +293,7 @@ jobs:
               )
 
       - name: Publish to npm, floor first
+        if: env.VERIFY_ONLY != 'true'
         # Order is a dependency order, not a preference: the sdk names the floor, the command
         # names the sdk, and each must be on the registry before the next is published.
         #
@@ -327,10 +339,11 @@ jobs:
       # manual first publish. Until then the step is skipped and the secret is used instead.
       - name: Mint a crates.io token from this run's identity
         id: cratesio-auth
-        if: vars.CRATES_IO_TRUSTED_PUBLISHING == 'true'
+        if: vars.CRATES_IO_TRUSTED_PUBLISHING == 'true' && env.VERIFY_ONLY != 'true'
         uses: rust-lang/crates-io-auth-action@v1
 
       - name: Publish to crates.io, floor first
+        if: env.VERIFY_ONLY != 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.cratesio-auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
         run: |
@@ -384,6 +397,7 @@ jobs:
           done
 
       - name: Import the release signing key
+        if: env.VERIFY_ONLY != 'true'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -395,7 +409,7 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
 
       - name: Publish signed artifacts to Maven Central
-        if: env.REHEARSE != 'true'
+        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true'
         working-directory: core/java
         env:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
@@ -421,6 +435,7 @@ jobs:
         run: mvn -B -ntp verify -DskipTests=false
 
       - name: Build the Python distributions
+        if: env.VERIFY_ONLY != 'true'
         # Always, rehearsal included: a pyproject.toml that no longer builds is a release
         # defect whether or not PyPI is armed. The sdist and wheel are what a consumer gets.
         run: |
@@ -445,7 +460,7 @@ jobs:
       # the two registries that ARE configured is not entangled with the third. As everywhere
       # else in this workflow, a rehearsal cannot prove any of it: a dry run never authenticates.
       - uses: pypa/gh-action-pypi-publish@release/v1
-        if: env.REHEARSE != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true'
+        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true'
         with:
           packages-dir: dist-py
           # The upload is idempotent-ish: re-running a release that already published this
@@ -453,7 +468,7 @@ jobs:
           skip-existing: true
 
       - name: What PyPI did not get
-        if: env.REHEARSE != 'true' && vars.PYPI_TRUSTED_PUBLISHING != 'true'
+        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true' && vars.PYPI_TRUSTED_PUBLISHING != 'true'
         run: |
           echo "::warning::bitspark-archon-core ${TAG#v} was BUILT but NOT PUBLISHED: vars.PYPI_TRUSTED_PUBLISHING is not 'true'. Register the pending publisher on PyPI (see this workflow), set the variable, and re-run this dispatch — every publish step skips what is already on its registry."
 
@@ -687,7 +702,13 @@ jobs:
         if: env.REHEARSE != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists — leaving it"
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
+          fi
 
       - name: What a rehearsal did not do
         if: env.REHEARSE == 'true'
