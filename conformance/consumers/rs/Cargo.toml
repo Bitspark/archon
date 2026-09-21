@@ -1,0 +1,14 @@
+# An OUTSIDE consumer of archon from crates.io. `ARCHON_VERSION` is substituted by the
+# release workflow (or by hand: sed -i "s/ARCHON_VERSION/0.7.0/" Cargo.toml) before
+# `cargo run` in a copy of this directory with a fresh CARGO_HOME — no path dependency, no
+# workspace, no vendored source. `=` pins the exact version so a stale index cannot satisfy
+# the check with the previous release.
+[package]
+name = "archon-outside-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+bitspark-archon-core = "=ARCHON_VERSION"
+bitspark-archon-sdk = "=ARCHON_VERSION"

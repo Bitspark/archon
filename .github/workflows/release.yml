@@ -305,7 +305,7 @@ jobs:
           python -m venv v
           ok=0
           for i in $(seq 1 30); do
-            if ./v/bin/pip install --quiet "bitspark-archon-core==$VER"; then ok=1; break; fi
+            if ./v/bin/pip install --quiet --no-cache-dir "bitspark-archon-core==$VER"; then ok=1; break; fi
             echo "PyPI not serving bitspark-archon-core==$VER yet (try $i/30) — waiting"; sleep 10
           done
           if [ "$ok" -ne 1 ]; then
@@ -318,36 +318,84 @@ jobs:
           sig = a.sign_in_domain(seed, 'example.v1', b'hello')
           assert a.verify_in_domain(pub, 'example.v1', b'hello', sig)
           assert not a.verify(pub, b'hello', sig)
+          identity = bytes([1]) + bytes(31); universal = bytes([0x58]) + bytes([0x66]) * 31 + bytes([1]) + bytes(31)
+          assert not a.verify(identity, b'hello', universal), 'ADR 0008: the identity key is refused'
           print('installed', a.__version__, a.encode_key(pub))
           "
 
-      - name: The round trip against what was published
+      # ---- the outside consumers -------------------------------------------------------
+      # "On the registry" is a claim until an install from nothing proves it. Each consumer
+      # below lives in conformance/consumers/<lang>, is copied to an empty directory with an
+      # EMPTY cache, installs the SDK from the public registry — which pulls the floor through
+      # the range the published sdk names, the one rewritten from a file: link at publish
+      # time — and runs: a genuine domain signature verifies only in its domain, the sdk's
+      # possession proof goes through the floor, and the identity key's universal signature
+      # is refused (ADR 0008). No checkout, link, replace, path or workspace is reachable.
+      # ⚠ Every registry ACCEPTS a publish before its read path serves it. Six tries at 10s
+      # failed the 0.6.1 run AFTER all eight packages had published correctly — the release
+      # was fine and the verification cried wolf. Give each one real time, and make the
+      # failure say which half is at fault.
+      - name: The npm consumer, outside the checkout
         if: env.REHEARSE != 'true'
-        # "On the registry" is a claim until an install from nothing proves it. A clean
-        # directory installs the published floor and imports it — no file: link exists here.
         run: |
           set -euo pipefail
           VER="${TAG#v}"
-          d=$(mktemp -d); cd "$d"; npm init -y >/dev/null
-          # ⚠ npm ACCEPTS a publish well before its read path serves it. Six tries at 10s
-          # failed the 0.6.1 run AFTER all eight packages had published correctly — the
-          # release was fine and the verification cried wolf. Give the CDN real time, and
-          # make the failure say which half is at fault.
+          d=$(mktemp -d); cp conformance/consumers/ts/consumer.mjs "$d"; cd "$d"; npm init -y >/dev/null
+          export npm_config_cache=$(mktemp -d)
           ok=0
           for i in $(seq 1 30); do
-            if npm install --no-audit --no-fund "@bitspark/archon@$VER" 2>/dev/null; then ok=1; break; fi
-            echo "registry not serving @bitspark/archon@$VER yet (try $i/30) — waiting"; sleep 10
+            if npm install --no-audit --no-fund --registry https://registry.npmjs.org --@bitspark:registry=https://registry.npmjs.org \
+                 "@bitspark/archon-sdk@$VER" "@bitspark/archon@$VER" 2>/dev/null; then ok=1; break; fi
+            echo "registry not serving @bitspark/archon-sdk@$VER + @bitspark/archon@$VER yet (try $i/30) — waiting"; sleep 10
           done
           if [ "$ok" -ne 1 ]; then
-            echo "::error::@bitspark/archon@$VER did not become installable within 5 minutes. The publish steps SUCCEEDED — check the registry before assuming the release failed." >&2
+            echo "::error::@bitspark/archon-sdk@$VER did not become installable within 5 minutes. The publish steps SUCCEEDED — check the registry before assuming the release failed." >&2
             exit 1
           fi
-          node --input-type=module -e "
-            import * as a from '@bitspark/archon';
-            const n = Object.keys(a);
-            if (!n.length) throw new Error('empty module');
-            console.log('@bitspark/archon exports ' + n.length + ': ' + n.join(', '));
-          "
+          node consumer.mjs
+
+      - name: The crates.io consumer, outside the checkout
+        if: env.REHEARSE != 'true'
+        run: |
+          set -euo pipefail
+          VER="${TAG#v}"
+          d=$(mktemp -d); cp -r conformance/consumers/rs/. "$d"; cd "$d"
+          sed -i "s/ARCHON_VERSION/$VER/g" Cargo.toml
+          export CARGO_HOME=$(mktemp -d)
+          ok=0
+          for i in $(seq 1 30); do
+            if cargo fetch 2>/dev/null; then ok=1; break; fi
+            echo "crates.io not resolving bitspark-archon-sdk =$VER yet (try $i/30) — waiting"; sleep 10
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::bitspark-archon-{core,sdk} =$VER did not become resolvable within 5 minutes. The publish steps SUCCEEDED — check crates.io before assuming the release failed." >&2
+            exit 1
+          fi
+          grep -A2 'name = "bitspark-archon-' Cargo.lock | grep -q 'registry+https://github.com/rust-lang/crates.io-index' || { echo "::error::the crates did not resolve from crates.io" >&2; exit 1; }
+          cargo run --quiet
+
+      - name: The Go consumer, outside the checkout
+        if: env.REHEARSE != 'true'
+        # Go's registry is the proxy, which fetches a tag from this repository on first
+        # request; sum.golang.org records it. GOFLAGS is cleared so no -mod=mod or workspace
+        # setting from the job leaks in; GOPROXY has no `direct` fallback, so a module that
+        # the proxy cannot serve is a failure here, not a silent git clone.
+        run: |
+          set -euo pipefail
+          VER="${TAG#v}"
+          d=$(mktemp -d); cp conformance/consumers/go/main.go "$d"; cd "$d"
+          export GOFLAGS= GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOPRIVATE= GONOSUMDB= GOMODCACHE=$(mktemp -d)
+          go mod init consumer >/dev/null 2>&1
+          ok=0
+          for i in $(seq 1 30); do
+            if go get "github.com/Bitspark/archon/sdk/go@v$VER" "github.com/Bitspark/archon/core/go@v$VER" 2>/dev/null; then ok=1; break; fi
+            echo "proxy.golang.org not serving sdk/go@v$VER + core/go@v$VER yet (try $i/30) — waiting"; sleep 10
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::the Go modules at v$VER did not become resolvable from the proxy within 5 minutes — check that the four */go/v$VER tags are public." >&2
+            exit 1
+          fi
+          go run .
 
       - name: Create the GitHub release
         if: env.REHEARSE != 'true'
