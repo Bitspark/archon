@@ -72,7 +72,7 @@ const tsEntry = join(root, "core", "ts", "dist", "conformance", "cli.js");
 
 run("go", isWindows ? "go.exe" : "go", ["build", "-o", goBin, "./cmd/conformance"], join(root, "core", "go"));
 run("rs", isWindows ? "cargo.exe" : "cargo",
-    ["build", "-q", "--features", "conformance-cli", "--bin", "conformance"], join(root, "core", "rs"));
+    ["build", "-q", "--locked", "--features", "conformance-cli", "--bin", "conformance"], join(root, "core", "rs"));
 // tsc is invoked through its JS entry rather than the `npx`/`tsc` shim: Node refuses to
 // spawn a Windows .cmd file without a shell, and going through a shell is exactly the
 // cross-platform hazard spawn.mjs exists to avoid.
@@ -86,7 +86,7 @@ const sdkRsBin = join(root, "sdk", "rs", "target", "debug", `conformance${exe}`)
 const sdkTsEntry = join(root, "sdk", "ts", "dist", "conformance", "cli.js");
 run("sdk go", isWindows ? "go.exe" : "go", ["build", "-o", sdkGoBin, "./cmd/conformance"], join(root, "sdk", "go"));
 run("sdk rs", isWindows ? "cargo.exe" : "cargo",
-    ["build", "-q", "--features", "conformance-cli", "--bin", "conformance"], join(root, "sdk", "rs"));
+    ["build", "-q", "--locked", "--features", "conformance-cli", "--bin", "conformance"], join(root, "sdk", "rs"));
 run("sdk ts", process.execPath, [sdkTsc, "-p", "tsconfig.json"], sdkTsDir);
 
 // The command's own layer: the key store (vectors/keystore.json, ADR 0007 §A).
@@ -116,7 +116,7 @@ if (!existsSync(cliTsc)) {
 }
 run("cli go", isWindows ? "go.exe" : "go", ["build", "-o", cliGoBin, "./cmd/conformance"], join(root, "cli", "go"));
 run("cli rs", isWindows ? "cargo.exe" : "cargo",
-    ["build", "-q", "--features", "conformance-cli", "--bin", "conformance"], join(root, "cli", "rs"));
+    ["build", "-q", "--locked", "--features", "conformance-cli", "--bin", "conformance"], join(root, "cli", "rs"));
 run("cli ts", process.execPath, [cliTsc, "-p", "tsconfig.json"], cliTsDir);
 
 for (const p of [goBin, rsBin, tsEntry, sdkGoBin, sdkRsBin, sdkTsEntry, cliGoBin, cliRsBin, cliTsEntry]) {
