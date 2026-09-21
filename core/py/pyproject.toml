@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bitspark-archon-core"
+version = "0.6.2"
+description = "archon core: Ed25519 primitives, the canonical key spelling, and the SPKI/PKCS-8 key codec. The identity floor beneath the law."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Bitspark" }]
+
+# One runtime dependency, and the choice is load-bearing. `cryptography` exposes only
+# `sign(data)` — pure Ed25519 — while archon's domain separation is Ed25519ph with the domain
+# as the RFC 8032 context. PyCryptodome's `eddsa.new(key, 'rfc8032', context=…)` is the one
+# mainstream Python route to that primitive.
+dependencies = ["pycryptodome>=3.20"]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Security :: Cryptography",
+  "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/Bitspark/archon"
+Documentation = "https://github.com/Bitspark/archon/tree/main/docs"
+Repository = "https://github.com/Bitspark/archon"
+Issues = "https://github.com/Bitspark/archon/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+archon_core = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]

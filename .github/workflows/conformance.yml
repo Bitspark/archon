@@ -152,6 +152,38 @@ jobs:
           go test -race ./...
           (cd ../../cli/go && go test -race ./...)
 
+  py:
+    name: py
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: install
+        working-directory: core/py
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest build
+      - name: test
+        working-directory: core/py
+        run: python -m pytest test -q
+      # The oracle, through the shared harness. This is the check that matters: the Python
+      # core recomputes all 60 cases and is asserted against the same vectors the Go, Rust
+      # and TypeScript cores are. Agreement is transitive through the oracle, so this job
+      # standing alone still proves Python agrees with the other three.
+      - name: conformance against the oracle
+        run: node conformance/check-py.mjs
+      # A package that cannot be built and installed from nothing is not a package. This
+      # also catches a pyproject.toml that only works in-tree.
+      - name: build + install the wheel as an outside consumer
+        run: node conformance/check-py-package.mjs
+
   ts:
     name: ts
     runs-on: ubuntu-latest
