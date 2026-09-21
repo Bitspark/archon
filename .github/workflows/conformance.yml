@@ -152,6 +152,33 @@ jobs:
           go test -race ./...
           (cd ../../cli/go && go test -race ./...)
 
+  java:
+    name: java
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: test
+        working-directory: core/java
+        run: mvn -B test
+      # The oracle, through the shared harness. The Java core recomputes all 60 cases and is
+      # asserted against the same vectors as every other core; agreement is transitive through
+      # the oracle, so this job standing alone still proves Java agrees with the rest.
+      - name: conformance against the oracle
+        run: node conformance/check-java.mjs
+      # A jar that cannot be consumed from its coordinates is not a package. This also asserts
+      # the jar does not leak the conformance CLI or its test-scoped JSON dependency.
+      - name: install + consume the jar from outside
+        run: node conformance/check-java-package.mjs
+
   py:
     name: py
     runs-on: ubuntu-latest

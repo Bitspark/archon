@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The settings the release workflow passes with `mvn -s`. The server id matches
+  <publishingServerId>central</publishingServerId> in pom.xml; if the two ever disagree, Maven
+  finds no credentials for the repository and Central answers 401 — which looks exactly like a
+  bad username and password, and is not.
+
+  The values are read from the environment, so the secrets never appear in this file, in a
+  command line, or in the build log.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
+  <servers>
+    <server>
+      <id>central</id>
+      <username>${env.MAVEN_CENTRAL_USERNAME}</username>
+      <password>${env.MAVEN_CENTRAL_PASSWORD}</password>
+    </server>
+  </servers>
+</settings>
