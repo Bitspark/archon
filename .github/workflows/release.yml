@@ -73,6 +73,22 @@ jobs:
           ref: ${{ github.event_name == 'push' && github.ref || inputs.tag }}
           fetch-depth: 0
 
+      # ⚠ TWO TREES. The checkout above is the PRODUCT: the tag's source, and everything that
+      # publishes or gates publication reads from it. This second checkout is the release
+      # TOOLING — the outside-consumer programs under conformance/consumers — taken from the
+      # ref this workflow FILE came from (`main` for a dispatch), exactly as the workflow file
+      # itself is. A dispatch runs main's release.yml against the tag's tree, so a consumer
+      # step that read the programs from the product tree would fail on any tag cut before
+      # they existed, or before their assertions last changed — AFTER the registries had
+      # been written to. v0.7.0 is such a tag. The programs verify the published artifacts
+      # against what the release claims; they are not part of what is released.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          path: tooling
+          sparse-checkout: conformance/consumers
+          sparse-checkout-cone-mode: true
+
       - name: Hold the remote tag to the checked-out commit
         # A dispatch takes a tag NAME; nothing guarantees the ref it resolved to is still the
         # one being released. Compare explicitly rather than trusting the checkout.
@@ -328,7 +344,8 @@ jobs:
 
       # ---- the outside consumers -------------------------------------------------------
       # "On the registry" is a claim until an install from nothing proves it. Each consumer
-      # below lives in conformance/consumers/<lang>, is copied to an empty directory with an
+      # below lives in conformance/consumers/<lang> — read from the TOOLING checkout, see the two-trees
+      # note at the top — is copied to an empty directory with an
       # EMPTY cache, installs the SDK from the public registry — which pulls the floor through
       # the range the published sdk names, the one rewritten from a file: link at publish
       # time — and runs: a genuine domain signature verifies only in its domain, the sdk's
@@ -343,7 +360,7 @@ jobs:
         run: |
           set -euo pipefail
           VER="${TAG#v}"
-          d=$(mktemp -d); cp conformance/consumers/ts/consumer.mjs "$d"; cd "$d"; npm init -y >/dev/null
+          d=$(mktemp -d); cp tooling/conformance/consumers/ts/consumer.mjs "$d"; cd "$d"; npm init -y >/dev/null
           export npm_config_cache=$(mktemp -d)
           ok=0
           for i in $(seq 1 30); do
@@ -362,7 +379,7 @@ jobs:
         run: |
           set -euo pipefail
           VER="${TAG#v}"
-          d=$(mktemp -d); cp -r conformance/consumers/rs/. "$d"; cd "$d"
+          d=$(mktemp -d); cp -r tooling/conformance/consumers/rs/. "$d"; cd "$d"
           sed -i "s/ARCHON_VERSION/$VER/g" Cargo.toml
           export CARGO_HOME=$(mktemp -d)
           ok=0
@@ -386,7 +403,7 @@ jobs:
         run: |
           set -euo pipefail
           VER="${TAG#v}"
-          d=$(mktemp -d); cp conformance/consumers/go/main.go "$d"; cd "$d"
+          d=$(mktemp -d); cp tooling/conformance/consumers/go/main.go "$d"; cd "$d"
           export GOFLAGS= GOWORK=off GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOPRIVATE= GONOSUMDB= GOMODCACHE=$(mktemp -d)
           go mod init consumer >/dev/null 2>&1
           ok=0
