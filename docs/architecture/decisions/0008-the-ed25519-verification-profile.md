@@ -142,7 +142,8 @@ library's defaults are an implementation detail that may change under it. Concre
 | Go | `filippo.io/edwards25519`: `SetBytes`, re-encode and compare, `[L−1]P + P = O` | **new** — see §5 |
 | Rust | `VerifyingKey::to_edwards()`: `compress()` and compare, `is_torsion_free()` | none new |
 | TypeScript | `Point.fromBytes(bytes, false)`, `!is0()`, `isTorsionFree()` | none new |
-| Python | `ECC.import_key`, `export_key(format="raw")` and compare, `[L]P` is infinity | none new |
+| Python | `ECC.import_key`, `export_key(format="raw")` and compare, `[L]P` is `(0, 1)` — both coordinates, because the library's own infinity test is `x == 0` (see Consequences) | none new |
+| Java | Bouncy Castle's `Ed25519.validatePublicKeyFull`, measured to be exactly lines 2–3, called on `A` and on `R` — `Ed25519Signer` alone applies only the *partial* validator to `A` and nothing to `R` | none new |
 
 Point arithmetic remains the library's in every lane. archon writes a **check**, never a
 curve operation, and never anything on the secret path — 0001 Finding 5 holds.
