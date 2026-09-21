@@ -24,7 +24,7 @@
     "@bitspark/archon": "file:../../core/ts"
   },
   "devDependencies": {
-    "typescript": "^7.0",
+    "typescript": "^5.7",
     "@types/node": "^26"
   }
 }
