@@ -426,7 +426,7 @@ test("logs in from a sealed store key", async () => {
   try {
     // --key unlocks the sealed key and the proof verifies.
     let r = await runCollecting([url, "--key", "julia", "--yes"]);
-    assert.equal(r.error, undefined, r.error?.message);
+    assert.equal(r.error, undefined, r.error?.message ?? "expected the command to succeed");
     assert.deepEqual(seen, [{ method: "GET", verified: false }, { method: "POST", verified: true }],
       "the service must have verified a proof for the sealed key's principal");
     assert.match(r.out, /signing with the store key julia\n/, "the statement did not name the store key");
@@ -437,7 +437,7 @@ test("logs in from a sealed store key", async () => {
     writeFileSync(pointer, "julia\n");
     r = await runCollecting([url, "--yes"]);
     unlinkSync(pointer);
-    assert.equal(r.error, undefined, r.error?.message);
+    assert.equal(r.error, undefined, r.error?.message ?? "expected the command to succeed");
     assert.equal(seen.length, 4);
     assert.ok(seen[3]?.verified, "the default key did not produce a verified proof");
     assert.match(r.out, /signing with the store key julia\n/, "the statement did not name the default key");
@@ -684,7 +684,7 @@ test("offers from a sealed store key", async () => {
   try {
     // Offers, waits for the page, answers only the request that took the offer.
     let r = await go(base, (s) => { s.page = `${origin}/login`; });
-    assert.equal(r.error, undefined, r.error?.message);
+    assert.equal(r.error, undefined, r.error?.message ?? "expected the command to succeed");
     const code = theCode();
     assert.equal(code.length, 32, "the code has 32 hex characters");
     assert.equal(r.out, ledger("the service accepted the login. the browser is in.\n"));
@@ -736,12 +736,12 @@ test("offers from a sealed store key", async () => {
     process.env["ARCHON_AUDIENCE"] = audience;
     r = await go(base.slice(2));
     delete process.env["ARCHON_AUDIENCE"];
-    assert.equal(r.error, undefined, r.error?.message);
+    assert.equal(r.error, undefined, r.error?.message ?? "expected the command to succeed");
     assert.ok(r.out.startsWith(`you offered ${audience} `) && stub.verified, "the environment's audience was not used");
 
     // A page not on the service's origin is marked, and nothing is opened.
     r = await go(base, (s) => { s.page = "https://evil.example/login"; });
-    assert.equal(r.error, undefined, r.error?.message);
+    assert.equal(r.error, undefined, r.error?.message ?? "expected the command to succeed");
     assert.ok(r.err.includes(`page: https://evil.example/login#${theCode()} (NOT on the service's origin — do not open it)\n`), r.err);
 
     // A refusal by the service is recorded in the ledger, and the command still fails.
@@ -757,7 +757,7 @@ test("offers from a sealed store key", async () => {
 
     // A 429 is sleep-and-retry, never an error.
     r = await go(base, (s) => { s.pollPlan = [429]; s.takenAt = 3; });
-    assert.equal(r.error, undefined, r.error?.message);
+    assert.equal(r.error, undefined, r.error?.message ?? "expected the command to succeed");
     assert.deepEqual([r.sleeps.length, stub.polls], [3, 3], "one sleep before each of three polls");
 
     // An echo that differs from the offer is refused before any poll.
