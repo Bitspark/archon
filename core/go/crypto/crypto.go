@@ -21,10 +21,17 @@
 //   - SignInDomain / VerifyInDomain — DOMAIN-SEPARATED: Ed25519ph with a context string
 //     (RFC 8032 §5.1), the domain, mixed into the hash. A signature made in one domain
 //     verifies in no other and never as a raw signature, and a raw signature verifies in
-//     no domain — cryptographically, whatever the bytes. One key, many protocols, no
-//     cross-talk: the default for any protocol that has no bytes on disk yet. The domain
-//     is the caller's (<repo>/<purpose>/v<n> by convention); archon neither knows nor
-//     registers domains.
+//     no domain — for every key the profile admits (ADR 0008), by the construction and
+//     not by any encoding convention. One key, many protocols, no cross-talk: the default
+//     for any protocol that has no bytes on disk yet. The domain is the caller's
+//     (<repo>/<purpose>/v<n> by convention); archon neither knows nor registers domains.
+//
+// Both verifies apply the verification profile of ADR 0008 before the equation (see
+// profile.go): the public key and the signature's R must be canonical encodings of
+// points of order exactly L, and S must be in range. That is what makes the accepted set
+// the same in every core regardless of which equation its library uses. A domain is a
+// UTF-8 string of 1..=255 bytes; a Go string that is not valid UTF-8 is refused, not
+// signed as its bytes, so that the same domain means the same context in every language.
 //
 // NOTE: this package has no thesmos ancestor. rs and ts carried a guarded verify; go did
 // not. It is written here to make the three cores symmetric.
@@ -36,6 +43,7 @@ import (
 	"crypto/sha512"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 )
 
 // PublicKeySize is the length of an Ed25519 public key, in bytes.
@@ -70,9 +78,10 @@ func Sign(seed, message []byte) []byte {
 }
 
 // Verify reports whether signature is a valid Ed25519 signature over message under the
-// public key pubkey. It returns false on any shape failure rather than panicking.
+// public key pubkey, within the verification profile (ADR 0008). It returns false on any
+// shape failure — including a key or an R outside the profile — rather than panicking.
 func Verify(pubkey, message, signature []byte) bool {
-	if len(pubkey) != PublicKeySize || len(signature) != SignatureSize {
+	if !signatureInProfile(pubkey, signature) {
 		return false
 	}
 	return ed25519.Verify(ed25519.PublicKey(pubkey), message, signature)
@@ -96,7 +105,7 @@ func SignInDomain(seed []byte, domain string, message []byte) ([]byte, error) {
 // over-long domain — is false. A raw signature over the same message is false here; a
 // signature from any other domain is false here.
 func VerifyInDomain(pubkey []byte, domain string, message, signature []byte) bool {
-	if checkDomain(domain) != nil || len(pubkey) != PublicKeySize || len(signature) != SignatureSize {
+	if checkDomain(domain) != nil || !signatureInProfile(pubkey, signature) {
 		return false
 	}
 	h := sha512.Sum512(message)
@@ -104,14 +113,18 @@ func VerifyInDomain(pubkey []byte, domain string, message, signature []byte) boo
 	return ed25519.VerifyWithOptions(ed25519.PublicKey(pubkey), h[:], signature, opts) == nil
 }
 
-// checkDomain: a domain is 1..=255 bytes — the RFC 8032 context bound, with the empty
-// context excluded on purpose (see SignInDomain).
+// checkDomain: a domain is 1..=255 bytes of valid UTF-8 — the RFC 8032 context bound,
+// with the empty context excluded on purpose (see SignInDomain), and with invalid UTF-8
+// refused: a Go string can carry arbitrary bytes, but a domain is text, and the other
+// cores cannot even represent the bytes this one would otherwise sign under.
 func checkDomain(domain string) error {
 	switch n := len(domain); {
 	case n == 0:
 		return errors.New("crypto: domain is empty")
 	case n > MaxDomainSize:
 		return fmt.Errorf("crypto: domain is %d bytes, max %d", n, MaxDomainSize)
+	case !utf8.ValidString(domain):
+		return errors.New("crypto: domain is not valid UTF-8")
 	}
 	return nil
 }

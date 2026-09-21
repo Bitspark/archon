@@ -10,7 +10,7 @@ the layouts assembled by hand from the spec, every signature from OpenSSL 3.2.4 
 `python vectors/tools/login-vectors.py > vectors/login.json` from the repo root. Scope entries are
 hex so a non-UTF-8 entry can be a case; a lane decodes them before calling the scheme.
 
-`identity.json` — 60 cases in 7 families, the byte-level contract every archon core must
+`identity.json` — 105 cases in 7 families, the byte-level contract every archon core must
 satisfy. Driven by [`../conformance/`](../conformance/).
 
 | family | cases | what it pins |
@@ -18,10 +18,16 @@ satisfy. Driven by [`../conformance/`](../conformance/).
 | `pubkey_from_seed` | 3 | Ed25519 public-key derivation (RFC 8032 §5.1.5) |
 | `key_encode` | 3 | the canonical key text `ed25519:<lowercase-hex>` |
 | `keycodec` | 15 | the PKCS#8 v1 / SPKI PEM codec (RFC 5958 / RFC 5280) — accepts **and** rejects |
-| `signature_verify` | 10 | verify semantics, including non-canonical S, small-order public keys, wrong-length inputs — and that a domain signature is never a raw one |
+| `signature_verify` | 40 | verify semantics: non-canonical S, wrong-length inputs, a domain signature never raw — and the **verification profile** of ADR 0008, by class: the identity and every small-order point as a key, their non-canonical spellings, a mixed-order key, the identity and a small-order point as `R`, `S` at the bound |
 | `hex_decode` | 12 | the typed fixed-size hex decoders — what is accepted **and** what is refused (31 bytes, odd digits, `0x`, a key where a signature was asked for) |
-| `domain_sign` | 5 | domain-separated signing (Ed25519ph, RFC 8032 §5.1 context) — the signature itself, the 255-byte bound, the empty-domain refusal |
-| `domain_verify` | 12 | the crossings: domain A in domain B, raw in any domain, both `false`; plus the shape failures |
+| `domain_sign` | 9 | domain-separated signing (Ed25519ph, RFC 8032 §5.1 context) — the signature itself, the 255-byte bound, the empty-domain refusal; and the domain as **text**: multibyte UTF-8, an embedded NUL, the bound reached and exceeded in bytes rather than characters |
+| `domain_verify` | 23 | the crossings: domain A in domain B, raw in any domain, both `false`; the shape failures; the profile's classes in a domain; the text cases |
+
+The 30 `profile-*` cases in `signature_verify` and the 6 in `domain_verify` are **generated**, by
+[`../conformance/profile-cases.mjs`](../conformance/profile-cases.mjs), from the classes ADR
+0008 names — each with a signature some RFC 8032 verifier accepts, because a rejection nobody
+would accept pins nothing. Their expected values are the profile's, by definition; the note on
+the first case of each class says which equation accepted it before the profile and why.
 
 ## Why the first four and not others
 
@@ -48,11 +54,21 @@ answering `true` where another answers `false` splits the constellation in half.
 
 Expected values are **hand-authored from the standards**, not captured from a core. Where a
 value cannot be written by hand — a deterministic Ed25519ph signature — it is derived with an
-implementation **outside all three cores** (OpenSSL 3.2.4, `pkeyutl -rawin -pkeyopt
-instance:Ed25519ph -pkeyopt context-string:<domain>`), and the case's note says so. A
-vector copied out of an implementation pins whatever that implementation does, bugs
-included; a vector derived from the standard pins the standard, and lets all three cores
-be wrong together and be caught.
+implementation **outside all of the cores** (OpenSSL 3.2.4, `pkeyutl -rawin -pkeyopt
+instance:Ed25519ph -pkeyopt context-string:<domain>`, or `hexcontext-string:<utf-8 hex>` for
+a domain the shell cannot spell), and the case's note says so. A vector copied out of an
+implementation pins whatever that implementation does, bugs included; a vector derived from
+the standard pins the standard, and lets every core be wrong together and be caught.
+
+**A rejection is admitted on its adversarial value, never on agreement.** Until ADR 0008 the
+`signature_verify` family took only cases every core already answered identically — which is
+an oracle that cannot contain a disagreement, and it did not: the identity point as a public
+key verified a universal signature in two cores and not in the other two, with no case
+saying so. Where the standard leaves acceptance open (RFC 8032 permits more than one
+verification equation), the expected value is the **profile's** — ADR 0008 decides it, the
+case's note cites the class, and the cores are brought to it, not the other way round. The
+independent authority above is an authority on *signing*; it was never asked an acceptance
+question and holds no opinion on one — OpenSSL itself accepts the identity key.
 
 thesmos keeps its copy of these cases until the switch. The copy is non-destructive —
 nothing breaks until someone deletes the original.

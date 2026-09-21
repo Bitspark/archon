@@ -5,6 +5,16 @@
 subtraction. Ruled by the operator on 2026-09-09; the measurement and the reasoning are
 `docs/growth-plan.md` §2–§5.
 
+> **Amended 2026-09-21 by [0008](0008-the-ed25519-verification-profile.md).** Decision 2's
+> property was stated as holding "cryptographically, whatever the bytes". It does not hold for
+> a public key outside 0008's verification profile — for the identity point, one signature
+> verifies raw and in every domain, and two cores accepted it — and no verifier can promise
+> anything about an arbitrary 32-byte value. The property now reads as struck and replaced
+> below: it holds **for every key the profile admits, by the construction**. The construction
+> itself — Ed25519ph with the domain as context — is unchanged, the framing alternative was
+> examined and refused (0008 §6), and the rationale this decision owed RFC 8032 §8.5's
+> SHOULD NOT is recorded there.
+
 ## Context
 
 archon was nine functions in three cores, pinned by 30 vectors, and both consumers used
@@ -30,9 +40,11 @@ hex helper — every language has hex — but the *fixed size*: exactly N bytes 
 **2. `sign_in_domain` / `verify_in_domain` — domain-separated signing.** Ed25519ph with the
 domain as the RFC 8032 §5.1 context string. A signature made in one domain verifies in no
 other and never as a raw signature; a raw signature verifies in no domain —
-cryptographically, whatever the bytes. Bounds: a domain is 1..=255 bytes. **The empty
-domain is rejected** (legal in the RFC; "sign in no domain" is exactly what this exists to
-make impossible).
+~~cryptographically, whatever the bytes~~ *for every key the verification profile
+([0008](0008-the-ed25519-verification-profile.md)) admits, by the construction and not by
+any encoding convention* (amended 2026-09-21). Bounds: a domain is 1..=255 bytes — of
+UTF-8, counted in bytes (0008 §2). **The empty domain is rejected** (legal in the RFC;
+"sign in no domain" is exactly what this exists to make impossible).
 
 The domain is the caller's — `<repo>/<purpose>/v<n>` by convention — and **archon neither
 knows nor registers domains.** The moment it did, "no thesmos term in the API" would be gone.
