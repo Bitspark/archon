@@ -62,8 +62,12 @@ reads `pom.xml`; the next language's does likewise.
    two ways cargo spells it — is tolerated in a rehearsal and nowhere else.
 4. **Release.** The same dispatch with `rehearse=false`. It waits at the environment gate
    again — the reviewer's approval is the publish decision — then publishes in dependency
-   order, waits for each registry to *serve* what it accepted, installs the floor from
-   nothing and imports it, and creates the GitHub release with `--verify-tag`.
+   order, waits for each registry to *serve* what it accepted, runs the **outside
+   consumers** ([`conformance/consumers/`](conformance/consumers/): the sdk and the floor
+   installed from npmjs, crates.io and the Go proxy into empty directories with empty
+   caches, no link, path, replace or workspace reachable, then run — a domain signature
+   verifies only in its domain, possession goes through the floor, the identity key is
+   refused), and creates the GitHub release with `--verify-tag`.
 5. **Read the run, not the exit code.** Each publish step skips what its registry already
    has, so a run that failed after uploading is re-run with the same dispatch and finishes
    the rest. "The publish steps SUCCEEDED — check the registry before assuming the release
