@@ -14,15 +14,61 @@
 //! - [`sign_in_domain`] / [`verify_in_domain`] — **domain-separated**: Ed25519ph with a
 //!   context string (RFC 8032 §5.1), the *domain*, mixed into the hash. A signature made
 //!   in one domain verifies in no other and never as a raw signature, and a raw
-//!   signature verifies in no domain — cryptographically, whatever the bytes. One key,
-//!   many protocols, no cross-talk: the default for any protocol that has no bytes on
-//!   disk yet. The domain is the caller's (`<repo>/<purpose>/v<n>` by convention);
-//!   archon neither knows nor registers domains.
+//!   signature verifies in no domain — for every key the profile admits, by the
+//!   construction and not by any encoding convention. One key, many protocols, no
+//!   cross-talk: the default for any protocol that has no bytes on disk yet. The domain
+//!   is the caller's (`<repo>/<purpose>/v<n>` by convention); archon neither knows nor
+//!   registers domains.
+//!
+//! Both verifies apply the **verification profile** (ADR 0008) before the equation: the
+//! public key and the signature's `R` must be canonical encodings of points of order
+//! exactly L — non-identity elements of the prime-order subgroup — and `S` must be in
+//! range. dalek's plain `verify` decodes non-canonical encodings, admits the identity and
+//! every small-order point as a key, and, its equation being uncofactored, accepts a
+//! mixed-order key for one message in eight; `verify_strict` closes some of that and not
+//! the rest. The profile is applied here explicitly so that the accepted set is stated by
+//! archon, not by whichever library a core happens to bind.
 
 use ed25519_dalek::{
     Digest, Sha512, Signature, Signer, SigningKey, Verifier, VerifyingKey, PUBLIC_KEY_LENGTH,
     SECRET_KEY_LENGTH, SIGNATURE_LENGTH,
 };
+
+/// The canonical encoding of the identity point: y = 1, x = 0.
+const IDENTITY: [u8; PUBLIC_KEY_LENGTH] = {
+    let mut b = [0u8; PUBLIC_KEY_LENGTH];
+    b[0] = 1;
+    b
+};
+
+/// ADR 0008: `bytes` is a canonical encoding of a point of order exactly L. False for a
+/// point not on the curve, a non-canonical spelling (y ≥ p, or x = 0 with the sign bit
+/// set — the point re-encodes to different bytes), the identity, any small-order point
+/// and any mixed-order point. Point arithmetic is the library's; this is a check.
+fn is_prime_order_point(bytes: &[u8; PUBLIC_KEY_LENGTH]) -> bool {
+    let point = match VerifyingKey::from_bytes(bytes) {
+        Ok(k) => k.to_edwards(),
+        Err(_) => return false,
+    };
+    let canonical = point.compress().to_bytes();
+    canonical == *bytes && canonical != IDENTITY && point.is_torsion_free()
+}
+
+/// The profile's shape conditions on a (key, signature) pair: both the right size, `A`
+/// and `R` prime-order points. `S`'s range (0 ≤ S < L) is enforced by dalek, which
+/// refuses a non-canonical scalar, so it is not repeated here.
+fn in_profile(
+    pubkey: &[u8],
+    signature: &[u8],
+) -> Option<([u8; PUBLIC_KEY_LENGTH], [u8; SIGNATURE_LENGTH])> {
+    let key_bytes: [u8; PUBLIC_KEY_LENGTH] = pubkey.try_into().ok()?;
+    let sig_bytes: [u8; SIGNATURE_LENGTH] = signature.try_into().ok()?;
+    let r_bytes: [u8; PUBLIC_KEY_LENGTH] = sig_bytes[..PUBLIC_KEY_LENGTH].try_into().ok()?;
+    if !is_prime_order_point(&key_bytes) || !is_prime_order_point(&r_bytes) {
+        return None;
+    }
+    Some((key_bytes, sig_bytes))
+}
 
 /// The length of an Ed25519 public key, in bytes.
 pub const PUBLIC_KEY_SIZE: usize = PUBLIC_KEY_LENGTH;
@@ -44,16 +90,12 @@ pub fn sign(seed: &[u8; SEED_SIZE], message: &[u8]) -> [u8; SIGNATURE_SIZE] {
     SigningKey::from_bytes(seed).sign(message).to_bytes()
 }
 
-/// Verifies `signature` over `message` under the public key `pubkey`. Returns
-/// `false` on any shape failure rather than erroring.
+/// Verifies `signature` over `message` under the public key `pubkey`, within the
+/// verification profile (ADR 0008). Returns `false` on any shape failure — including a
+/// key or an `R` outside the profile — rather than erroring.
 pub fn verify(pubkey: &[u8], message: &[u8], signature: &[u8]) -> bool {
-    let key_bytes: [u8; PUBLIC_KEY_SIZE] = match pubkey.try_into() {
-        Ok(b) => b,
-        Err(_) => return false,
-    };
-    let sig_bytes: [u8; SIGNATURE_SIZE] = match signature.try_into() {
-        Ok(b) => b,
-        Err(_) => return false,
+    let Some((key_bytes, sig_bytes)) = in_profile(pubkey, signature) else {
+        return false;
     };
     let key = match VerifyingKey::from_bytes(&key_bytes) {
         Ok(k) => k,
@@ -87,13 +129,8 @@ pub fn verify_in_domain(pubkey: &[u8], domain: &str, message: &[u8], signature: 
     if check_domain(domain).is_err() {
         return false;
     }
-    let key_bytes: [u8; PUBLIC_KEY_SIZE] = match pubkey.try_into() {
-        Ok(b) => b,
-        Err(_) => return false,
-    };
-    let sig_bytes: [u8; SIGNATURE_SIZE] = match signature.try_into() {
-        Ok(b) => b,
-        Err(_) => return false,
+    let Some((key_bytes, sig_bytes)) = in_profile(pubkey, signature) else {
+        return false;
     };
     let key = match VerifyingKey::from_bytes(&key_bytes) {
         Ok(k) => k,
@@ -153,6 +190,37 @@ mod tests {
         let over = "d".repeat(MAX_DOMAIN_SIZE + 1);
         assert!(sign_in_domain(&seed, &over, b"m").is_err());
         assert!(!verify_in_domain(&pk, &over, b"m", &sig));
+    }
+
+    #[test]
+    fn profile_rejects_the_identity_key_and_r() {
+        // ADR 0008. A = identity, R = B, S = 1 satisfies the uncofactored equation for every
+        // message; dalek's plain `verify` accepts it. The profile refuses the key.
+        let mut identity = [0u8; PUBLIC_KEY_SIZE];
+        identity[0] = 1;
+        let mut sig = [0u8; SIGNATURE_SIZE];
+        sig[..32].copy_from_slice(&[
+            0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+            0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+            0x66, 0x66, 0x66, 0x66,
+        ]);
+        sig[32] = 1;
+        assert!(!verify(&identity, b"hello", &sig));
+        assert!(!verify(&identity, b"different message", &sig));
+        assert!(!verify_in_domain(&identity, "archon/test/v1", b"hello", &sig));
+        // A non-canonical spelling of the identity (y = p + 1) is refused as an encoding.
+        let mut non_canonical = [0xffu8; PUBLIC_KEY_SIZE];
+        non_canonical[0] = 0xee;
+        non_canonical[31] = 0x7f;
+        assert!(!is_prime_order_point(&non_canonical));
+        // An R that is the identity is refused before the equation is consulted.
+        let seed = [0x09u8; SEED_SIZE];
+        let pk = public_key_from_seed(&seed);
+        let mut r_identity = sign(&seed, b"m");
+        r_identity[..32].copy_from_slice(&identity);
+        assert!(!verify(&pk, b"m", &r_identity));
+        // And the genuine key is, of course, in the profile.
+        assert!(is_prime_order_point(&pk));
     }
 
     #[test]

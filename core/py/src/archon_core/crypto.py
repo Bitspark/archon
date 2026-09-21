@@ -48,29 +48,49 @@ def _public(pubkey: bytes):
     return ECC.import_key(_SPKI_PREFIX + bytes(pubkey))
 
 
-def _is_small_order(key) -> bool:
-    """True when the public key is a small-order point.
+# The order of the prime-order subgroup, L = 2^252 + 27742317777372353535851937790883648493.
+_L = 0x1000000000000000000000000000000014DEF9DEA2F79CD65812631A5CF5D3ED
 
-    ⚠ This is archon's acceptance policy, not the library's. RFC 8032 permits more than one
-    verification equation, and implementations genuinely differ here: Go's `crypto/ed25519`
-    and `ed25519-dalek` REJECT small-order public keys, while cofactored (ZIP-215) verifiers
-    ACCEPT them. The TypeScript core meets the same divergence and settles it with
-    @noble's `{ zip215: false }`; PyCryptodome offers no such flag, so the check is explicit
-    here.
 
-    It is a check, not curve arithmetic we wrote: `[8]A` uses the library's own point
-    multiplication, and a point is small-order exactly when `[8]A` is the identity. That is
-    stronger than a blocklist of known encodings, which would miss any non-canonical
-    spelling of the same points.
+def _is_prime_order_point(encoded: bytes) -> bool:
+    """ADR 0008: `encoded` is a canonical encoding of a point of order exactly L.
 
-    Without this, two oracle cases — `small-order-pubkey-order4` and
-    `small-order-pubkey-order8` — verify as TRUE in Python and FALSE in the other three
-    cores, which is precisely the cross-language disagreement the oracle exists to catch.
+    False for a point not on the curve, a non-canonical spelling (y >= p, or x = 0 with the
+    sign bit set: the point re-encodes to different bytes), the identity, any small-order
+    point and any mixed-order point. This is archon's acceptance policy, not the library's:
+    RFC 8032 permits more than one verification equation, and implementations genuinely
+    differ — PyCryptodome's is cofactored, so on its own it accepts a mixed-order key for
+    every message and a small-order R, where Go and ed25519-dalek (uncofactored) accept the
+    former for one message in eight and refuse the latter. Restricting both points to the
+    prime-order subgroup is where the two equations agree; checking it here, explicitly, is
+    what makes the accepted set archon's rather than the library's.
+
+    It is a check, not curve arithmetic we wrote: `[L]A` uses the library's own point
+    multiplication, and a point is in the prime-order subgroup exactly when `[L]A` is the
+    identity. That is stronger than a small-order check (`[8]A`), which passes a mixed-order
+    point, and stronger than a blocklist, which misses non-canonical spellings.
     """
     try:
-        return (key.pointQ * 8).is_point_at_infinity()
+        key = ECC.import_key(_SPKI_PREFIX + bytes(encoded))
+        if key.public_key().export_key(format="raw") != bytes(encoded):
+            return False
+        point = key.pointQ
+        if point.is_point_at_infinity():
+            return False
+        return (point * _L).is_point_at_infinity()
     except Exception:  # noqa: BLE001 - an unusable point is not a valid key either
-        return True
+        return False
+
+
+def _in_profile(pubkey: bytes, signature: bytes) -> bool:
+    """The profile's shape conditions: sizes, and A and R prime-order points. S's range
+    (0 <= S < L) is PyCryptodome's own check, so it is not repeated here."""
+    return (
+        len(pubkey) == PUBLIC_KEY_SIZE
+        and len(signature) == SIGNATURE_SIZE
+        and _is_prime_order_point(pubkey)
+        and _is_prime_order_point(signature[:PUBLIC_KEY_SIZE])
+    )
 
 
 # The SPKI template keycodec also uses. Importing an encoded public key is the only route
@@ -92,20 +112,21 @@ def sign(seed: bytes, message: bytes) -> bytes:
 
 
 def verify(pubkey: bytes, message: bytes, signature: bytes) -> bool:
-    """True when `signature` is `pubkey`'s over `message`. False on any shape failure."""
-    if len(pubkey) != PUBLIC_KEY_SIZE or len(signature) != SIGNATURE_SIZE:
+    """True when `signature` is `pubkey`'s over `message`, within the verification
+    profile (ADR 0008). False on any shape failure, including a key or an R outside the
+    profile."""
+    if not _in_profile(pubkey, signature):
         return False
     try:
-        key = _public(pubkey)
-        if _is_small_order(key):
-            return False
-        eddsa.new(key, "rfc8032").verify(bytes(message), bytes(signature))
+        eddsa.new(_public(pubkey), "rfc8032").verify(bytes(message), bytes(signature))
         return True
     except (ValueError, TypeError):
         return False
 
 
 def _check_domain(domain: str) -> None:
+    # A domain is 1..=255 bytes of UTF-8. `str.encode` raises (a ValueError) on a lone
+    # surrogate rather than substituting, which is the behaviour the profile requires.
     n = len(domain.encode("utf-8"))
     if n == 0:
         raise ValueError("crypto: domain is empty")
@@ -127,19 +148,17 @@ def sign_in_domain(seed: bytes, domain: str, message: bytes) -> bytes:
 def verify_in_domain(
     pubkey: bytes, domain: str, message: bytes, signature: bytes
 ) -> bool:
-    """True when `signature` is `pubkey`'s over `message` IN `domain`. False otherwise."""
-    if len(pubkey) != PUBLIC_KEY_SIZE or len(signature) != SIGNATURE_SIZE:
-        return False
+    """True when `signature` is `pubkey`'s over `message` IN `domain`, within the
+    verification profile (ADR 0008). False otherwise."""
     try:
         _check_domain(domain)
     except ValueError:
         return False
+    if not _in_profile(pubkey, signature):
+        return False
     try:
-        key = _public(pubkey)
-        if _is_small_order(key):
-            return False
         digest = SHA512.new(bytes(message))
-        verifier = eddsa.new(key, "rfc8032", context=domain.encode("utf-8"))
+        verifier = eddsa.new(_public(pubkey), "rfc8032", context=domain.encode("utf-8"))
         verifier.verify(digest, bytes(signature))
         return True
     except (ValueError, TypeError):
