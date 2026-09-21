@@ -32,17 +32,39 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 
 | Language | core | sdk | cli | server | Coordinates | Conforming | Published |
 |---|---|---|---|---|---|---|---|
-| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ public proxy + checksum db (0.6.2) |
-| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io (0.6.2) |
-| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance (0.6.2) |
+| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ proxy + checksum db — **0.7.0**, and automatically (see below) |
+| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.6.1** |
+| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.6.1** |
 | **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 105/105 | ⏳ PyPI, once the pending publisher is registered (see `release.yml`) |
-| **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ⏳ Maven Central; publishes with 0.7.0 |
+| **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ⏳ Maven Central; the lane is built, and publishes with the first tag cut after it |
 | **C++** | 🔧 signing works, profile does not | — | — | — | CMake package | 83/105 — all 22 failures are profile cases (OpenSSL validates no points) | — |
 | **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs a binding to a complete Ed25519ph-with-context implementation (0008 §8) |
 | **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same binding (0008 §8) |
 
-A published version is a version that was published: 0.6.2 is on the three registries;
-0.7.0, the profile, is the next release, and it is the one that carries Java. C++ is the row
+A published version is a version that was published — which is not the same as a version that
+was tagged, and right now the two have come apart. Measured against the registries themselves
+rather than against the tag list:
+
+| registry | has | how it got there |
+|---|---|---|
+| Go proxy + `sum.golang.org` | v0.6.0, v0.6.1, v0.6.2, **v0.7.0** | **automatically** — the proxy fetches any tag of a public repo on demand |
+| npm | 0.6.1 | the release workflow |
+| crates.io | 0.6.1 | the release workflow |
+| PyPI | *nothing* | pending publisher |
+| Maven Central | *nothing* | lane built, not yet run |
+
+`v0.6.2` and `v0.7.0` are tagged but were never published to npm or crates.io, so those two
+sit a release behind. **Go is the asymmetry to keep in mind:** nobody publishes it, and
+nothing gates it. Pushing a tag to a public repo is enough for the proxy to serve that
+version and for `sum.golang.org` to pin its hash forever, which is why a tag can never be
+re-cut once it exists — and why `v0.7.0` is already immutable.
+
+0.7.0 is the next release for the other registries. It will **not** be the one that carries Java, and
+the reason is worth stating because it recurs: a release checks out its own tag, so a lane
+added to `release.yml` after a tag was cut is not in that tag's tree. `v0.7.0` is `9ce7589`,
+which has no Java steps and no `conformance/consumers/` at all — and it cannot be re-cut,
+because `core/go/v0.7.0` is already pinned in `sum.golang.org`. Release plumbing ships with
+the **next** tag, never retroactively with the last one. C++ is the row
 to read carefully: its signing is correct — OpenSSL ≥ 3.2 reproduces every `domain_sign`
 vector byte for byte — and it fails only on acceptance. `EVP_PKEY_public_check` validates
 nothing for Ed25519, and OpenSSL exposes no scalar multiplication for the curve, so the
