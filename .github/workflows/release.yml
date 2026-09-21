@@ -575,7 +575,12 @@ jobs:
         # comes first and its expiry is NOT a failed publish.
         #
         # Then the real question: can a stranger USE it? The consumer under
-        # conformance/consumers/java is not a module of core/java — it resolves the
+        # The program is read from the TOOLING checkout (see the two-trees note at the top),
+        # not from the tag's tree: v0.7.0 was cut before this consumer existed, and a step
+        # that read it from the product tree would fail on that tag AFTER Central had been
+        # written to. What is verified is still the tag's published artifact.
+        #
+        # tooling/conformance/consumers/java is not a module of core/java — it resolves the
         # coordinates from Central into an EMPTY local repository, with an empty settings.xml
         # so no mirror, no user configuration and no credential can stand in for the public
         # registry. Anything the jar forgot to declare fails here rather than in a consumer's
@@ -604,7 +609,7 @@ jobs:
           printf '%s\n' '<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"/>' > "$work/settings.xml"
           mvn -B -ntp -s "$work/settings.xml" -gs "$work/settings.xml" \
               "-Dmaven.repo.local=$repo" "-Darchon.version=$VER" \
-              -f conformance/consumers/java/pom.xml \
+              -f tooling/conformance/consumers/java/pom.xml \
               package dependency:build-classpath "-Dmdep.outputFile=$work/cp.txt"
 
           # Bouncy Castle must arrive TRANSITIVELY. archon's domain separation is Ed25519ph
@@ -616,7 +621,7 @@ jobs:
           test -f "$repo/dev/bitspark/archon-core/$VER/archon-core-$VER.jar" \
             || { echo "::error::archon-core:$VER was not resolved into the clean repository" >&2; exit 1; }
 
-          java -cp "conformance/consumers/java/target/classes:$(cat "$work/cp.txt")" example.Consumer
+          java -cp "tooling/conformance/consumers/java/target/classes:$(cat "$work/cp.txt")" example.Consumer
 
       - name: Create the GitHub release
         if: env.REHEARSE != 'true'

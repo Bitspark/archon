@@ -36,7 +36,7 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 | **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.6.1** |
 | **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.6.1** |
 | **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 105/105 | ⏳ PyPI, once the pending publisher is registered (see `release.yml`) |
-| **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ⏳ Maven Central; the lane is built, and publishes with the first tag cut after it |
+| **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ⏳ Maven Central; the lane is built and publishes with 0.7.0 |
 | **C++** | 🔧 signing works, profile does not | — | — | — | CMake package | 83/105 — all 22 failures are profile cases (OpenSSL validates no points) | — |
 | **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs a binding to a complete Ed25519ph-with-context implementation (0008 §8) |
 | **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same binding (0008 §8) |
@@ -59,12 +59,24 @@ nothing gates it. Pushing a tag to a public repo is enough for the proxy to serv
 version and for `sum.golang.org` to pin its hash forever, which is why a tag can never be
 re-cut once it exists — and why `v0.7.0` is already immutable.
 
-0.7.0 is the next release for the other registries. It will **not** be the one that carries Java, and
-the reason is worth stating because it recurs: a release checks out its own tag, so a lane
-added to `release.yml` after a tag was cut is not in that tag's tree. `v0.7.0` is `9ce7589`,
-which has no Java steps and no `conformance/consumers/` at all — and it cannot be re-cut,
-because `core/go/v0.7.0` is already pinned in `sum.golang.org`. Release plumbing ships with
-the **next** tag, never retroactively with the last one. C++ is the row
+0.7.0 is the next release for the other registries, and it carries Java — but only because
+the release workflow checks out **two trees**, which is worth understanding before changing
+anything there.
+
+A release checks out its own tag, so anything read from that tree is whatever existed when
+the tag was cut. `v0.7.0` is `9ce7589`: it contains `core/java` at 0.7.0 with the profile, so
+the Java artifact can be *built and published* from it — but it contains no
+`conformance/consumers/` at all, because those were added afterwards. A consumer step reading
+its program from the tag's tree would therefore fail on `v0.7.0` *after* the registries had
+been written to.
+
+So the workflow takes a second, sparse checkout of the ref the **workflow file itself** came
+from, into `tooling/`, and the consumer steps read their programs from there. The split is
+the point: **the product is the tag's, the tooling is the workflow's.** What gets published
+is the exact tagged source; what checks it is the current program.
+
+Re-cutting the tag was never an option. `core/go/v0.7.0` is already pinned in
+`sum.golang.org` — and on that note, see the Go row above. C++ is the row
 to read carefully: its signing is correct — OpenSSL ≥ 3.2 reproduces every `domain_sign`
 vector byte for byte — and it fails only on acceptance. `EVP_PKEY_public_check` validates
 nothing for Ed25519, and OpenSSL exposes no scalar multiplication for the curve, so the
