@@ -37,9 +37,9 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 | **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.6.1** |
 | **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 105/105 | ⏳ PyPI, once the pending publisher is registered (see `release.yml`) |
 | **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ⏳ Maven Central; the lane is built and publishes with 0.7.0 |
-| **C++** | 🔧 signing works, profile does not | — | — | — | CMake package | 83/105 — all 22 failures are profile cases (OpenSSL validates no points) | — |
-| **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs a binding to a complete Ed25519ph-with-context implementation (0008 §8) |
-| **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same binding (0008 §8) |
+| **C++** | 🔧 signs, does not yet accept | — | — | — | CMake package | 83/105 — all 22 failures are profile cases | needs the same two (0008 §8) |
+| **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs **two** libraries — a signer and a validator (0008 §8) |
+| **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same two (0008 §8) |
 
 A published version is a version that was published — which is not the same as a version that
 was tagged, and right now the two have come apart. Measured against the registries themselves
