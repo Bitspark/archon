@@ -6,6 +6,12 @@
 //   node conformance/profile-cases.mjs measure <cli>… drive the cases through cores and print
 //                                                     what each ACCEPTS — the disagreement map,
 //                                                     with no expected value applied
+//   node conformance/profile-cases.mjs differential [--seed N] [--per-class N] <cli>…
+//                                                     random members of every class, plus
+//                                                     genuine signatures, through every core;
+//                                                     any case two cores answer differently is
+//                                                     printed and fails the run. No oracle: the
+//                                                     finding is the disagreement itself.
 //
 // Every case here is a REJECTION under the profile: a public key or an R that is not a
 // non-identity element of the prime-order subgroup, a non-canonical encoding, or an S out of
@@ -174,6 +180,18 @@ for (const t of torsion) {
     const d = craft({ Rbytes: Rb, Abytes: Ab, M: Md, ctx: CTX, r });
     dv.push({ ...(divisible ? CLASS("profile-mixed-order-A-in-domain-k-divisible", "ADR 0008 class 4 in a domain: the mixed-order key, Ed25519ph with the domain as context, k divisible by 8 — both equations hold. Profile: false.") : { name: "profile-mixed-order-A-in-domain-k-not-divisible" }), pubkey: hex(Ab), domain: DOMAIN, message: hex(Md), sig: d.sig, valid: false });
   }
+  // The torsion component's ORDER matters to an implementation, not to the mathematics:
+  // [L]A lands on a point of that order, and the order-2 point (0, −1) is the one a library
+  // may mishandle (PyCryptodome's identity test is `x == 0`, which it satisfies). One case
+  // per remaining order, with k divisible so every equation holds.
+  for (const [mult, order] of [[2n, 4n], [4n, 2n]]) {
+    const T = T8.multiplyUnsafe(mult), Am = A_GOOD.add(T), Ab2 = Am.toBytes();
+    if (Am.isSmallOrder() || Am.isTorsionFree()) throw new Error("mixed-order construction failed");
+    const r = 7n, Rb = Point.BASE.multiply(r).toBytes();
+    const M = findMessage(`mixed-order-${order}`, Rb, Ab2, null, order, true);
+    const { sig } = craft({ Rbytes: Rb, Abytes: Ab2, M, r });
+    sv.push({ ...CLASS(`profile-mixed-order-A-torsion-${order}-k-divisible`, `ADR 0008 class 4 with an order-${order} torsion component: A = A_good + [${mult}]T8. [L]A is that component itself${order === 2n ? " — the point (0, −1), which an identity test of \"x = 0\" mistakes for the identity" : ""}. k divisible by ${order}, so every equation holds. Profile: false.`), pubkey: hex(Ab2), message: hex(M), sig, valid: false });
+  }
 }
 
 // 5. R is small order. With A genuine and S = k·a (r = 0), [S]B = [k]A, so the equation
@@ -208,7 +226,51 @@ for (const t of torsion) {
 
 const cases = { signature_verify: sv, domain_verify: dv };
 
-// ---- emit / measure ----------------------------------------------------------------------
+// ---- the differential generator ----------------------------------------------------------
+// The fixed cases above pin one instance per class. The differential run draws fresh
+// members — random torsion component, random nonce, random message, random domain — so a
+// core that agrees on the pinned instance and not on the class cannot hide behind it.
+// Deterministic under --seed so a finding can be reproduced by number.
+function prng(seed) {
+  let s = BigInt(seed) & 0xffffffffffffffffn || 1n;
+  return () => { s ^= s << 13n & 0xffffffffffffffffn; s ^= s >> 7n; s ^= s << 17n & 0xffffffffffffffffn; return s; };
+}
+function differentialCases(seed, perClass) {
+  const next = prng(seed);
+  const rnd = (n) => Number(next() % BigInt(n));
+  const rbytes = (n) => Uint8Array.from({ length: n }, () => rnd(256));
+  const rscalar = () => mod(leToBig(rbytes(32)), L) || 1n;
+  const domains = [DOMAIN, "archon/test/v2", "archon/тест/v1", "a\u0000b", "d".repeat(255)];
+  const sv = [], dv = [];
+  const push = (list, name, c) => list.push({ name: `${name}#${list.length}`, ...c });
+  const Ab = A_GOOD.toBytes();
+  for (let i = 0; i < perClass; i++) {
+    const M = rbytes(1 + rnd(64)), ctx = utf8(domains[rnd(domains.length)]);
+    const r = rscalar();
+    // genuine: the real signer, raw and in a domain — the class every core must ACCEPT
+    { const g = craft({ Abytes: Ab, M, r }); push(sv, "genuine", { pubkey: hex(Ab), message: hex(M), sig: g.sig });
+      const d = craft({ Abytes: Ab, M, ctx, r }); push(dv, "genuine-domain", { pubkey: hex(Ab), domain: new TextDecoder().decode(ctx), message: hex(M), sig: d.sig }); }
+    // small-order A with R = B, S = 1 (random point of the torsion subgroup, random message)
+    { const t = torsion[rnd(8)]; const sig = hex(cat(Point.BASE.toBytes(), bigToLe32(1n)));
+      push(sv, `small-order-A-${t.order}`, { pubkey: hex(t.bytes), message: hex(M), sig }); }
+    // mixed-order A: A_good + a random non-identity torsion point, signed with A's bytes
+    { const T = torsion[1 + rnd(7)].P; const Am = A_GOOD.add(T).toBytes();
+      const g = craft({ Abytes: Am, M, r }); push(sv, "mixed-order-A", { pubkey: hex(Am), message: hex(M), sig: g.sig });
+      const d = craft({ Abytes: Am, M, ctx, r }); push(dv, "mixed-order-A-domain", { pubkey: hex(Am), domain: new TextDecoder().decode(ctx), message: hex(M), sig: d.sig }); }
+    // R with a torsion component: R_good + T for a non-identity T (with T = O it would be a
+    // genuine signature), k computed over the torsioned R's bytes as a verifier would
+    { const T = torsion[1 + rnd(7)].P; const Rp = Point.BASE.multiply(r).add(T);
+      const g = craft({ Rpoint: Rp, Abytes: Ab, M, r }); push(sv, "torsion-R", { pubkey: hex(Ab), message: hex(M), sig: g.sig }); }
+    // S out of range: a genuine signature with S + L
+    { const g = craft({ Abytes: Ab, M, r }); const b = unhex(g.sig); const S = leToBig(b.subarray(32)) + L;
+      if (S < (1n << 256n)) push(sv, "S-plus-L", { pubkey: hex(Ab), message: hex(M), sig: hex(cat(b.subarray(0, 32), bigToLe32(S))) }); }
+    // random bytes: a key and a signature that are noise — must be refused identically
+    push(sv, "noise", { pubkey: hex(rbytes(32)), message: hex(M), sig: hex(rbytes(64)) });
+  }
+  return { signature_verify: sv, domain_verify: dv };
+}
+
+// ---- emit / measure / differential --------------------------------------------------------
 const mode = process.argv[2];
 if (mode === "emit") {
   process.stdout.write(JSON.stringify(cases, null, 2) + "\n");
@@ -233,7 +295,46 @@ if (mode === "emit") {
   const short = (c) => c.replace(/^.*[\\/]/, "").replace(/\.exe$/, "").replace(/^conformance-?/, "") || c;
   console.log(["case", ...clis.map(short)].join("\t"));
   for (const [name, r] of Object.entries(results)) console.log([name, ...clis.map((c) => r[c] === undefined ? "?" : r[c] ? "ACCEPT" : "reject")].join("\t"));
+} else if (mode === "differential") {
+  const args = process.argv.slice(3);
+  let seed = 1, perClass = 16, dump = null;
+  for (let i = 0; i < args.length; ) {
+    if (args[i] === "--seed") { seed = Number(args[i + 1]); args.splice(i, 2); }
+    else if (args[i] === "--per-class") { perClass = Number(args[i + 1]); args.splice(i, 2); }
+    else if (args[i] === "--dump") { dump = args[i + 1]; args.splice(i, 2); }
+    else i++;
+  }
+  const clis = args;
+  if (clis.length < 2) { console.error("usage: profile-cases.mjs differential [--seed N] [--per-class N] [--dump <file>] \"<cli>\" \"<cli>\" …  (at least two)"); process.exit(2); }
+  const gen = differentialCases(seed, perClass);
+  const oracle = JSON.parse(readFileSync(join(root, "vectors", "identity.json"), "utf8"));
+  const input = JSON.stringify({ ...oracle, signature_verify: gen.signature_verify, domain_verify: gen.domain_verify });
+  // --dump writes the generated document, so a finding can be re-driven through one core by
+  // hand: node conformance/harness.mjs is not the tool (it wants expected values); feed the
+  // file to `<cli> signature_verify` on stdin.
+  if (dump) { const { writeFileSync } = await import("node:fs"); writeFileSync(dump, input); }
+  const short = (c) => c.replace(/^.*[\\/]/, "").replace(/\.exe$/, "").replace(/^conformance-?/, "") || c;
+  const answers = {};   // name -> [valid per cli]
+  for (const cli of clis) {
+    for (const fam of ["signature_verify", "domain_verify"]) {
+      const res = runCli(cli, fam, input);
+      if (res.error || res.status !== 0) { console.error(`${cli} ${fam}: exited ${res.status} ${res.stderr?.trim() ?? ""}`); process.exit(1); }
+      const lines = res.stdout.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      if (lines.length !== gen[fam].length) { console.error(`${cli} ${fam}: ${lines.length} lines for ${gen[fam].length} cases`); process.exit(1); }
+      for (const l of lines) (answers[l.name] ??= []).push(l.valid);
+    }
+  }
+  let split = 0, accepted = 0;
+  for (const [name, v] of Object.entries(answers)) {
+    if (v.some((x) => x !== v[0])) { split++; console.log(`SPLIT ${name}: ${v.map((x, i) => `${short(clis[i])}=${x ? "ACCEPT" : "reject"}`).join("  ")}`); }
+    else if (v[0]) accepted++;
+  }
+  const total = Object.keys(answers).length;
+  const genuine = Object.keys(answers).filter((n) => n.startsWith("genuine")).length;
+  console.log(`differential seed=${seed} per-class=${perClass}: ${total} cases × ${clis.length} cores — ${split} split, ${accepted} accepted by all (${genuine} genuine), ${total - split - accepted} refused by all`);
+  if (accepted !== genuine) { console.error(`::error::${accepted - genuine} non-genuine case(s) accepted by every core — the profile has a hole, or the generator does`); process.exit(1); }
+  process.exit(split ? 1 : 0);
 } else {
-  console.error("usage: node conformance/profile-cases.mjs emit | measure \"<cli>\" …");
+  console.error("usage: node conformance/profile-cases.mjs emit | measure \"<cli>\" … | differential [--seed N] [--per-class N] \"<cli>\" …");
   process.exit(2);
 }

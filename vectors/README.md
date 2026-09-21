@@ -10,7 +10,7 @@ the layouts assembled by hand from the spec, every signature from OpenSSL 3.2.4 
 `python vectors/tools/login-vectors.py > vectors/login.json` from the repo root. Scope entries are
 hex so a non-UTF-8 entry can be a case; a lane decodes them before calling the scheme.
 
-`identity.json` — 103 cases in 7 families, the byte-level contract every archon core must
+`identity.json` — 105 cases in 7 families, the byte-level contract every archon core must
 satisfy. Driven by [`../conformance/`](../conformance/).
 
 | family | cases | what it pins |
@@ -18,12 +18,12 @@ satisfy. Driven by [`../conformance/`](../conformance/).
 | `pubkey_from_seed` | 3 | Ed25519 public-key derivation (RFC 8032 §5.1.5) |
 | `key_encode` | 3 | the canonical key text `ed25519:<lowercase-hex>` |
 | `keycodec` | 15 | the PKCS#8 v1 / SPKI PEM codec (RFC 5958 / RFC 5280) — accepts **and** rejects |
-| `signature_verify` | 38 | verify semantics: non-canonical S, wrong-length inputs, a domain signature never raw — and the **verification profile** of ADR 0008, by class: the identity and every small-order point as a key, their non-canonical spellings, a mixed-order key, the identity and a small-order point as `R`, `S` at the bound |
+| `signature_verify` | 40 | verify semantics: non-canonical S, wrong-length inputs, a domain signature never raw — and the **verification profile** of ADR 0008, by class: the identity and every small-order point as a key, their non-canonical spellings, a mixed-order key, the identity and a small-order point as `R`, `S` at the bound |
 | `hex_decode` | 12 | the typed fixed-size hex decoders — what is accepted **and** what is refused (31 bytes, odd digits, `0x`, a key where a signature was asked for) |
 | `domain_sign` | 9 | domain-separated signing (Ed25519ph, RFC 8032 §5.1 context) — the signature itself, the 255-byte bound, the empty-domain refusal; and the domain as **text**: multibyte UTF-8, an embedded NUL, the bound reached and exceeded in bytes rather than characters |
 | `domain_verify` | 23 | the crossings: domain A in domain B, raw in any domain, both `false`; the shape failures; the profile's classes in a domain; the text cases |
 
-The 28 `profile-*` cases in `signature_verify` and the 6 in `domain_verify` are **generated**, by
+The 30 `profile-*` cases in `signature_verify` and the 6 in `domain_verify` are **generated**, by
 [`../conformance/profile-cases.mjs`](../conformance/profile-cases.mjs), from the classes ADR
 0008 names — each with a signature some RFC 8032 verifier accepts, because a rejection nobody
 would accept pins nothing. Their expected values are the profile's, by definition; the note on

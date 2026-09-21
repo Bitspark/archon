@@ -10,7 +10,7 @@ packaging scaffold gets described as a working implementation:
 | claim | what it means |
 |---|---|
 | **implemented** | the code exists and does the thing |
-| **conforming** | it recomputes all 103 oracle cases and agrees with [`vectors/identity.json`](../vectors/identity.json) — including the 34 [verification-profile](architecture/decisions/0008-the-ed25519-verification-profile.md) classes, which is where library defaults disagree |
+| **conforming** | it recomputes all 105 oracle cases and agrees with [`vectors/identity.json`](../vectors/identity.json) — including the 36 [verification-profile](architecture/decisions/0008-the-ed25519-verification-profile.md) classes, which is where library defaults disagree |
 | **published** | a consumer outside this repository can install it, unauthenticated, and run it |
 
 A binding can be implemented and not conforming, or conforming and not published. None of the
@@ -32,10 +32,10 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 
 | Language | core | sdk | cli | server | Coordinates | Conforming | Published |
 |---|---|---|---|---|---|---|---|
-| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 103/103 | ✅ public proxy + checksum db (0.6.2) |
-| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 103/103 | ✅ crates.io (0.6.2) |
-| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 103/103 | ✅ npmjs, with provenance (0.6.2) |
-| **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 103/103 | ⏳ PyPI, once the pending publisher is registered (see `release.yml`) |
+| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ public proxy + checksum db (0.6.2) |
+| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io (0.6.2) |
+| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance (0.6.2) |
+| **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 105/105 | ⏳ PyPI, once the pending publisher is registered (see `release.yml`) |
 | **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 60/60 on the pre-0008 oracle; the profile classes pending | ⏳ Maven Central; secrets installed, workflow pending |
 | **C++** | 🔧 in review | — | — | — | CMake package | 60/60 on the pre-0008 oracle; the profile classes pending | — |
 | **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs a binding to a complete Ed25519ph-with-context implementation (0008 §8) |
@@ -43,7 +43,7 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 
 A published version is a version that was published: 0.6.2 is on the three registries;
 0.7.0, the profile, is the next release. The Java and C++ rows say "pre-0008" because a core
-that agrees with the 60 cases and has not yet been run on the 34 profile classes has not been
+that agrees with the 60 cases and has not yet been run on the 36 profile classes has not been
 asked the question that ADR 0008 exists to ask.
 
 The registry prefixes differ by ecosystem because the namespaces do. crates.io and PyPI are
@@ -113,7 +113,7 @@ That is now written down. [**ADR 0008**](architecture/decisions/0008-the-ed25519
 states the accepted set in prose — `A` and `R` are canonical encodings of points of order
 exactly L, `0 ≤ S < L`, the equation decides only inside that, and the domain is UTF-8 text
 counted in bytes — and every core checks it *itself*, ahead of its library, so the set is
-archon's rather than the binding's. The oracle carries the classes as 34 generated cases
+archon's rather than the binding's. The oracle carries the classes as 36 generated cases
 ([`conformance/profile-cases.mjs`](../conformance/profile-cases.mjs)), admitted on their
 adversarial value rather than on agreement, which is the rule that had kept the oracle blind.
 `node conformance/profile-cases.mjs measure "<cli>"` prints what any core accepts across the

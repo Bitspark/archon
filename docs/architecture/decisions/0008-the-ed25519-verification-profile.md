@@ -43,7 +43,7 @@ Two cores admit a key whose every signature is valid everywhere. For that key, 0
 "a signature made in one domain verifies in no other … cryptographically, whatever the
 bytes" is simply false in Go and Rust: the same 64 bytes verify raw, in `v1` and in `v2`.
 
-Widened to the classes the profile below names — 34 generated cases,
+Widened to the classes the profile below names — 36 generated cases,
 [`conformance/profile-cases.mjs`](../../../conformance/profile-cases.mjs), each carrying a
 signature that some conforming verifier accepts — the four cores turned out to have
 **three different accepted sets**:
@@ -58,9 +58,10 @@ signature that some conforming verifier accepts — the four cores turned out to
 | `R` = a small-order point, `S = k·a` | reject | accept | accept |
 | non-canonical `R`; `S = L`; `S = L − 1` | reject | reject | reject |
 
-Eighteen of the 34 split the cores. Four were accepted by **all four** — a mixed-order key
-with a divisible challenge, and the identity as `R` — and are the cases this decision turns
-into rejections: a policy change, not a bug fix, and recorded as one.
+Eighteen of the 36 split the cores. Six were accepted by **all four** — a mixed-order key
+with a divisible challenge, for each order of torsion component, and the identity as `R` —
+and are the cases this decision turns into rejections: a policy change, not a bug fix, and
+recorded as one.
 
 Three further facts fix the framing:
 
@@ -154,7 +155,7 @@ open, the expected value is **this profile's, by definition**, and the cores are
 it. The `profile-*` cases are generated from the classes of §1 by
 `conformance/profile-cases.mjs` so that they can be re-derived, and every class carries at
 least one instance that was accepted by some core before this decision — a rejection that
-nothing ever accepted pins nothing. The oracle grew from 60 to 103 cases; 412 case-checks
+nothing ever accepted pins nothing. The oracle grew from 60 to 105 cases; 420 case-checks
 across four cores agree; stubbing out one core's profile check fails exactly that core's
 former acceptances and nothing else.
 
@@ -214,7 +215,7 @@ observable and is not a patch. A rollback must not restore the former acceptance
 "legacy" path.
 
 Language reach is staged on it: six complete implementations — Go, Rust, TypeScript,
-Python, Java, C++ — each held to the 103 cases, before eight. Swift and Haskell bind a
+Python, Java, C++ — each held to the 105 cases, before eight. Swift and Haskell bind a
 **complete ph-with-context implementation** (OpenSSL ≥ 3.2 via its signature-operation
 parameters; BoringSSL's public API is raw Ed25519 only and does not qualify) and are
 released when they pass the same oracle, never as "the 43 non-domain cases".
@@ -225,15 +226,32 @@ released when they pass the same oracle, never as "the 43 non-domain cases".
   multiplication, on top of the library's own — the order of the verification itself. The
   floor is not a high-volume verifier; the cost is accepted and should be measured before
   anyone optimises it away.
-- **Java and C++ must apply §1 before they are conforming.** Bouncy Castle refuses the
-  identity natively but must be measured on the mixed-order class; OpenSSL exposes no
-  public Ed25519 point API, so the C++ core needs a second component for lines 2–3
-  (libsodium's `crypto_core_ed25519_is_valid_point` is exactly the predicate) or a bound
-  of its own — a blocklist does not meet line 2.
-- **The differential run.** `profile-cases.mjs measure` prints the accepted set of any
-  CLI over the classes with no expected value applied. A generator-driven differential
-  check across every pair of cores over random members of each class — the next step the
-  advice named — is owed and not yet written.
+- **Java and C++ must apply §1 before they are conforming.** Measured on the classes:
+  Bouncy Castle's `Ed25519Signer` validates the key with its *partial* validator, which
+  refuses the identity, small-order and non-canonical points but admits a mixed-order
+  point, and it never examines `R` at all — eight of the 36 cases accepted, all of them
+  mixed-order `A` or a small-order `R`. Its `Ed25519.validatePublicKeyFull` is exactly
+  lines 2–3 (mixed-order refused), and the Java core calls it on both `A` and `R`. OpenSSL
+  does **no** point validation — `EVP_PKEY_public_check` accepts all eight torsion points,
+  the identity and the non-canonical spellings — and exposes no public Ed25519 point API,
+  so the C++ core needs a second component for lines 2–3 (libsodium's
+  `crypto_core_ed25519_is_valid_point` is exactly the predicate; libsodium cannot do the
+  ph-with-context signing, OpenSSL cannot do the validation) — a blocklist does not meet
+  line 2. Whether a given library's *equation* is cofactored is a separate question from
+  its accepted set and is not claimed here for any library that was not measured on it.
+- **The differential run exists, and it found something on its first pass.**
+  `profile-cases.mjs differential --seed N --per-class N <cli>…` draws fresh members of
+  every class — random torsion component, nonce, message and domain — plus genuine
+  signatures, drives them through every core given, and fails on any case two cores
+  answer differently or any non-genuine case all of them accept. No oracle; the finding is
+  the disagreement. Its first run split Python from the other three on a mixed-order key
+  whose torsion component has **order 2**: PyCryptodome's `is_point_at_infinity()` on an
+  Edwards curve is `x == 0`, which the order-2 point `(0, −1)` satisfies as well as the
+  identity, so `[L]A`, correctly computed as `(0, −1)`, was reported as the identity and the
+  key passed the subgroup check. The fixed vectors had drawn only an order-8 component and
+  were green in all four cores. The Python core now tests for `(0, 1)`, the oracle pins a
+  mixed-order case per torsion order, and `measure` is not the last word on a new binding —
+  `differential` is.
 - **Not a wire change.** `archon-login/1`, the sdk layouts and every published signature
   are unchanged; only what is *accepted* narrowed, to inputs no signer emits.
 - **The key codecs stay byte codecs.** `keytext` and `keycodec` still spell arbitrary 32

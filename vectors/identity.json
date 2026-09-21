@@ -438,6 +438,22 @@
       "valid": false
     },
     {
+      "name": "profile-mixed-order-A-torsion-4-k-divisible",
+      "note": "ADR 0008 class 4 with an order-4 torsion component: A = A_good + [2]T8. [L]A is that component itself. k divisible by 4, so every equation holds. Profile: false.",
+      "pubkey": "fb377da71c8f12b86db03c7b3be730419c53cd42b459c357fb3d422d460668c9",
+      "message": "6d697865642d6f726465722d342330",
+      "sig": "b862409fb5c4c4123df2abf7462b88f041ad36dd6864ce872fd5472be363c5b1465b772896368acd36844d3cdd2a71c8ab13df80d36adf062c11cc009c9f930e",
+      "valid": false
+    },
+    {
+      "name": "profile-mixed-order-A-torsion-2-k-divisible",
+      "note": "ADR 0008 class 4 with an order-2 torsion component: A = A_good + [4]T8. [L]A is that component itself — the point (0, −1), which an identity test of \"x = 0\" mistakes for the identity. k divisible by 2, so every equation holds. Profile: false.",
+      "pubkey": "1db54dcd8bd44b54c5ec9742b9ea1b192fddb548e5fe94507adf5ccd368878c8",
+      "message": "6d697865642d6f726465722d322330",
+      "sig": "b862409fb5c4c4123df2abf7462b88f041ad36dd6864ce872fd5472be363c5b1b921157afb69b892597c39e143683319e59f99f1c66473795d704101451da30a",
+      "valid": false
+    },
+    {
       "name": "profile-identity-R",
       "note": "ADR 0008 class 5: R is the identity point (r = 0) and S = k·a, so [S]B = [k]A = R + [k]A under every equation. RFC 8032 pure verification accepts it; no honest signer produces it. Profile: R is a non-identity element of the prime-order subgroup — false.",
       "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
@@ -779,6 +795,51 @@
       "valid": false
     },
     {
+      "note": "ADR 0008 — the multibyte domain's own signature verifies in it.",
+      "name": "multibyte-in-multibyte",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon/тест/v1",
+      "message": "68656c6c6f",
+      "sig": "aef6db63bc8e130fc274267a31c1e1ec90f2940c95f9c34567b02f5cd33f91fdfcacc8500952ea305442202d9aedcdf23efcd7ea4a2df2abf00b3f149f7a0d0e",
+      "valid": true
+    },
+    {
+      "note": "the NUL-bearing domain's own signature verifies in it …",
+      "name": "nul-in-nul",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon\u0000test",
+      "message": "68656c6c6f",
+      "sig": "93f470b3c58b14df779c5896d72201a053a7c749fdde52c5600737c3bb6410bedd414573536888d138b11b44e084088f6bde5b6599f4e04a29e58792c0e14d0c",
+      "valid": true
+    },
+    {
+      "note": "… and not in the domain a NUL-terminating implementation would see.",
+      "name": "nul-sig-in-truncated-domain",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "archon",
+      "message": "68656c6c6f",
+      "sig": "93f470b3c58b14df779c5896d72201a053a7c749fdde52c5600737c3bb6410bedd414573536888d138b11b44e084088f6bde5b6599f4e04a29e58792c0e14d0c",
+      "valid": false
+    },
+    {
+      "note": "the 255-byte multibyte domain verifies.",
+      "name": "domain-255-bytes-multibyte",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "фффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "message": "68656c6c6f",
+      "sig": "8dd7d9df201ce3c5af269d442abe358095e817d291caf8c8b6ba014df31b2ff0ad0c3ff33d1be00aa167c4e481f3aad1286650e64a540636f7016d75eede1a0d",
+      "valid": true
+    },
+    {
+      "note": "a 256-byte (128-character) domain is over the bound: false, whatever the signature.",
+      "name": "domain-256-bytes-128-chars-false",
+      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
+      "domain": "фффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффф",
+      "message": "68656c6c6f",
+      "sig": "8dd7d9df201ce3c5af269d442abe358095e817d291caf8c8b6ba014df31b2ff0ad0c3ff33d1be00aa167c4e481f3aad1286650e64a540636f7016d75eede1a0d",
+      "valid": false
+    },
+    {
       "name": "profile-identity-A-in-domain",
       "note": "ADR 0008 class 1 in a domain: the same universal signature, presented as a domain signature. The separation property of ADR 0003 cannot hold for a key whose every signature is valid everywhere — false.",
       "pubkey": "0100000000000000000000000000000000000000000000000000000000000000",
@@ -828,51 +889,6 @@
       "domain": "archon/test/v1",
       "message": "68656c6c6f",
       "sig": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037aa8b73f339bfaa2e4d980ddcc3a6c303279576d7053ecf539f7416c16e0d4f709",
-      "valid": false
-    },
-    {
-      "note": "ADR 0008 — the multibyte domain's own signature verifies in it.",
-      "name": "multibyte-in-multibyte",
-      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
-      "domain": "archon/тест/v1",
-      "message": "68656c6c6f",
-      "sig": "aef6db63bc8e130fc274267a31c1e1ec90f2940c95f9c34567b02f5cd33f91fdfcacc8500952ea305442202d9aedcdf23efcd7ea4a2df2abf00b3f149f7a0d0e",
-      "valid": true
-    },
-    {
-      "note": "the NUL-bearing domain's own signature verifies in it …",
-      "name": "nul-in-nul",
-      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
-      "domain": "archon\u0000test",
-      "message": "68656c6c6f",
-      "sig": "93f470b3c58b14df779c5896d72201a053a7c749fdde52c5600737c3bb6410bedd414573536888d138b11b44e084088f6bde5b6599f4e04a29e58792c0e14d0c",
-      "valid": true
-    },
-    {
-      "note": "… and not in the domain a NUL-terminating implementation would see.",
-      "name": "nul-sig-in-truncated-domain",
-      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
-      "domain": "archon",
-      "message": "68656c6c6f",
-      "sig": "93f470b3c58b14df779c5896d72201a053a7c749fdde52c5600737c3bb6410bedd414573536888d138b11b44e084088f6bde5b6599f4e04a29e58792c0e14d0c",
-      "valid": false
-    },
-    {
-      "note": "the 255-byte multibyte domain verifies.",
-      "name": "domain-255-bytes-multibyte",
-      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
-      "domain": "фффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      "message": "68656c6c6f",
-      "sig": "8dd7d9df201ce3c5af269d442abe358095e817d291caf8c8b6ba014df31b2ff0ad0c3ff33d1be00aa167c4e481f3aad1286650e64a540636f7016d75eede1a0d",
-      "valid": true
-    },
-    {
-      "note": "a 256-byte (128-character) domain is over the bound: false, whatever the signature.",
-      "name": "domain-256-bytes-128-chars-false",
-      "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
-      "domain": "фффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффффф",
-      "message": "68656c6c6f",
-      "sig": "8dd7d9df201ce3c5af269d442abe358095e817d291caf8c8b6ba014df31b2ff0ad0c3ff33d1be00aa167c4e481f3aad1286650e64a540636f7016d75eede1a0d",
       "valid": false
     }
   ]

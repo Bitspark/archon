@@ -75,11 +75,24 @@ def _is_prime_order_point(encoded: bytes) -> bool:
         if key.public_key().export_key(format="raw") != bytes(encoded):
             return False
         point = key.pointQ
-        if point.is_point_at_infinity():
+        if _is_identity(point):
             return False
-        return (point * _L).is_point_at_infinity()
+        return _is_identity(point * _L)
     except Exception:  # noqa: BLE001 - an unusable point is not a valid key either
         return False
+
+
+def _is_identity(point) -> bool:
+    """The identity is (0, 1) — both coordinates, deliberately.
+
+    PyCryptodome's `EccPoint.is_point_at_infinity()` on an Edwards curve tests `x == 0`
+    alone, which the order-2 point (0, -1) satisfies too. Its arithmetic is right: for a
+    key with an order-2 torsion component, `[L]A` really is (0, -1) — but that method calls
+    it the identity, and the subgroup check would pass a mixed-order key. Found by the
+    differential run (`conformance/profile-cases.mjs differential`) on its first pass, in
+    the one class the fixed vectors happened not to draw.
+    """
+    return point.is_point_at_infinity() and int(point.y) == 1
 
 
 def _in_profile(pubkey: bytes, signature: bytes) -> bool:
