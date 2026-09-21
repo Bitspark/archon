@@ -110,6 +110,13 @@ jobs:
           node-version: "22"
           registry-url: https://registry.npmjs.org
 
+      - name: npm new enough for trusted publishing
+        # OIDC publishing needs npm >= 11.5.1. Node 22 bundles 10.9.8, so setup-node alone
+        # is NOT sufficient and the failure mode is a silent fallback to token auth.
+        run: |
+          npm install -g npm@^11.5.1
+          echo "npm $(npm --version), node $(node --version)"
+
       - name: The three cores agree
         # The release gate is the same one every push runs. A version that cannot demonstrate
         # tri-core agreement is not publishable in any language.

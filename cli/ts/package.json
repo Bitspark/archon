@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Bitspark/archon"
+    "url": "git+https://github.com/Bitspark/archon.git"
   },
   "type": "module",
   "bin": {
