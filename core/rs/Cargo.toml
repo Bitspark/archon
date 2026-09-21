@@ -24,7 +24,7 @@ path = "src/lib.rs"
 # Ed25519 sign / verify. The ONLY dependency — no ontos, no logos, no thesmos.
 # `digest` unlocks the prehashed (Ed25519ph) API that domain-separated signing is built
 # on and re-exports dalek's own `Sha512`, so the digest costs no second dependency.
-ed25519-dalek = { version = "2", features = ["digest"] }
+ed25519-dalek = { version = "3", features = ["digest"] }
 
 # Conformance CLI ONLY. Optional, off by default, and gated behind the
 # `conformance-cli` feature: the published library still has exactly one dependency.
