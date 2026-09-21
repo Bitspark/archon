@@ -142,6 +142,22 @@ does not qualify — and are released when they pass the whole oracle, not a sub
 Note also that CryptoKit *randomises* signatures, so it could not be a core's signer even if
 it had the context.
 
+**One library is not enough, and C++ is the proof.** OpenSSL ≥ 3.2 signs correctly — the C++
+core reproduces every `domain_sign` vector byte for byte — and then fails 22 acceptance cases,
+because `EVP_PKEY_public_check` validates nothing for Ed25519 and OpenSSL exposes no scalar
+multiplication for the curve, so the profile predicate cannot be written against its public
+API at all. Swift and Haskell reach the same wall for the same reason: signing and accepting
+are separate problems, and binding a signer solves only the first.
+
+The second is libsodium's `crypto_core_ed25519_is_valid_point`, which is the profile predicate
+almost exactly — on the curve, canonical, on the main subgroup, not small order. **Require
+libsodium ≥ 1.0.21.** In 1.0.20 and earlier that function *accepted points in mixed-order
+subgroups* (2L, 4L, 8L) — which is precisely
+[`profile-mixed-order-A-k-divisible`](../conformance/profile-cases.mjs), the case the oracle
+keeps because every pre-0008 implementation accepted it. A core built against 1.0.20 would
+therefore ship the exact defect the profile exists to forbid. The oracle catches it, which is
+what the oracle is for, but the floor belongs in the build files rather than in a run log.
+
 **The acceptance profile.** Less obvious and more dangerous. RFC 8032 permits more than one
 verification equation, so implementations genuinely disagree about which signatures are
 *valid* — and that disagreement is silent until two of them meet.
