@@ -213,8 +213,16 @@ jobs:
           # release tarball. Pinned to the version developers actually get locally (msys2
           # ships 1.0.22-3): a CI that pins something else is not reproducing the dev build,
           # and pinning the bare floor would mean any regression AT the floor breaks CI.
+          # libsodium decides what archon ACCEPTS, so the tarball is pinned, not just fetched. The
+          # SHA-256 is of the release whose minisign signature verified against the author's key
+          # (RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3, doc.libsodium.org), and
+          # GitHub's release asset and download.libsodium.org serve identical bytes. Two sources and
+          # retries, because download.libsodium.org has failed DNS from a CI container.
           SODIUM=1.0.22
-          curl -fsSL "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz" -o /tmp/s.tgz
+          SODIUM_SHA256=adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349
+          fetch() { curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "$1" -o /tmp/s.tgz; }
+          fetch "https://github.com/jedisct1/libsodium/releases/download/$SODIUM-RELEASE/libsodium-$SODIUM.tar.gz" || fetch "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz"
+          echo "$SODIUM_SHA256  /tmp/s.tgz" | sha256sum -c -
           tar -xzf /tmp/s.tgz -C /tmp
           (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && sudo make install >/dev/null)
           sudo ldconfig
@@ -225,7 +233,7 @@ jobs:
           export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
           got=$(pkg-config --modversion libsodium)
           echo "libsodium $got"
-          pkg-config --atleast-version=1.0.21 libsodium             || { echo "::error::libsodium $got is below the 1.0.21 floor — it would accept mixed-order points"; exit 1; }
+          pkg-config --atleast-version=1.0.21 libsodium || { echo "::error::libsodium $got is below the 1.0.21 floor — it would accept mixed-order points"; exit 1; }
       - name: configure, build, and prove the version floor is enforced
         run: |
           set -euo pipefail
@@ -256,16 +264,176 @@ jobs:
       - name: differential against Go and TypeScript, three seeds
         run: |
           set -euo pipefail
-          node conformance/check-differential.mjs             /tmp/build/archon_conformance             "$PWD/bin/conformance-go"             "node $PWD/core/ts/dist/conformance/cli.js"
+          node conformance/check-differential.mjs /tmp/build/archon_conformance "$PWD/bin/conformance-go" "node $PWD/core/ts/dist/conformance/cli.js"
 
       - name: install the package and consume it from outside
         run: |
           set -euo pipefail
           export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
           cmake --install /tmp/build --prefix /tmp/prefix
-          cmake -S conformance/consumers/cpp -B /tmp/consumer -G Ninja                 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/tmp/prefix
+          cmake -S conformance/consumers/cpp -B /tmp/consumer -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/tmp/prefix
           cmake --build /tmp/consumer
           /tmp/consumer/consumer
+
+  swift:
+    name: swift
+    # The official Swift 6.4 image on Ubuntu 26.04, NOT a Swift toolchain on ubuntu-latest.
+    # Swift 6.4 is the first release built for 26.04, and 26.04's system OpenSSL is 3.5.5 —
+    # above the 3.2 floor. Every older Swift image sits on an OS with OpenSSL 3.0.x, and pairing
+    # it with a source-built OpenSSL would put two libcryptos in one process the moment anything
+    # loaded FoundationNetworking.
+    runs-on: ubuntu-latest
+    container: swift:6.4.0-resolute
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.25", cache: false }
+      # The Swift and Haskell cores compile the SAME C shim, kept as two copies because SwiftPM
+      # and Cabal each need it inside their own package. Two shims that drift apart are two
+      # opinions about what archon accepts; this is what stops that happening quietly.
+      - name: the Swift and Haskell shims are one shim
+        run: |
+          set -euo pipefail
+          cmp core/swift/Sources/CArchonCrypto/archon_crypto.c core/hs/cbits/archon_crypto.c
+          cmp core/swift/Sources/CArchonCrypto/include/archon_crypto.h core/hs/cbits/include/archon_crypto.h
+      # OpenSSL from the image, libsodium from source: Ubuntu 26.04's own libsodium-dev is 1.0.18,
+      # and everything below 1.0.21 accepts mixed-order points. The shim #errors on both floors
+      # regardless, since SwiftPM's system-library targets cannot express a version.
+      - name: the two crypto libraries, at their floors
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y --no-install-recommends libssl-dev pkg-config make curl ca-certificates
+          # libsodium decides what archon ACCEPTS, so the tarball is pinned, not just fetched. The
+          # SHA-256 is of the release whose minisign signature verified against the author's key
+          # (RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3, doc.libsodium.org), and
+          # GitHub's release asset and download.libsodium.org serve identical bytes. Two sources and
+          # retries, because download.libsodium.org has failed DNS from a CI container.
+          SODIUM=1.0.22
+          SODIUM_SHA256=adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349
+          fetch() { curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "$1" -o /tmp/s.tgz; }
+          fetch "https://github.com/jedisct1/libsodium/releases/download/$SODIUM-RELEASE/libsodium-$SODIUM.tar.gz" || fetch "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz"
+          echo "$SODIUM_SHA256  /tmp/s.tgz" | sha256sum -c -
+          tar -xzf /tmp/s.tgz -C /tmp
+          (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && make install >/dev/null)
+          ldconfig
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          echo "openssl $(pkg-config --modversion libcrypto), libsodium $(pkg-config --modversion libsodium)"
+          pkg-config --atleast-version=3.2 libcrypto || { echo "::error::OpenSSL is below 3.2"; exit 1; }
+          pkg-config --atleast-version=1.0.21 libsodium || { echo "::error::libsodium is below 1.0.21 — it would accept mixed-order points"; exit 1; }
+      - name: build and unit tests
+        env:
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+        run: |
+          set -euo pipefail
+          swift build -c release
+          swift test
+      - name: conformance against the oracle
+        run: node conformance/harness.mjs vectors .build/release/ArchonConformance
+      # ADR 0008 §8's bar is the oracle AND the differential: fresh members of every profile
+      # class, and the cores asked whether they still agree on inputs nobody wrote down.
+      # -buildvcs=false: in a container the checkout belongs to a different user than the one
+      # running git, so git refuses the repository ("dubious ownership") and Go's default VCS
+      # stamping fails with "error obtaining VCS status: exit status 128". This binary is a
+      # throwaway comparison target; it has no use for a VCS stamp. Found on this job's first
+      # GitHub run, where the oracle and the unit tests had already passed.
+      - name: differential against Go and TypeScript, three seeds
+        run: |
+          set -euo pipefail
+          (cd core/go && go build -buildvcs=false -o ../../bin/conformance-go ./cmd/conformance)
+          (cd core/ts && npm ci --silent && node node_modules/typescript/bin/tsc -p tsconfig.json)
+          node conformance/check-differential.mjs "$PWD/.build/release/ArchonConformance" "$PWD/bin/conformance-go" "node $PWD/core/ts/dist/conformance/cli.js"
+      # The consumer depends on archon by PATH here. SwiftPM names a path dependency after its
+      # directory, and the checkout is .../archon/archon, which is why the consumer can find the
+      # product in the package called "archon". verify-source resolves the real tag by URL.
+      - name: consume the package as a dependency
+        env:
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+        run: |
+          set -euo pipefail
+          test "$(basename "$GITHUB_WORKSPACE")" = archon
+          cp -r conformance/consumers/swift /tmp/consumer
+          cd /tmp/consumer
+          ARCHON_PATH="$GITHUB_WORKSPACE" swift build -c release
+          .build/release/Consumer
+
+  haskell:
+    name: haskell
+    # ubuntu-26.04 carries GHC 9.14.1, Cabal 3.18.1 and OpenSSL 3.5.5, read from the image
+    # manifest. Only libsodium has to be built, as for C++ and Swift.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.14.1"
+          cabal-version: "3.18.1.0"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.25", cache: false }
+      - name: libsodium, at its floor
+        run: |
+          set -euo pipefail
+          # libsodium decides what archon ACCEPTS, so the tarball is pinned, not just fetched. The
+          # SHA-256 is of the release whose minisign signature verified against the author's key
+          # (RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3, doc.libsodium.org), and
+          # GitHub's release asset and download.libsodium.org serve identical bytes. Two sources and
+          # retries, because download.libsodium.org has failed DNS from a CI container.
+          SODIUM=1.0.22
+          SODIUM_SHA256=adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349
+          fetch() { curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "$1" -o /tmp/s.tgz; }
+          fetch "https://github.com/jedisct1/libsodium/releases/download/$SODIUM-RELEASE/libsodium-$SODIUM.tar.gz" || fetch "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz"
+          echo "$SODIUM_SHA256  /tmp/s.tgz" | sha256sum -c -
+          tar -xzf /tmp/s.tgz -C /tmp
+          (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && sudo make install >/dev/null)
+          sudo ldconfig
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          pkg-config --atleast-version=1.0.21 libsodium || { echo "::error::libsodium is below 1.0.21 — it would accept mixed-order points"; exit 1; }
+      # Cabal enforces BOTH floors itself, through pkgconfig-depends: an OpenSSL below 3.2 or a
+      # libsodium below 1.0.21 is a dependency-resolution failure, before anything compiles.
+      - name: build and unit tests
+        working-directory: core/hs
+        env:
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+        run: |
+          set -euo pipefail
+          cabal update
+          cabal build all --enable-tests
+          cabal test
+      - name: conformance against the oracle
+        env:
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+        run: node conformance/harness.mjs vectors "$(cd core/hs && cabal list-bin archon-conformance)"
+      - name: differential against Go and TypeScript, three seeds
+        env:
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+        run: |
+          set -euo pipefail
+          (cd core/go && go build -o ../../bin/conformance-go ./cmd/conformance)
+          (cd core/ts && npm ci --silent && node node_modules/typescript/bin/tsc -p tsconfig.json)
+          node conformance/check-differential.mjs "$(cd core/hs && cabal list-bin archon-conformance)" "$PWD/bin/conformance-go" "node $PWD/core/ts/dist/conformance/cli.js"
+      # The consumer has no cabal.project of its own: whoever runs it says where archon comes
+      # from. Here, the checkout; in verify-source, the public tag via source-repository-package.
+      - name: consume the package as a dependency
+        env:
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+        run: |
+          set -euo pipefail
+          cp -r conformance/consumers/hs /tmp/consumer
+          cd /tmp/consumer
+          printf 'packages: . %s\n' "$GITHUB_WORKSPACE/core/hs" > cabal.project
+          cabal build consumer
+          "$(cabal list-bin consumer)"
 
   py:
     name: py

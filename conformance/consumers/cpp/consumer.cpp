@@ -75,6 +75,12 @@ const char* kIdentityRSig =
 }  // namespace
 
 int main() {
+  // First, and not optional: the vectors below cannot see a libsodium below 1.0.21. That version
+  // refuses the 8L mixed-order key asserted below and accepts only a 2L one, so this consumer
+  // would pass against it. The core's own floor check is what reports that combination.
+  check(archon::libraries_meet_floors(),
+        "the loaded OpenSSL and libsodium must meet archon's floors");
+
   archon::Bytes seed(32);
   for (int i = 0; i < 32; ++i) seed[i] = static_cast<unsigned char>(i);
 

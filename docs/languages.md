@@ -43,8 +43,8 @@ implementing it badly.
 | **Python** | ✅ | ✅ possession + envelope | — | — | `bitspark-archon-{core,sdk}` (import `archon_{core,sdk}`) | 105/105; sdk 38/38 | ✅ PyPI — core **0.7.0**, wheel + sdist · sdk ⏳ from the next release, once its own pending publisher is registered |
 | **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ✅ Maven Central — **0.7.0**, signed |
 | **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | ⏳ consumed from the tag — awaits a `verify-source` run (see below) |
-| **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs **two** libraries — a signer and a validator (0008 §8) |
-| **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same two (0008 §8) |
+| **Swift** | ✅ | — | — | — | SwiftPM product `ArchonCore` (git URL + tag) | 105/105 | ⏳ consumed from the tag — awaits a `verify-source` run |
+| **Haskell** | ✅ | — | — | — | `bitspark-archon-core` (module `Archon.Core`), Cabal via Git | 105/105 | ⏳ consumed from the tag — awaits a `verify-source` run |
 
 A published version is a version that was published — which is not the same as a version that
 was tagged. **Snapshot taken 2026-09-22 11:20Z**, and dated because an earlier version of
@@ -199,17 +199,38 @@ scalar multiplication for the curve, so the profile predicate cannot be written 
 public API at all. Swift and Haskell reach the same wall for the same reason: signing and
 accepting are separate problems, and binding a signer solves only the first.
 
-C++ now binds both and passes 105/105. The second library is where the profile lives:
+C++, Swift and Haskell now bind both, and each passes 105/105 plus a clean three-seed differential against Go and TypeScript. Swift and Haskell share one C shim — only the calls into the two libraries, since OpenSSL's `OSSL_PARAM_construct_*` return structs by value, which Haskell's FFI cannot express — and CI asserts the two copies are byte-identical. The second library is where the profile lives:
 
 libsodium's `crypto_core_ed25519_is_valid_point` is the profile predicate almost exactly —
 on the curve, canonical, on the main subgroup, not small order. Measured against the oracle's
 own vectors, it accepts an honest key and refuses the identity, the mixed-order key and a
-small-order `R`. **Require libsodium ≥ 1.0.21**, and assert it at configure time. In 1.0.20 and earlier that function *accepted points in mixed-order
-subgroups* (2L, 4L, 8L) — which is precisely
-[`profile-mixed-order-A-k-divisible`](../conformance/profile-cases.mjs), the case the oracle
-keeps because every pre-0008 implementation accepted it. A core built against 1.0.20 would
-therefore ship the exact defect the profile exists to forbid. The oracle catches it, which is
-what the oracle is for, but the floor belongs in the build files rather than in a run log.
+small-order `R`. **Require libsodium ≥ 1.0.21.** In 1.0.20 and earlier that function
+*accepted some points in mixed-order subgroups*. Measured against the oracle's four
+mixed-order public keys, 1.0.20 refuses the 8L and 4L ones and **accepts
+`profile-mixed-order-A-torsion-2-k-divisible`**, a point of order 2L. A core built against
+1.0.20 compiles, signs correctly, passes 104 of 105 cases, and ships the defect the profile
+exists to forbid.
+
+Note what does *not* catch it. The outside consumers all assert the same pair
+(`profile-mixed-order-A-k-divisible` and `profile-identity-R`), chosen because every
+implementation measured before ADR 0008 accepted both — but that mixed-order key has order 8L,
+and 1.0.20 refuses it. So a consumer would pass against a 1.0.20 build. The oracle's torsion-2
+case catches it, and so do the floors below; the consumers do not, and are not meant to.
+
+The floor has to be asserted **twice**, and the second time is the one that is easy to miss:
+
+- **when building** — CMake's `pkg_check_modules`, Cabal's `pkgconfig-depends`, and for Swift
+  (whose system-library targets cannot express a version) an `#error` in the shim. Measured
+  from the release tarballs: 1.0.20 is library version 26.2, 1.0.21 is 26.3.
+- **when running** — 1.0.20 and 1.0.22 share the soname `libsodium.so.26`, so a binary built
+  against 1.0.22 will load 1.0.20 without complaint if that is what the library path offers.
+  Demonstrated, not supposed: the same binary reports the floor met with 1.0.22 loaded, and
+  refuses to derive a key or sign with 1.0.20 on `LD_LIBRARY_PATH`. So the shim checks
+  `sodium_library_version_minor()` against what was actually loaded, and a process below the
+  floor signs nothing and accepts nothing.
+
+Distribution packages do not help: **Ubuntu 26.04's own `libsodium-dev` is 1.0.18.** Every CI
+job here builds libsodium from its release tarball.
 
 **The acceptance profile.** Less obvious and more dangerous. RFC 8032 permits more than one
 verification equation, so implementations genuinely disagree about which signatures are

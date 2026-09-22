@@ -1,0 +1,91 @@
+cabal-version:      3.0
+name:               bitspark-archon-core
+version:            0.7.0
+synopsis:           archon's identity floor: Ed25519 keys, their canonical text, SPKI/PKCS-8, domain-separated signing
+description:
+    The Haskell presentation of archon's core. It answers two questions — are these bytes that
+    key, and is this signature that key's — and holds itself to the same oracle
+    (vectors/identity.json) as the Go, Rust, TypeScript, Python, Java, C++ and Swift cores.
+    .
+    Domain-separated signing is Ed25519ph with the domain as the RFC 8032 context string, which
+    no Haskell crypto library exposes (crypton hardcodes SHA-512 with no context). So this
+    package binds OpenSSL >= 3.2 to sign, and libsodium >= 1.0.21 to enforce the ADR 0008
+    verification profile, which OpenSSL cannot express.
+category:           Cryptography
+license:            Apache-2.0
+license-file:       LICENSE
+author:             Bitspark and the archon contributors
+maintainer:         https://github.com/Bitspark/archon/issues
+homepage:           https://github.com/Bitspark/archon
+bug-reports:        https://github.com/Bitspark/archon/issues
+build-type:         Simple
+tested-with:        GHC == 9.10.3 || == 9.14.1
+extra-doc-files:    NOTICE
+extra-source-files: cbits/include/archon_crypto.h
+
+-- Consumed from the immutable public tag, not from Hackage:
+--
+--   source-repository-package
+--     type:     git
+--     location: https://github.com/Bitspark/archon.git
+--     tag:      v0.8.0
+--     subdir:   core/hs
+source-repository head
+    type:     git
+    location: https://github.com/Bitspark/archon.git
+    subdir:   core/hs
+
+common warnings
+    ghc-options: -Wall -Wcompat
+
+library
+    import:           warnings
+    exposed-modules:
+        Archon.Core
+        Archon.Core.Crypto
+        Archon.Core.HexBytes
+        Archon.Core.KeyCodec
+        Archon.Core.KeyText
+    other-modules:    Archon.Core.Base64
+    hs-source-dirs:   src
+    -- BOOT PACKAGES ONLY. A consumer building archon needs nothing from Hackage.
+    build-depends:
+        base >= 4.14 && < 5,
+        bytestring >= 0.10 && < 0.13,
+        text >= 2.0 && < 2.2
+    -- The shim is byte-identical to core/swift/Sources/CArchonCrypto; CI asserts it.
+    c-sources:        cbits/archon_crypto.c
+    include-dirs:     cbits/include
+    -- The two floors, enforced by Cabal at configure time. pkg-config carries the versions, so
+    -- an OpenSSL below 3.2 or a libsodium below 1.0.21 stops the build here, before anything
+    -- compiles. The shim #errors on the same floors, and refuses at runtime if a shared library
+    -- below them is loaded instead. Note that Ubuntu 26.04's own libsodium-dev is 1.0.18.
+    pkgconfig-depends:
+        libcrypto >= 3.2,
+        libsodium >= 1.0.21
+    default-language: Haskell2010
+
+-- The conformance v1 CLI: a dev artifact. A consumer depending on the library never builds it.
+executable archon-conformance
+    import:           warnings
+    main-is:          Main.hs
+    other-modules:    Json
+    hs-source-dirs:   app
+    build-depends:
+        base,
+        bitspark-archon-core,
+        bytestring,
+        text
+    default-language: Haskell2010
+
+test-suite unit
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test
+    build-depends:
+        base,
+        bitspark-archon-core,
+        bytestring,
+        text
+    default-language: Haskell2010
