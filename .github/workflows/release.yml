@@ -131,21 +131,30 @@ jobs:
             got=$(node -p "require('./$f').version")
             [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
           done
-          for f in core/rs/Cargo.toml sdk/rs/Cargo.toml cli/rs/Cargo.toml server/rs/Cargo.toml core/py/pyproject.toml sdk/py/pyproject.toml; do
+          for f in core/rs/Cargo.toml sdk/rs/Cargo.toml cli/rs/Cargo.toml server/rs/Cargo.toml core/py/pyproject.toml; do
             got=$(grep -m1 '^version = ' "$f" | sed 's/version = "\(.*\)"/\1/')
             [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
           done
-          for f in core/py/src/archon_core/__init__.py sdk/py/src/archon_sdk/__init__.py; do
+          f=core/py/src/archon_core/__init__.py
+          got=$(grep -m1 '^__version__ = ' "$f" | sed 's/__version__ = "\(.*\)"/\1/')
+          [ "$got" = "$want" ] || { echo "::error::$f reports $got, tag says $want"; fail=1; }
+          # The Python sdk: its version, its self-report, and the range it names its floor by.
+          # There is no publish-time rewrite to derive that range (npm's step rewrites a file:
+          # link; a pyproject has no link to rewrite), so it is held here instead: an sdk that
+          # names an older floor than the one it was released and tested with is two versions
+          # under one release. Only when the TAG has an sdk/py — the build, publish and round
+          # trip skip a tag without one by the same test, so a verify_only of a tag cut before
+          # it existed stays green rather than reddening on a file that was never released.
+          if [ -f sdk/py/pyproject.toml ]; then
+            f=sdk/py/pyproject.toml
+            got=$(grep -m1 '^version = ' "$f" | sed 's/version = "\(.*\)"/\1/')
+            [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
+            grep -qF "\"bitspark-archon-core~=$want\"" "$f" \
+              || { echo "::error::$f does not name its floor as bitspark-archon-core~=$want: $(grep -m1 '^dependencies' "$f")"; fail=1; }
+            f=sdk/py/src/archon_sdk/__init__.py
             got=$(grep -m1 '^__version__ = ' "$f" | sed 's/__version__ = "\(.*\)"/\1/')
             [ "$got" = "$want" ] || { echo "::error::$f reports $got, tag says $want"; fail=1; }
-          done
-          # The Python sdk names its floor by a registry range, and there is no publish-time
-          # rewrite to derive it (npm's step rewrites a file: link; a pyproject has no link to
-          # rewrite). So the range is held here instead: an sdk that names an older floor than
-          # the one it was released and tested with is two versions under one release.
-          f=sdk/py/pyproject.toml
-          grep -qF "\"bitspark-archon-core~=$want\"" "$f" \
-            || { echo "::error::$f does not name its floor as bitspark-archon-core~=$want: $(grep -m1 '^dependencies' "$f")"; fail=1; }
+          fi
           # core/java/pom.xml carries the version TWICE: the project's own and <scm><tag>. A
           # release whose POM names another tag points consumers at source that is not what was
           # built. Both are READ, never repeated -- the Java package check hardcoded this version
@@ -572,8 +581,10 @@ jobs:
           set -euo pipefail
           python -m pip install --quiet --upgrade pip build
           python -m build core/py --outdir dist-py
-          python -m build sdk/py --outdir dist-py-sdk
-          ls -l dist-py dist-py-sdk
+          # A tag cut before sdk/py existed has none to build; its publish and round trip are
+          # skipped by the same test (hashFiles), so a verify_only of such a tag stays green.
+          if [ -f sdk/py/pyproject.toml ]; then python -m build sdk/py --outdir dist-py-sdk; fi
+          ls -l dist-py; ls -l dist-py-sdk 2>/dev/null || true
 
       # PyPI trusted publishing: the OIDC token this run already carries is exchanged for
       # upload rights scoped to this repository, this workflow file and the `release`
@@ -616,13 +627,13 @@ jobs:
       # and polls PyPI for a project that cannot appear, and a red verification withholds the
       # GitHub release. That is exactly how the 0.7.0 verify_only run went red.
       - uses: pypa/gh-action-pypi-publish@release/v1
-        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true' && vars.PYPI_SDK_TRUSTED_PUBLISHING == 'true'
+        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true' && vars.PYPI_SDK_TRUSTED_PUBLISHING == 'true' && hashFiles('sdk/py/pyproject.toml') != ''
         with:
           packages-dir: dist-py-sdk
           skip-existing: true
 
       - name: What PyPI did not get (the sdk)
-        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true' && !(vars.PYPI_TRUSTED_PUBLISHING == 'true' && vars.PYPI_SDK_TRUSTED_PUBLISHING == 'true')
+        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true' && !(vars.PYPI_TRUSTED_PUBLISHING == 'true' && vars.PYPI_SDK_TRUSTED_PUBLISHING == 'true') && hashFiles('sdk/py/pyproject.toml') != ''
         run: |
           echo "::warning::bitspark-archon-sdk ${TAG#v} was BUILT but NOT PUBLISHED: it needs both vars.PYPI_TRUSTED_PUBLISHING and vars.PYPI_SDK_TRUSTED_PUBLISHING set to 'true'. Register its pending publisher on PyPI (see this workflow), set the variable, and re-run this dispatch — every publish step skips what is already on its registry."
 
@@ -666,7 +677,7 @@ jobs:
           "
 
       - name: The Python sdk round trip against what was published
-        if: env.REHEARSE != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true' && vars.PYPI_SDK_TRUSTED_PUBLISHING == 'true' && !cancelled()
+        if: env.REHEARSE != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true' && vars.PYPI_SDK_TRUSTED_PUBLISHING == 'true' && hashFiles('sdk/py/pyproject.toml') != '' && !cancelled()
         # The sdk ALONE, into an empty venv: the floor has to arrive through the range the
         # PUBLISHED sdk names, from PyPI, or not at all — which is the cross-component claim.
         # The refusal asserted is the one only the sdk's own check makes: a genuine envelope
