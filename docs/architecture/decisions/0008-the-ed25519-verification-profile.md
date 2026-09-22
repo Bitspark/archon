@@ -255,15 +255,23 @@ run, never as "the 43 non-domain cases".
   accepted set and is not claimed here for any library that was not measured on it.
 - **libsodium is the predicate only from 1.0.21, and the floor is written down because
   nothing but the oracle would notice.** libsodium's own documentation records that in
-  versions ≤ 1.0.20 `crypto_core_ed25519_is_valid_point` accepted points of order 2L, 4L
-  and 8L — mixed-order points, i.e. `profile-mixed-order-A-k-divisible`, one half of the
-  pair every outside consumer asserts *because* every unprofiled implementation accepted
-  it. A core built against 1.0.20 would ship the defect this decision exists to forbid
-  with a green build and a passing unit suite; only the oracle and the differential run
-  would catch it. 1.0.21 (2026-01-06) and 1.0.22 (2026-04-09) satisfy it; msys2 packages
-  1.0.22. Every OpenSSL-bound core states `libsodium >= 1.0.21` in its build files and
-  asserts it at configure time. This is the backend-admission policy of §7 doing its job:
-  "identified version and features", not a library name.
+  versions ≤ 1.0.20 `crypto_core_ed25519_is_valid_point` accepted some points in mixed-order
+  subgroups. Measured against the oracle's four mixed-order public keys, 1.0.20 accepts
+  `profile-mixed-order-A-torsion-2-k-divisible` (a point of order 2L) and refuses the other
+  three — including the 8L key that every outside consumer asserts, so **a consumer would
+  pass against a 1.0.20 build**. A core built against it compiles, signs correctly, passes
+  104 of 105 cases and a unit suite, and ships the defect this decision exists to forbid;
+  only the oracle's torsion-2 case and the floor itself catch it. 1.0.21 (2026-01-06) and
+  1.0.22 (2026-04-09) satisfy it (library versions 26.3 and 26.4; 1.0.20 is 26.2); msys2
+  packages 1.0.22, while Ubuntu 26.04's own `libsodium-dev` is 1.0.18. Every OpenSSL-bound
+  core states `libsodium >= 1.0.21` in its build files and asserts it **twice**: when
+  building, and against the library the process actually loaded — 1.0.20 and 1.0.22 share
+  the soname `libsodium.so.26`, and a binary built against 1.0.22 was shown to load 1.0.20
+  from the library path and accept the torsion-2 key with every build-time check green.
+  This is the backend-admission policy of §7 doing its job: "identified version and
+  features", not a library name.
+  *(Corrected 2026-09-23: an earlier text named `profile-mixed-order-A-k-divisible` as the
+  key 1.0.20 accepts. That was asserted, not measured, and it was wrong.)*
 - **The differential run exists, and it found something on its first pass.**
   `profile-cases.mjs differential --seed N --per-class N <cli>…` draws fresh members of
   every class — random torsion component, nonce, message and domain — plus genuine
