@@ -449,6 +449,12 @@ jobs:
           POM="https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/$VER/archon-core-$VER.pom"
           if curl --fail --silent --max-time 20 "$POM" -o /dev/null; then
             echo "  dev.bitspark:archon-core:$VER is already on Central — nothing to deploy"
+            # Record it, because "already served" is the ONE case in which the Central
+            # consumer can run in a publish run: normally it cannot, since Central took 44
+            # minutes to serve 0.7.0 against a job budget of ~37. A re-dispatch that finds
+            # the artifact already there has no propagation to wait for, so the consumer
+            # runs here and one dispatch finishes the release.
+            echo "served=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -709,7 +715,7 @@ jobs:
           go run .
 
       - name: The Maven Central consumer, outside the checkout
-        if: env.VERIFY_ONLY == 'true'
+        if: (env.VERIFY_ONLY == 'true' || steps.maven_publish.outputs.served == 'true') && !cancelled()
         # THIS STEP DOES NOT RUN IN A PUBLISH RUN, and the reason is measured rather than
         # cautious. Central accepted and validated archon-core 0.7.0 at 15:15:38Z and was
         # did not serve it until 15:59:40Z — 44 minutes. This step began life waiting 10
