@@ -192,6 +192,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.25" }
       # TWO crypto libraries, and both floors are load-bearing. OpenSSL >= 3.2 is the only
       # one here that reaches Ed25519ph with a context string; libsodium >= 1.0.21 is the
       # only way to express ADR 0008's point predicate, because OpenSSL validates no points
@@ -238,6 +240,24 @@ jobs:
       # conformance/consumers/cpp against the INSTALLED package, which is how the missing
       # EXPORT_NAME was found: the build tree's archon::core alias is not exported, so a
       # consumer following the documented target failed to configure.
+      # ADR 0008 §8's bar is the oracle AND a differential, because they answer different
+      # questions. The oracle asks whether this core matches the vectors; the differential
+      # generates FRESH members of each profile class and asks whether the cores still agree
+      # on inputs nobody wrote down. A core can satisfy a fixed file and still diverge.
+      #
+      # Only the two core CLIs this needs are built — no Rust, no sdk, no cli tier — because
+      # the conformance job already covers those and a job that rebuilds the world to make
+      # one comparison is a job people start skipping.
+      - name: the two other cores, for the differential
+        run: |
+          set -euo pipefail
+          (cd core/go && go build -o ../../bin/conformance-go ./cmd/conformance)
+          (cd core/ts && npm ci --silent && node node_modules/typescript/bin/tsc -p tsconfig.json)
+      - name: differential against Go and TypeScript, three seeds
+        run: |
+          set -euo pipefail
+          node conformance/check-differential.mjs             /tmp/build/archon_conformance             "$PWD/bin/conformance-go"             "node $PWD/core/ts/dist/conformance/cli.js"
+
       - name: install the package and consume it from outside
         run: |
           set -euo pipefail
