@@ -181,7 +181,11 @@ jobs:
 
   cpp:
     name: cpp
-    runs-on: ubuntu-latest
+    # ubuntu-26.04, NOT ubuntu-latest. `latest` is still 24.04, whose OpenSSL is 3.0.13 —
+    # below the 3.2 that Ed25519ph-with-context needs, so the configure fails outright.
+    # I asserted "24.04 carries OpenSSL 3.4" in this file from memory and was wrong; the
+    # image manifest says 26.04 carries 3.5.5, and that is where this number now comes from.
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -193,10 +197,10 @@ jobs:
       # only way to express ADR 0008's point predicate, because OpenSSL validates no points
       # for Ed25519 and exposes no scalar multiplication for the curve.
       #
-      # ubuntu-24.04 carries OpenSSL 3.4 and libsodium 1.0.18, so libsodium comes from
-      # noble-backports/upstream rather than the default pocket — and the CMake configure
-      # asserts the version regardless, so a wrong one fails the build rather than shipping
-      # a core that silently accepts mixed-order keys.
+      # OpenSSL comes from the image (3.5.5 on 26.04). libsodium is built from source
+      # regardless of the image, because no distro pocket can be relied on to be at or above
+      # 1.0.21 — and the CMake configure asserts the floor either way, so a wrong version
+      # fails the build rather than shipping a core that silently accepts mixed-order keys.
       - name: the two crypto libraries, at their floors
         run: |
           set -euo pipefail
@@ -212,7 +216,14 @@ jobs:
           tar -xzf /tmp/s.tgz -C /tmp
           (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && sudo make install >/dev/null)
           sudo ldconfig
-          pkg-config --modversion libsodium
+          # Assert the floor HERE too, not just in CMake. pkg-config does not always search
+          # /usr/local by default, so an unset PKG_CONFIG_PATH would make CMake report "no
+          # libsodium" when the real answer is "installed, not on the search path" — two very
+          # different failures that look identical in a configure log.
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          got=$(pkg-config --modversion libsodium)
+          echo "libsodium $got"
+          pkg-config --atleast-version=1.0.21 libsodium             || { echo "::error::libsodium $got is below the 1.0.21 floor — it would accept mixed-order points"; exit 1; }
       - name: configure, build, and prove the version floor is enforced
         run: |
           set -euo pipefail
