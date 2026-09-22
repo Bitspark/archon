@@ -74,8 +74,11 @@ jobs:
       # verify_only: every publish step is skipped and every verification runs. This is how a
       # release that PUBLISHED and then went red on a slow registry is finished — 0.6.2 (npm,
       # five minutes) and 0.7.0 (Central, ten) both did — instead of by hand, and without
-      # re-running publish steps that a registry would refuse as duplicates. Publishes are
-      # idempotent on npm and crates.io (they skip what is served) but NOT on Central.
+      # re-running publish steps that a registry would refuse as duplicates. Since #27 every
+      # publish step is also idempotent on its own — npm and crates.io ask the registry for
+      # the version first, Central's guard asks repo1 for the pom, PyPI uses skip-existing —
+      # so a FULL re-dispatch finishes a partially published release too (0.7.0's PyPI was
+      # published that way); verify_only remains the run that publishes nothing by design.
       VERIFY_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_only || 'false' }}
     steps:
       - uses: actions/checkout@v7
