@@ -1,0 +1,165 @@
+# Can a stranger build the tag and use what it contains?
+#
+# Every other language answers that through a registry: release.yml's outside consumers
+# install a published artifact and run it. C++, Swift and Haskell have no registry — they are
+# consumed from the immutable public tag — so this workflow IS their equivalent, and the
+# matrix does not say "published" for any of them until it has run green against a real tag.
+#
+# Each consumes the tag the way its own ecosystem does: C++ by installing the tag's CMake
+# package, Swift by `.package(url:, exact:)` with SwiftPM fetching the tag itself, Haskell by
+# a source-repository-package pinned to the tag's commit. See conformance/verify-source.mjs.
+#
+# Read-only by construction: no secrets, `contents: read`, no publish step of any kind.
+# Nothing from the workspace checkout participates except this repository's own script — a
+# build that succeeded because the checkout happened to be lying in the working directory
+# would prove something about the runner, not about the tag.
+
+name: verify-source
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: An existing public release tag, for example v0.8.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-source-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: resolve the tag on the public remote
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v7
+        with: { node-version: "22" }
+      # Resolved from the PUBLIC remote with git ls-remote, not from the checkout: the
+      # question is what a stranger gets, and a local ref could differ from what is served.
+      - name: resolve
+        id: resolve
+        run: node conformance/verify-source.mjs resolve "${{ inputs.tag }}"
+
+  cpp:
+    name: cpp consumes the tag's package
+    needs: resolve
+    # ubuntu-26.04 for OpenSSL >= 3.2 — see the note in conformance.yml; `latest` is 24.04,
+    # whose 3.0.13 is below the floor Ed25519ph-with-context needs.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v7
+        with: { node-version: "22" }
+      # The same two floors as the cpp job in conformance.yml, and deliberately duplicated
+      # rather than factored into a composite action: this workflow must stand on its own,
+      # since its whole claim is that nothing outside the tag and these two libraries is
+      # needed to build archon's C++ package.
+      - name: the two crypto libraries, at their floors
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake ninja-build pkg-config libssl-dev
+          SODIUM=1.0.22
+          curl -fsSL "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz" -o /tmp/s.tgz
+          tar -xzf /tmp/s.tgz -C /tmp
+          (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && sudo make install >/dev/null)
+          sudo ldconfig
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          got=$(pkg-config --modversion libsodium)
+          echo "libsodium $got"
+          pkg-config --atleast-version=1.0.21 libsodium \
+            || { echo "::error::libsodium $got is below the 1.0.21 floor — it would accept mixed-order points"; exit 1; }
+      # Clones the tag, asserts its HEAD against the SHA resolve found — a tag moved between
+      # the two jobs fails here rather than being silently verified as something else — then
+      # builds, runs the TAG's oracle over the TAG's vectors, installs the exported package,
+      # and builds the tag's own consumer against that installation.
+      - name: build the tag and consume its installed package
+        env:
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+        run: |
+          node conformance/verify-source.mjs verify \
+            "${{ inputs.tag }}" "${{ needs.resolve.outputs.sha }}" cpp
+
+  swift:
+    name: swift consumes the tag by URL
+    needs: resolve
+    # Swift 6.4 on Ubuntu 26.04 — the pairing conformance.yml explains: the first Swift built
+    # for an OS whose own OpenSSL (3.5.5) is above the 3.2 floor.
+    runs-on: ubuntu-latest
+    container: swift:6.4.0-resolute
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v7
+        with: { node-version: "22" }
+      - name: the two crypto libraries, at their floors
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y --no-install-recommends libssl-dev pkg-config make curl ca-certificates git
+          SODIUM=1.0.22
+          curl -fsSL "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz" -o /tmp/s.tgz
+          tar -xzf /tmp/s.tgz -C /tmp
+          (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && make install >/dev/null)
+          ldconfig
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          pkg-config --atleast-version=3.2 libcrypto || { echo "::error::OpenSSL is below 3.2"; exit 1; }
+          pkg-config --atleast-version=1.0.21 libsodium || { echo "::error::libsodium is below 1.0.21 — it would accept mixed-order points"; exit 1; }
+      # The consumer names archon by `.package(url:, exact:)` and SwiftPM fetches the tag
+      # itself. Then the revision SwiftPM recorded in Package.resolved is asserted to be the
+      # commit resolve found — a consumer built against anything else fails here.
+      - name: consume the tag the way SwiftPM does
+        env:
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+        run: |
+          node conformance/verify-source.mjs verify "${{ inputs.tag }}" "${{ needs.resolve.outputs.sha }}" swift
+
+  haskell:
+    name: haskell consumes the tag by commit
+    needs: resolve
+    # ubuntu-26.04 carries GHC 9.14.1, Cabal 3.18.1 and OpenSSL 3.5.5.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.14.1"
+          cabal-version: "3.18.1.0"
+      - uses: actions/setup-node@v7
+        with: { node-version: "22" }
+      - name: libsodium, at its floor
+        run: |
+          set -euo pipefail
+          SODIUM=1.0.22
+          curl -fsSL "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz" -o /tmp/s.tgz
+          tar -xzf /tmp/s.tgz -C /tmp
+          (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && sudo make install >/dev/null)
+          sudo ldconfig
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          pkg-config --atleast-version=1.0.21 libsodium || { echo "::error::libsodium is below 1.0.21 — it would accept mixed-order points"; exit 1; }
+      # The consumer's cabal.project is written here, naming archon by source-repository-package
+      # pinned to the COMMIT resolve found, so Cabal fetches nothing but the tree under test.
+      - name: consume the tag the way Cabal does
+        env:
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+        run: |
+          set -euo pipefail
+          cabal update
+          node conformance/verify-source.mjs verify "${{ inputs.tag }}" "${{ needs.resolve.outputs.sha }}" haskell

@@ -42,7 +42,7 @@ implementing it badly.
 | **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.7.0** |
 | **Python** | ✅ | ✅ possession + envelope | — | — | `bitspark-archon-{core,sdk}` (import `archon_{core,sdk}`) | 105/105; sdk 38/38 | ✅ PyPI — core **0.7.0**, wheel + sdist · sdk ⏳ from the next release, once its own pending publisher is registered |
 | **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ✅ Maven Central — **0.7.0**, signed |
-| **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | — not published; consumed from the tag (0008 §8) |
+| **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | ⏳ consumed from the tag — awaits a `verify-source` run (see below) |
 | **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs **two** libraries — a signer and a validator (0008 §8) |
 | **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same two (0008 §8) |
 
@@ -74,6 +74,20 @@ curl -so /dev/null -w '%{http_code}\n' https://repo.maven.apache.org/maven2/dev/
 **Go is the asymmetry to keep in mind:** nobody publishes it, and nothing gates it. Pushing a
 tag to a public repo is enough for the proxy to serve that version and for `sum.golang.org`
 to pin its hash forever, which is why a tag can never be re-cut once it exists.
+
+**C++ has no registry, so its proof is a different shape.** The CMake package is consumed
+from the immutable public tag, which means there is no "install it and run it" to perform
+against a registry. The equivalent is
+[`verify-source`](../.github/workflows/verify-source.yml): dispatch it with a tag and it
+clones the **public** repository at that tag, asserts the clone's HEAD against the SHA the
+remote serves, builds `core/cpp`, runs the tag's own oracle over the tag's own vectors,
+installs the exported package, and builds the tag's consumer against that installation.
+Nothing from the workspace participates — a build that succeeded because a checkout happened
+to be lying in the working directory would prove something about the runner, not the tag.
+
+C++ counts as published when that run is green. It cannot run yet: the C++ core landed
+**after** `v0.7.0` was cut, so no existing tag contains it, and the workflow says so rather
+than failing obscurely. The next tag is the one that can answer.
 
 **Maven Central is the other one.** It accepts and validates in seconds and serves much
 later — **44 minutes** for archon-core 0.7.0, validated 15:15:38Z and served 15:59:40Z, past
