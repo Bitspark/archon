@@ -579,8 +579,13 @@ jobs:
         run: |
           echo "::warning::bitspark-archon-core ${TAG#v} was BUILT but NOT PUBLISHED: vars.PYPI_TRUSTED_PUBLISHING is not 'true'. Register the pending publisher on PyPI (see this workflow), set the variable, and re-run this dispatch — every publish step skips what is already on its registry."
 
+      # Every verification below runs even if an earlier one failed (`!cancelled()`): a run
+      # that stops at the first red verification withholds the evidence of the others, and
+      # the release step still requires all of them to have passed. The 0.7.0 verify_only
+      # run would have polled PyPI for ten minutes and then never run the Central consumer
+      # — the one step that run existed to execute.
       - name: The Python round trip against what was published
-        if: env.REHEARSE != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true'
+        if: env.REHEARSE != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true' && !cancelled()
         # Same standard as npm: "on the registry" is a claim until an install from nothing
         # proves it. PyPI, like npm, serves later than it accepts, and — like npm — the
         # failure has to say which half is at fault.
@@ -631,7 +636,7 @@ jobs:
       # on failure: the 0.6.2 log could not say whether the registry was slow or the
       # install was refused, because the loop had sent stderr to /dev/null.
       - name: The npm consumer, outside the checkout
-        if: env.REHEARSE != 'true'
+        if: env.REHEARSE != 'true' && !cancelled()
         run: |
           set -euo pipefail
           VER="${TAG#v}"
@@ -655,7 +660,7 @@ jobs:
           node consumer.mjs
 
       - name: The crates.io consumer, outside the checkout
-        if: env.REHEARSE != 'true'
+        if: env.REHEARSE != 'true' && !cancelled()
         run: |
           set -euo pipefail
           VER="${TAG#v}"
@@ -676,7 +681,7 @@ jobs:
           cargo run --quiet
 
       - name: The Go consumer, outside the checkout
-        if: env.REHEARSE != 'true'
+        if: env.REHEARSE != 'true' && !cancelled()
         # Go's registry is the proxy, which fetches a tag from this repository on first
         # request; sum.golang.org records it. GOFLAGS is cleared so no -mod=mod or workspace
         # setting from the job leaks in; GOPROXY has no `direct` fallback, so a module that
