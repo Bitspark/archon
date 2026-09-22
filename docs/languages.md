@@ -33,26 +33,29 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 | Language | core | sdk | cli | server | Coordinates | Conforming | Published |
 |---|---|---|---|---|---|---|---|
 | **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ proxy + checksum db — **0.7.0**, and automatically (see below) |
-| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.6.1** |
-| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.6.1** |
-| **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 105/105 | ⏳ PyPI, once the pending publisher is registered (see `release.yml`) |
-| **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ⏳ Maven Central — 0.7.0 uploaded and validated; "published" awaits the `verify_only` consumer (see below) |
+| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.7.0** |
+| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.7.0** |
+| **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 105/105 | ✅ PyPI — **0.7.0**, wheel + sdist |
+| **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ✅ Maven Central — **0.7.0**, signed |
 | **C++** | 🔧 signs, does not yet accept | — | — | — | CMake package | 83/105 — all 22 failures are profile cases | needs the same two (0008 §8) |
 | **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs **two** libraries — a signer and a validator (0008 §8) |
 | **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same two (0008 §8) |
 
 A published version is a version that was published — which is not the same as a version that
-was tagged. **Snapshot taken 2026-09-21 16:35Z**, and dated because an earlier version of
+was tagged. **Snapshot taken 2026-09-22 11:20Z**, and dated because an earlier version of
 this table went stale within the hour: it is a fact about the world, not about this
 repository, so re-measure rather than trust it.
 
-| registry | has | how it got there |
+**0.7.0 is on every armed registry**, each verified by an outside consumer that installed it
+from the public registry with no source tree reachable:
+
+| registry | has | proof |
 |---|---|---|
-| Go proxy + `sum.golang.org` | v0.6.0 … **v0.7.0** | **automatically** — the proxy fetches any tag of a public repo on demand |
-| npm | 0.6.1, 0.6.2, **0.7.0** (`latest`) | the release workflow |
-| crates.io | 0.6.1, 0.6.2, **0.7.0** | the release workflow |
-| Maven Central | **0.7.0** — served from 15:59:40Z | the release workflow; verified by a `verify_only` run |
-| PyPI | *nothing* | pending publisher not registered |
+| Go proxy + `sum.golang.org` | **v0.7.0** (`@latest`) | the Go consumer, run 35682432520 |
+| npm | **0.7.0** (`latest`), all four packages | the npm consumer, same run |
+| crates.io | **0.7.0**, all four crates | the crates.io consumer, same run |
+| Maven Central | **0.7.0**, signed | the Central consumer, same run — resolved jar byte-identical to what Central serves |
+| PyPI | **0.7.0**, wheel + sdist | the Python round trip, same run |
 
 To re-measure, ask each registry rather than reading the tag list:
 
@@ -70,8 +73,11 @@ to pin its hash forever, which is why a tag can never be re-cut once it exists.
 **Maven Central is the other one.** It accepts and validates in seconds and serves much
 later — **44 minutes** for archon-core 0.7.0, validated 15:15:38Z and served 15:59:40Z, past
 the ~37 minutes a publish job could ever wait — so a green publish run proves the upload,
-not the availability. Java counts as published when a `verify_only` run's consumer resolves
-it from the public repository.
+not the availability. Java counts as published when a consumer resolves it from the public
+repository — which happens in a **later** run, not the one that published it. Either a
+`verify_only` dispatch, or a re-dispatch: the publish step skips a version Central already
+serves and records that it did, and the consumer runs on that signal, because an artifact
+already being served has no propagation left to wait for. 0.7.0 was verified the second way.
 
 0.7.0 is the next release for the other registries, and it carries Java — but only because
 the release workflow checks out **two trees**, which is worth understanding before changing
