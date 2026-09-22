@@ -22,7 +22,7 @@
 # and `pacman -S mingw-w64-x86_64-libsodium` installs it without comment.
 
 cmake_minimum_required(VERSION 3.20)
-project(archon_core LANGUAGES CXX VERSION 0.7.0)
+project(archon_core LANGUAGES CXX VERSION 0.8.0)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
