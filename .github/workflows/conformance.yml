@@ -286,7 +286,7 @@ jobs:
         with:
           node-version: "22"
       - uses: actions/setup-go@v7
-        with: { go-version: "1.25" }
+        with: { go-version: "1.25", cache: false }
       # The Swift and Haskell cores compile the SAME C shim, kept as two copies because SwiftPM
       # and Cabal each need it inside their own package. Two shims that drift apart are two
       # opinions about what archon accepts; this is what stops that happening quietly.
@@ -323,10 +323,15 @@ jobs:
         run: node conformance/harness.mjs vectors .build/release/ArchonConformance
       # ADR 0008 §8's bar is the oracle AND the differential: fresh members of every profile
       # class, and the cores asked whether they still agree on inputs nobody wrote down.
+      # -buildvcs=false: in a container the checkout belongs to a different user than the one
+      # running git, so git refuses the repository ("dubious ownership") and Go's default VCS
+      # stamping fails with "error obtaining VCS status: exit status 128". This binary is a
+      # throwaway comparison target; it has no use for a VCS stamp. Found on this job's first
+      # GitHub run, where the oracle and the unit tests had already passed.
       - name: differential against Go and TypeScript, three seeds
         run: |
           set -euo pipefail
-          (cd core/go && go build -o ../../bin/conformance-go ./cmd/conformance)
+          (cd core/go && go build -buildvcs=false -o ../../bin/conformance-go ./cmd/conformance)
           (cd core/ts && npm ci --silent && node node_modules/typescript/bin/tsc -p tsconfig.json)
           node conformance/check-differential.mjs "$PWD/.build/release/ArchonConformance" "$PWD/bin/conformance-go" "node $PWD/core/ts/dist/conformance/cli.js"
       # The consumer depends on archon by PATH here. SwiftPM names a path dependency after its
@@ -359,7 +364,7 @@ jobs:
         with:
           node-version: "22"
       - uses: actions/setup-go@v7
-        with: { go-version: "1.25" }
+        with: { go-version: "1.25", cache: false }
       - name: libsodium, at its floor
         run: |
           set -euo pipefail
