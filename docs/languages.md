@@ -37,7 +37,7 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 | **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.7.0** |
 | **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 105/105 | ✅ PyPI — **0.7.0**, wheel + sdist |
 | **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ✅ Maven Central — **0.7.0**, signed |
-| **C++** | 🔧 signs, does not yet accept | — | — | — | CMake package | 83/105 — all 22 failures are profile cases | needs the same two (0008 §8) |
+| **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | — not published; consumed from the tag (0008 §8) |
 | **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs **two** libraries — a signer and a validator (0008 §8) |
 | **Haskell** | — | — | — | — | Cabal via Git (planned) | — | needs the same two (0008 §8) |
 
@@ -163,15 +163,18 @@ Note also that CryptoKit *randomises* signatures, so it could not be a core's si
 it had the context.
 
 **One library is not enough, and C++ is the proof.** OpenSSL ≥ 3.2 signs correctly — the C++
-core reproduces every `domain_sign` vector byte for byte — and then fails 22 acceptance cases,
-because `EVP_PKEY_public_check` validates nothing for Ed25519 and OpenSSL exposes no scalar
-multiplication for the curve, so the profile predicate cannot be written against its public
-API at all. Swift and Haskell reach the same wall for the same reason: signing and accepting
-are separate problems, and binding a signer solves only the first.
+core reproduces every `domain_sign` vector byte for byte — and on its own failed 22 acceptance
+cases, because `EVP_PKEY_public_check` validates nothing for Ed25519 and OpenSSL exposes no
+scalar multiplication for the curve, so the profile predicate cannot be written against its
+public API at all. Swift and Haskell reach the same wall for the same reason: signing and
+accepting are separate problems, and binding a signer solves only the first.
 
-The second is libsodium's `crypto_core_ed25519_is_valid_point`, which is the profile predicate
-almost exactly — on the curve, canonical, on the main subgroup, not small order. **Require
-libsodium ≥ 1.0.21.** In 1.0.20 and earlier that function *accepted points in mixed-order
+C++ now binds both and passes 105/105. The second library is where the profile lives:
+
+libsodium's `crypto_core_ed25519_is_valid_point` is the profile predicate almost exactly —
+on the curve, canonical, on the main subgroup, not small order. Measured against the oracle's
+own vectors, it accepts an honest key and refuses the identity, the mixed-order key and a
+small-order `R`. **Require libsodium ≥ 1.0.21**, and assert it at configure time. In 1.0.20 and earlier that function *accepted points in mixed-order
 subgroups* (2L, 4L, 8L) — which is precisely
 [`profile-mixed-order-A-k-divisible`](../conformance/profile-cases.mjs), the case the oracle
 keeps because every pre-0008 implementation accepted it. A core built against 1.0.20 would

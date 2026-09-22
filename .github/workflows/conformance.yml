@@ -179,6 +179,94 @@ jobs:
       - name: install + consume the jar from outside
         run: node conformance/check-java-package.mjs
 
+  cpp:
+    name: cpp
+    # ubuntu-26.04, NOT ubuntu-latest. `latest` is still 24.04, whose OpenSSL is 3.0.13 —
+    # below the 3.2 that Ed25519ph-with-context needs, so the configure fails outright.
+    # I asserted "24.04 carries OpenSSL 3.4" in this file from memory and was wrong; the
+    # image manifest says 26.04 carries 3.5.5, and that is where this number now comes from.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.25" }
+      # TWO crypto libraries, and both floors are load-bearing. OpenSSL >= 3.2 is the only
+      # one here that reaches Ed25519ph with a context string; libsodium >= 1.0.21 is the
+      # only way to express ADR 0008's point predicate, because OpenSSL validates no points
+      # for Ed25519 and exposes no scalar multiplication for the curve.
+      #
+      # OpenSSL comes from the image (3.5.5 on 26.04). libsodium is built from source
+      # regardless of the image, because no distro pocket can be relied on to be at or above
+      # 1.0.21 — and the CMake configure asserts the floor either way, so a wrong version
+      # fails the build rather than shipping a core that silently accepts mixed-order keys.
+      - name: the two crypto libraries, at their floors
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends cmake ninja-build pkg-config libssl-dev
+          # The distro's libsodium is 1.0.18, and everything up to 1.0.20 accepts points in
+          # mixed-order subgroups — the exact defect ADR 0008 forbids. So build from the
+          # release tarball. Pinned to the version developers actually get locally (msys2
+          # ships 1.0.22-3): a CI that pins something else is not reproducing the dev build,
+          # and pinning the bare floor would mean any regression AT the floor breaks CI.
+          SODIUM=1.0.22
+          curl -fsSL "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz" -o /tmp/s.tgz
+          tar -xzf /tmp/s.tgz -C /tmp
+          (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && sudo make install >/dev/null)
+          sudo ldconfig
+          # Assert the floor HERE too, not just in CMake. pkg-config does not always search
+          # /usr/local by default, so an unset PKG_CONFIG_PATH would make CMake report "no
+          # libsodium" when the real answer is "installed, not on the search path" — two very
+          # different failures that look identical in a configure log.
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          got=$(pkg-config --modversion libsodium)
+          echo "libsodium $got"
+          pkg-config --atleast-version=1.0.21 libsodium             || { echo "::error::libsodium $got is below the 1.0.21 floor — it would accept mixed-order points"; exit 1; }
+      - name: configure, build, and prove the version floor is enforced
+        run: |
+          set -euo pipefail
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          cmake -S core/cpp -B /tmp/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/build
+      # The oracle, through the shared harness: all 105 cases recomputed and asserted against
+      # the same vectors as every other core.
+      - name: conformance against the oracle
+        run: node conformance/harness.mjs vectors /tmp/build/archon_conformance
+      # A package that cannot be consumed from its own export is not a package. This builds
+      # conformance/consumers/cpp against the INSTALLED package, which is how the missing
+      # EXPORT_NAME was found: the build tree's archon::core alias is not exported, so a
+      # consumer following the documented target failed to configure.
+      # ADR 0008 §8's bar is the oracle AND a differential, because they answer different
+      # questions. The oracle asks whether this core matches the vectors; the differential
+      # generates FRESH members of each profile class and asks whether the cores still agree
+      # on inputs nobody wrote down. A core can satisfy a fixed file and still diverge.
+      #
+      # Only the two core CLIs this needs are built — no Rust, no sdk, no cli tier — because
+      # the conformance job already covers those and a job that rebuilds the world to make
+      # one comparison is a job people start skipping.
+      - name: the two other cores, for the differential
+        run: |
+          set -euo pipefail
+          (cd core/go && go build -o ../../bin/conformance-go ./cmd/conformance)
+          (cd core/ts && npm ci --silent && node node_modules/typescript/bin/tsc -p tsconfig.json)
+      - name: differential against Go and TypeScript, three seeds
+        run: |
+          set -euo pipefail
+          node conformance/check-differential.mjs             /tmp/build/archon_conformance             "$PWD/bin/conformance-go"             "node $PWD/core/ts/dist/conformance/cli.js"
+
+      - name: install the package and consume it from outside
+        run: |
+          set -euo pipefail
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          cmake --install /tmp/build --prefix /tmp/prefix
+          cmake -S conformance/consumers/cpp -B /tmp/consumer -G Ninja                 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/tmp/prefix
+          cmake --build /tmp/consumer
+          /tmp/consumer/consumer
+
   py:
     name: py
     runs-on: ubuntu-latest
