@@ -70,8 +70,16 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends cmake ninja-build pkg-config libssl-dev
+          # libsodium decides what archon ACCEPTS, so the tarball is pinned, not just fetched. The
+          # SHA-256 is of the release whose minisign signature verified against the author's key
+          # (RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3, doc.libsodium.org), and
+          # GitHub's release asset and download.libsodium.org serve identical bytes. Two sources and
+          # retries, because download.libsodium.org has failed DNS from a CI container.
           SODIUM=1.0.22
-          curl -fsSL "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz" -o /tmp/s.tgz
+          SODIUM_SHA256=adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349
+          fetch() { curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "$1" -o /tmp/s.tgz; }
+          fetch "https://github.com/jedisct1/libsodium/releases/download/$SODIUM-RELEASE/libsodium-$SODIUM.tar.gz" || fetch "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz"
+          echo "$SODIUM_SHA256  /tmp/s.tgz" | sha256sum -c -
           tar -xzf /tmp/s.tgz -C /tmp
           (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && sudo make install >/dev/null)
           sudo ldconfig
@@ -112,8 +120,16 @@ jobs:
           set -euo pipefail
           apt-get update -qq
           apt-get install -y --no-install-recommends libssl-dev pkg-config make curl ca-certificates git
+          # libsodium decides what archon ACCEPTS, so the tarball is pinned, not just fetched. The
+          # SHA-256 is of the release whose minisign signature verified against the author's key
+          # (RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3, doc.libsodium.org), and
+          # GitHub's release asset and download.libsodium.org serve identical bytes. Two sources and
+          # retries, because download.libsodium.org has failed DNS from a CI container.
           SODIUM=1.0.22
-          curl -fsSL "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz" -o /tmp/s.tgz
+          SODIUM_SHA256=adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349
+          fetch() { curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "$1" -o /tmp/s.tgz; }
+          fetch "https://github.com/jedisct1/libsodium/releases/download/$SODIUM-RELEASE/libsodium-$SODIUM.tar.gz" || fetch "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz"
+          echo "$SODIUM_SHA256  /tmp/s.tgz" | sha256sum -c -
           tar -xzf /tmp/s.tgz -C /tmp
           (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && make install >/dev/null)
           ldconfig
@@ -147,8 +163,16 @@ jobs:
       - name: libsodium, at its floor
         run: |
           set -euo pipefail
+          # libsodium decides what archon ACCEPTS, so the tarball is pinned, not just fetched. The
+          # SHA-256 is of the release whose minisign signature verified against the author's key
+          # (RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3, doc.libsodium.org), and
+          # GitHub's release asset and download.libsodium.org serve identical bytes. Two sources and
+          # retries, because download.libsodium.org has failed DNS from a CI container.
           SODIUM=1.0.22
-          curl -fsSL "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz" -o /tmp/s.tgz
+          SODIUM_SHA256=adbdd8f16149e81ac6078a03aca6fc03b592b89ef7b5ed83841c086191be3349
+          fetch() { curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "$1" -o /tmp/s.tgz; }
+          fetch "https://github.com/jedisct1/libsodium/releases/download/$SODIUM-RELEASE/libsodium-$SODIUM.tar.gz" || fetch "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz"
+          echo "$SODIUM_SHA256  /tmp/s.tgz" | sha256sum -c -
           tar -xzf /tmp/s.tgz -C /tmp
           (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && sudo make install >/dev/null)
           sudo ldconfig
