@@ -46,6 +46,11 @@ inline constexpr std::size_t kMaxDomainSize = 255;
 // caller cannot mistake malformed for valid.
 
 /// The 32-byte public key for `seed`, or nullopt when the seed is not 32 bytes.
+/// Whether the OpenSSL and libsodium this process LOADED meet archon's floors (OpenSSL >= 3.2,
+/// libsodium >= 1.0.21). When they do not, every function below refuses: signing nothing and
+/// accepting nothing is the only safe behaviour for a core that cannot enforce its profile.
+bool libraries_meet_floors();
+
 std::optional<Bytes> public_key_from_seed(const Bytes& seed);
 
 /// A raw Ed25519 signature over `message`.

@@ -15,8 +15,9 @@
 #
 # The libsodium floor is ASSERTED here rather than documented, because the failure it
 # prevents is silent. In 1.0.20 and earlier that function accepted points in mixed-order
-# subgroups (2L, 4L, 8L) -- exactly profile-mixed-order-A-k-divisible. A core built against
-# 1.0.20 compiles, links, signs correctly and passes every case except the profile ones. It
+# subgroups: measured, it accepts profile-mixed-order-A-torsion-2-k-divisible (a point of
+# order 2L) while refusing the 8L and 4L ones. A core built against 1.0.20 compiles, links,
+# signs correctly and passes 104 of the oracle's 105 cases. It
 # is also not a hypothetical: a machine whose package database predates 2026 offers 1.0.20,
 # and `pacman -S mingw-w64-x86_64-libsodium` installs it without comment.
 

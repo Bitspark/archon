@@ -164,6 +164,17 @@ jobs:
           [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
           scm=$(grep -m1 -oE '<tag>[^<]*</tag>' "$f" | sed 's|</*tag>||g')
           [ "$scm" = "$TAG" ] || { echo "::error::$f <scm><tag> is $scm, tag says $TAG"; fail=1; }
+          # The tag-consumed cores. C++'s version is the project() line in CMakeLists.txt, which
+          # becomes archon-config-version.cmake, so a consumer's find_package(archon 0.8) is
+          # answered from it. Haskell's is the .cabal version field, which Cabal checks a
+          # consumer's bounds against. Swift has NO version site: SwiftPM reads the version from
+          # the tag itself, so there is nothing in the tree to disagree with it.
+          f=core/cpp/CMakeLists.txt
+          got=$(grep -m1 -oE 'project\(archon_core[^)]*VERSION [0-9.]+' "$f" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
+          [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
+          f=core/hs/bitspark-archon-core.cabal
+          got=$(grep -m1 -E '^version:' "$f" | awk '{print $2}')
+          [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
           exit $fail
 
       - name: Hold the Go module tags to the same version

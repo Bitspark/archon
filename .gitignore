@@ -53,3 +53,16 @@ sdk/py/.pytest_cache/
 # Java: Maven build output.
 core/java/target/
 sdk/java/target/
+
+# Swift: SwiftPM's build output. Package.swift is at the ROOT (SwiftPM consumers depend on the
+# git URL), so a bare `swift build` writes .build/ there too. The consumer's lives beside it.
+/.build/
+/.swiftpm/
+conformance/consumers/swift/.build/
+conformance/consumers/swift/Package.resolved
+
+# Haskell: Cabal's build output, and the cabal.project a runner writes for the consumer (it has
+# none of its own on purpose -- where archon comes from is the thing under test).
+core/hs/dist-newstyle/
+conformance/consumers/hs/dist-newstyle/
+conformance/consumers/hs/cabal.project

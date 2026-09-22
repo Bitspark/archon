@@ -1,8 +1,10 @@
 #include "archon/core.hpp"
 
 #include <openssl/core_names.h>
+#include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/params.h>
+#include <openssl/opensslv.h>
 #include <openssl/pem.h>
 
 #include <sodium.h>
@@ -27,19 +29,40 @@ namespace {
 // the point is on the curve, it is not of small order, and it lies in the prime-order
 // subgroup. That is the whole of the profile for a point.
 //
-// It REQUIRES libsodium >= 1.0.21. In 1.0.20 and earlier this same function accepted points
-// in mixed-order subgroups (2L, 4L, 8L) -- which is exactly profile-mixed-order-A-k-divisible,
-// the case every implementation measured before ADR 0008 accepted. A core built against
-// 1.0.20 compiles, links, signs correctly, passes every non-profile case, and silently ships
-// the one defect the profile exists to forbid. CMakeLists.txt asserts the floor at configure
-// time; this comment is documentation, not a guard.
-bool sodium_ready() {
-  static const bool ok = [] { return sodium_init() >= 0; }();
+// It REQUIRES libsodium >= 1.0.21. In 1.0.20 and earlier this same function accepted some
+// points in mixed-order subgroups. Measured against the oracle's four mixed-order public keys:
+// 1.0.20 refuses the 8L and 4L ones and ACCEPTS profile-mixed-order-A-torsion-2-k-divisible,
+// a point of order 2L. A core built against 1.0.20 compiles, links, signs correctly, passes 104
+// of 105 cases, and silently ships the one defect the profile exists to forbid. The outside
+// consumers' shared pair would NOT notice -- it uses the 8L point -- so the floor is asserted
+// by CMake at configure time, by the #errors below, and against the loaded library at runtime.
+#if OPENSSL_VERSION_NUMBER < 0x30200000L
+#error "archon needs OpenSSL >= 3.2: Ed25519ph with a context string is unreachable below it"
+#endif
+#if SODIUM_LIBRARY_VERSION_MAJOR < 26 || \
+    (SODIUM_LIBRARY_VERSION_MAJOR == 26 && SODIUM_LIBRARY_VERSION_MINOR < 3)
+#error "archon needs libsodium >= 1.0.21 (library 26.3): older versions accept mixed-order points"
+#endif
+
+// The floors again, against what was actually LOADED. CMakeLists.txt and the #errors above
+// see the headers this file was compiled against; a shared library is resolved when the process
+// starts. libsodium 1.0.20 and 1.0.22 share the soname libsodium.so.26, so a core built against
+// 1.0.22 will run against a 1.0.20 that a package manager left on the library path -- and would
+// then accept mixed-order keys while every build-time check stayed green. Demonstrated rather
+// than supposed; see docs/languages.md. A process below the floors signs nothing and accepts
+// nothing. Measured from the release tarballs: 1.0.20 is library 26.2, 1.0.21 is 26.3.
+bool loaded_libraries_ok() {
+  static const bool ok = [] {
+    if (sodium_init() < 0) return false;
+    const int major = sodium_library_version_major();
+    const int minor = sodium_library_version_minor();
+    if (!(major > 26 || (major == 26 && minor >= 3))) return false;
+    return OpenSSL_version_num() >= 0x30200000L;
+  }();
   return ok;
 }
 
 bool point_acceptable(const unsigned char* point) {
-  if (!sodium_ready()) return false;
   return crypto_core_ed25519_is_valid_point(point) == 1;
 }
 
@@ -214,7 +237,10 @@ std::optional<Bytes> pem_decode(std::string_view pem, const std::uint8_t* prefix
 
 // --- crypto ---------------------------------------------------------------------------
 
+bool libraries_meet_floors() { return loaded_libraries_ok(); }
+
 std::optional<Bytes> public_key_from_seed(const Bytes& seed) {
+  if (!loaded_libraries_ok()) return std::nullopt;
   Pkey key = private_key(seed);
   if (!key) return std::nullopt;
   Bytes out(kPublicKeySize);
@@ -226,6 +252,7 @@ std::optional<Bytes> public_key_from_seed(const Bytes& seed) {
 }
 
 std::optional<Bytes> sign(const Bytes& seed, const Bytes& message) {
+  if (!loaded_libraries_ok()) return std::nullopt;
   Pkey key = private_key(seed);
   if (!key) return std::nullopt;
   MdCtx ctx{EVP_MD_CTX_new()};
@@ -243,6 +270,7 @@ std::optional<Bytes> sign(const Bytes& seed, const Bytes& message) {
 }
 
 bool verify(const Bytes& pubkey, const Bytes& message, const Bytes& signature) {
+  if (!loaded_libraries_ok()) return false;
   if (pubkey.size() != kPublicKeySize || signature.size() != kSignatureSize) return false;
   // The profile decides BEFORE the equation does, so the accepted set is archon's rather
   // than the binding library's. R is sig[0..32]: a verifier that checks only the public key
@@ -259,6 +287,7 @@ bool verify(const Bytes& pubkey, const Bytes& message, const Bytes& signature) {
 
 std::optional<Bytes> sign_in_domain(const Bytes& seed, std::string_view domain,
                                     const Bytes& message) {
+  if (!loaded_libraries_ok()) return std::nullopt;
   if (!domain_ok(domain)) return std::nullopt;
   Pkey key = private_key(seed);
   if (!key) return std::nullopt;
@@ -282,6 +311,7 @@ std::optional<Bytes> sign_in_domain(const Bytes& seed, std::string_view domain,
 
 bool verify_in_domain(const Bytes& pubkey, std::string_view domain, const Bytes& message,
                       const Bytes& signature) {
+  if (!loaded_libraries_ok()) return false;
   if (pubkey.size() != kPublicKeySize || signature.size() != kSignatureSize) return false;
   // The profile decides BEFORE the equation does, so the accepted set is archon's rather
   // than the binding library's. R is sig[0..32]: a verifier that checks only the public key
