@@ -155,26 +155,39 @@ jobs:
             got=$(grep -m1 '^__version__ = ' "$f" | sed 's/__version__ = "\(.*\)"/\1/')
             [ "$got" = "$want" ] || { echo "::error::$f reports $got, tag says $want"; fail=1; }
           fi
+          # The checks below are each conditional on the TAG containing the file, for the reason
+          # the sdk/py check above is: a dispatch runs main's workflow against the tag's tree,
+          # and a tag cut before a core existed must not redden on a file it never released.
+          # Measured, not supposed: unconditional, these failed against v0.7.0's tree, whose
+          # snapshot has neither core/cpp nor core/hs — a verify_only of 0.7.0 would have died
+          # here. (v0.6.x predates core/java the same way.)
+          #
           # core/java/pom.xml carries the version TWICE: the project's own and <scm><tag>. A
           # release whose POM names another tag points consumers at source that is not what was
           # built. Both are READ, never repeated -- the Java package check hardcoded this version
           # once and then went red for its own reason rather than the jar's.
-          f=core/java/pom.xml
-          got=$(grep -A1 '<artifactId>archon-core</artifactId>' "$f" | grep -m1 -oE '<version>[^<]*</version>' | sed 's|</*version>||g')
-          [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
-          scm=$(grep -m1 -oE '<tag>[^<]*</tag>' "$f" | sed 's|</*tag>||g')
-          [ "$scm" = "$TAG" ] || { echo "::error::$f <scm><tag> is $scm, tag says $TAG"; fail=1; }
+          if [ -f core/java/pom.xml ]; then
+            f=core/java/pom.xml
+            got=$(grep -A1 '<artifactId>archon-core</artifactId>' "$f" | grep -m1 -oE '<version>[^<]*</version>' | sed 's|</*version>||g')
+            [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
+            scm=$(grep -m1 -oE '<tag>[^<]*</tag>' "$f" | sed 's|</*tag>||g')
+            [ "$scm" = "$TAG" ] || { echo "::error::$f <scm><tag> is $scm, tag says $TAG"; fail=1; }
+          fi
           # The tag-consumed cores. C++'s version is the project() line in CMakeLists.txt, which
           # becomes archon-config-version.cmake, so a consumer's find_package(archon 0.8) is
           # answered from it. Haskell's is the .cabal version field, which Cabal checks a
           # consumer's bounds against. Swift has NO version site: SwiftPM reads the version from
           # the tag itself, so there is nothing in the tree to disagree with it.
-          f=core/cpp/CMakeLists.txt
-          got=$(grep -m1 -oE 'project\(archon_core[^)]*VERSION [0-9.]+' "$f" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
-          [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
-          f=core/hs/bitspark-archon-core.cabal
-          got=$(grep -m1 -E '^version:' "$f" | awk '{print $2}')
-          [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
+          if [ -f core/cpp/CMakeLists.txt ]; then
+            f=core/cpp/CMakeLists.txt
+            got=$(grep -m1 -oE 'project\(archon_core[^)]*VERSION [0-9.]+' "$f" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
+            [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
+          fi
+          if [ -f core/hs/bitspark-archon-core.cabal ]; then
+            f=core/hs/bitspark-archon-core.cabal
+            got=$(grep -m1 -E '^version:' "$f" | awk '{print $2}')
+            [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
+          fi
           exit $fail
 
       - name: Hold the Go module tags to the same version
