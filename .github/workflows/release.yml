@@ -371,6 +371,15 @@ jobs:
 
           for c in core/rs sdk/rs server/rs cli/rs; do
             pkg=$(grep -m1 '^name = ' "$c/Cargo.toml" | sed 's/name = "\(.*\)"/\1/')
+            # Idempotence, like npm's step: a version crates.io already serves is skipped, not
+            # re-published — `cargo publish` refuses "already exists on crates.io index" and
+            # that refusal ended the 0.7.0 re-dispatch that was only meant to publish PyPI.
+            # The workflow's own comment had claimed this step skipped; it did not, until now.
+            if [ -z "$DRY" ] && curl -sf -A "archon-release (github.com/Bitspark/archon)" \
+                 "https://crates.io/api/v1/crates/$pkg/${TAG#v}" >/dev/null 2>&1; then
+              echo "$pkg@${TAG#v} already on crates.io — skipping"
+              continue
+            fi
             out=$(cd "$c" && cargo publish $DRY --allow-dirty 2>&1) && rc=0 || rc=$?
             echo "$out"
             if [ "$rc" -ne 0 ]; then
