@@ -8,7 +8,7 @@
 # (ADR 0004).
 [package]
 name = "bitspark-archon-sdk"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/Bitspark/archon"
@@ -20,7 +20,7 @@ path = "src/lib.rs"
 
 [dependencies]
 # The floor. The ONLY dependency.
-bitspark-archon-core = { path = "../../core/rs", version = "0.7.0" }
+bitspark-archon-core = { path = "../../core/rs", version = "0.8.0" }
 
 # Conformance CLI ONLY — optional, off by default, behind the `conformance-cli` feature.
 serde_json = { version = "1", optional = true }
