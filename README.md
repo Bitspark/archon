@@ -80,7 +80,7 @@ without using any of this code.
 | | what it adds |
 |---|---|
 | **core** | key bytes, the canonical key text, SPKI/PKCS-8, domain-separated sign and verify |
-| **sdk** | signed envelopes, proof of possession, audience binding |
+| **sdk** | signed envelopes, proof of possession, and the login scheme's audience binding |
 | **cli** | the `archon` command — `keygen`, `key`, `sign`, `verify`, `login`, `version` |
 | **server** | the login endpoint: proof-of-possession sign-in and key-to-key delegation |
 
@@ -96,11 +96,20 @@ cargo add bitspark-archon-core                   # use archon_core::…
 
 # TypeScript
 npm install @bitspark/archon                     # also -sdk, -cli, -server
+
+# Python — the floor; import archon_core
+pip install bitspark-archon-core
+
+# Java — Maven Central
+#   <dependency><groupId>dev.bitspark</groupId><artifactId>archon-core</artifactId>
+#     <version>0.7.0</version></dependency>
 ```
 
-The Go modules resolve directly from this repository and need nothing else. The Rust crates
-and npm packages are published from the first tagged release; until then, build from a
-checkout — `cargo build` in `core/rs`, `npm install && npm run build` in `core/ts`.
+The Go modules resolve directly from this repository and need nothing else; the others are
+on their public registries. Python and Java have the floor published; Python also has an sdk
+(possession and envelope, not the login scheme) in this tree, which ships with the next
+release as `bitspark-archon-sdk`. Which language carries which tier, and how each claim is
+proven, is in [docs/languages.md](docs/languages.md).
 
 The command is the same in all three languages — install it from whichever you already have:
 

@@ -1,7 +1,7 @@
 # vectors
 
 `sdk.json` — 38 cases in 4 families (`possession_prove` · `possession_verify` · `envelope_seal` ·
-`envelope_open`), the same contract one layer up, for `sdk/{rs,go,ts}` ([ADR 0004](../docs/architecture/decisions/0004-the-sdk-layer-above-the-floor.md)).
+`envelope_open`), the same contract one layer up, for `sdk/{rs,go,ts,py}` ([ADR 0004](../docs/architecture/decisions/0004-the-sdk-layer-above-the-floor.md)).
 
 `login.json` — 105 cases in 6 families (`login_audience` · `login_binding` · `login_prove` ·
 `login_verify` · `login_collect_prove` · `login_collect_verify`), the login scheme ([docs/login.md](../docs/login.md)),

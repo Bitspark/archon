@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bitspark-archon-sdk"
+version = "0.7.0"
+description = "archon sdk: proof of possession and the signed envelope, one layer above the identity floor. Deterministic given its inputs; no RNG, no clock, no socket."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Bitspark" }]
+
+# The floor, and nothing else. A REGISTRY range, never a path: this is what a consumer's pip
+# resolves, so it has to name something PyPI serves. `~=X.Y.Z` is `>=X.Y.Z, ==X.Y.*`, the
+# same compatible range npm's `^` and cargo's default give the other two sdks for a 0.x
+# version. archon versions in lockstep (ADR 0005), so the release's manifest guard holds this
+# range to the tag as well as the version above — an sdk that names an older floor than the
+# one it was tested against is the defect it exists to catch.
+dependencies = ["bitspark-archon-core~=0.7.0"]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Security :: Cryptography",
+  "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/Bitspark/archon"
+Documentation = "https://github.com/Bitspark/archon/tree/main/docs"
+Repository = "https://github.com/Bitspark/archon"
+Issues = "https://github.com/Bitspark/archon/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+archon_sdk = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]

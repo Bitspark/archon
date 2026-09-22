@@ -24,7 +24,12 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 | tier | what it adds |
 |---|---|
 | `core` | key bytes, the canonical key text, SPKI/PKCS-8, raw and domain-separated signing |
-| `sdk` | signed envelopes, proof of possession, audience binding |
+| `sdk` | signed envelopes, proof of possession ([`vectors/sdk.json`](../vectors/sdk.json)), and the login scheme's proofs and audience binding ([`vectors/login.json`](../vectors/login.json)) |
+
+An sdk tick below names what that sdk carries when it is not all of it. Go, Rust and
+TypeScript carry both oracles; an sdk marked *possession + envelope* conforms to `sdk.json`
+and does not implement the login scheme at all — which is a different claim from
+implementing it badly.
 | `cli` | the `archon` command |
 | `server` | the login endpoint |
 
@@ -35,7 +40,7 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 | **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ proxy + checksum db — **0.7.0**, and automatically (see below) |
 | **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.7.0** |
 | **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.7.0** |
-| **Python** | ✅ | — | — | — | `bitspark-archon-core` (import `archon_core`) | 105/105 | ✅ PyPI — **0.7.0**, wheel + sdist |
+| **Python** | ✅ | ✅ possession + envelope | — | — | `bitspark-archon-{core,sdk}` (import `archon_{core,sdk}`) | 105/105; sdk 38/38 | ✅ PyPI — core **0.7.0**, wheel + sdist · sdk ⏳ from the next release, once its own pending publisher is registered |
 | **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ✅ Maven Central — **0.7.0**, signed |
 | **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | — not published; consumed from the tag (0008 §8) |
 | **Swift** | — | — | — | — | SwiftPM product (planned) | — | needs **two** libraries — a signer and a validator (0008 §8) |
@@ -129,6 +134,17 @@ For Python those are `core/py/test` (22 tests), `conformance/check-py.mjs`, and
 `conformance/check-py-package.mjs` — the last builds the sdist and wheel, installs the **wheel**
 into a fresh venv with `PYTHONPATH` stripped, and runs the conformance protocol again against
 the installed package.
+
+The Python sdk has the same three, one layer up: `sdk/py/test` (16 tests),
+`conformance/check-py-sdk.mjs` against `vectors/sdk.json`, and
+`conformance/check-py-sdk-package.mjs`, which installs the sdk wheel on the floor's wheel from
+the same tree and asserts two things only an install can show — that the sdk names its floor
+by a registry range equal to its own version, and that an envelope genuinely sealed in
+another domain is refused. The unit tests carry two refusals the oracle cannot: `sdk.json`'s
+`nonce-15-rejected` and `binding-empty-rejected` **verify** cases hold signatures that are
+not genuine over their own layout, so they come out `false` whether or not an sdk checks the
+shape at all. Measured: with both refusals deleted, all 12 `possession_verify` cases still
+pass, and only the unit tests go red.
 
 For Java they are `core/java/src/test`, `conformance/check-java.mjs`, and
 `conformance/check-java-package.mjs`. The third resolves `dev.bitspark:archon-core` into a
