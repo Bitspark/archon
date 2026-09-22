@@ -25,10 +25,13 @@
 #                ~30-minute token, armed by vars.CRATES_IO_TRUSTED_PUBLISHING.
 #                secrets.CARGO_REGISTRY_TOKEN remains only as the pre-trusted-publishing
 #                fallback and can be deleted once a release has gone out on OIDC.
-#   PyPI       — pypa/gh-action-pypi-publish with the same OIDC identity, armed by
-#                vars.PYPI_TRUSTED_PUBLISHING once the pending publisher is registered
-#                (the registration is spelled out at the step). Unarmed, the distributions
-#                are still built and the run warns instead of failing.
+#   PyPI       — pypa/gh-action-pypi-publish with the same OIDC identity. A trusted publisher
+#                is PER PROJECT, so each Python project is armed by its own variable once its
+#                own pending publisher is registered: vars.PYPI_TRUSTED_PUBLISHING for
+#                bitspark-archon-core, vars.PYPI_SDK_TRUSTED_PUBLISHING for
+#                bitspark-archon-sdk (the registrations are spelled out at the steps).
+#                Unarmed, the distributions are still built and the run warns instead of
+#                failing.
 #   Go         — nothing; the module proxy reads the tags.
 #
 # ⚠ Neither registry validates a trusted-publisher configuration when you save it, and all
@@ -114,12 +117,12 @@ jobs:
           echo "releasing $TAG at $head"
 
       - name: Hold every manifest version to the tag
-        # Nine manifests carry a version, and a release in which one of them disagrees is a
+        # Every manifest carries a version, and a release in which one of them disagrees is a
         # release that publishes two different things under one name. The floor's version is
         # also what the dependent packages' ranges are derived from at publish time, so a
-        # mismatch here is not cosmetic. The Python module also REPORTS a version of its own
-        # (`archon_core.__version__`), and a package whose metadata and self-report disagree
-        # is the same defect one layer down.
+        # mismatch here is not cosmetic. The Python modules also REPORT a version of their own
+        # (`archon_core.__version__`, `archon_sdk.__version__`), and a package whose metadata
+        # and self-report disagree is the same defect one layer down.
         run: |
           set -euo pipefail
           want="${TAG#v}"
@@ -128,13 +131,21 @@ jobs:
             got=$(node -p "require('./$f').version")
             [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
           done
-          for f in core/rs/Cargo.toml sdk/rs/Cargo.toml cli/rs/Cargo.toml server/rs/Cargo.toml core/py/pyproject.toml; do
+          for f in core/rs/Cargo.toml sdk/rs/Cargo.toml cli/rs/Cargo.toml server/rs/Cargo.toml core/py/pyproject.toml sdk/py/pyproject.toml; do
             got=$(grep -m1 '^version = ' "$f" | sed 's/version = "\(.*\)"/\1/')
             [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
           done
-          f=core/py/src/archon_core/__init__.py
-          got=$(grep -m1 '^__version__ = ' "$f" | sed 's/__version__ = "\(.*\)"/\1/')
-          [ "$got" = "$want" ] || { echo "::error::$f reports $got, tag says $want"; fail=1; }
+          for f in core/py/src/archon_core/__init__.py sdk/py/src/archon_sdk/__init__.py; do
+            got=$(grep -m1 '^__version__ = ' "$f" | sed 's/__version__ = "\(.*\)"/\1/')
+            [ "$got" = "$want" ] || { echo "::error::$f reports $got, tag says $want"; fail=1; }
+          done
+          # The Python sdk names its floor by a registry range, and there is no publish-time
+          # rewrite to derive it (npm's step rewrites a file: link; a pyproject has no link to
+          # rewrite). So the range is held here instead: an sdk that names an older floor than
+          # the one it was released and tested with is two versions under one release.
+          f=sdk/py/pyproject.toml
+          grep -qF "\"bitspark-archon-core~=$want\"" "$f" \
+            || { echo "::error::$f does not name its floor as bitspark-archon-core~=$want: $(grep -m1 '^dependencies' "$f")"; fail=1; }
           # core/java/pom.xml carries the version TWICE: the project's own and <scm><tag>. A
           # release whose POM names another tag points consumers at source that is not what was
           # built. Both are READ, never repeated -- the Java package check hardcoded this version
@@ -554,11 +565,15 @@ jobs:
         if: env.VERIFY_ONLY != 'true'
         # Always, rehearsal included: a pyproject.toml that no longer builds is a release
         # defect whether or not PyPI is armed. The sdist and wheel are what a consumer gets.
+        # The sdk goes to its OWN directory: the publish action uploads a whole directory, and
+        # a trusted publisher is per project — one unregistered project in a shared directory
+        # fails the upload for both.
         run: |
           set -euo pipefail
           python -m pip install --quiet --upgrade pip build
           python -m build core/py --outdir dist-py
-          ls -l dist-py
+          python -m build sdk/py --outdir dist-py-sdk
+          ls -l dist-py dist-py-sdk
 
       # PyPI trusted publishing: the OIDC token this run already carries is exchanged for
       # upload rights scoped to this repository, this workflow file and the `release`
@@ -587,6 +602,29 @@ jobs:
         if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true' && vars.PYPI_TRUSTED_PUBLISHING != 'true'
         run: |
           echo "::warning::bitspark-archon-core ${TAG#v} was BUILT but NOT PUBLISHED: vars.PYPI_TRUSTED_PUBLISHING is not 'true'. Register the pending publisher on PyPI (see this workflow), set the variable, and re-run this dispatch — every publish step skips what is already on its registry."
+
+      # The sdk, after its floor — the same dependency order npm and crates.io publish in. Its
+      # own pending publisher, its own variable, for the reason the build step gives. It is
+      # also gated on the FLOOR's variable: the sdk names `bitspark-archon-core~=X`, so an sdk
+      # on PyPI whose floor is not is a package no consumer can install. Registration:
+      #     project        bitspark-archon-sdk
+      #     owner          Bitspark
+      #     repository     archon
+      #     workflow       release.yml
+      #     environment    release
+      # ⚠ Set the variable only AFTER the registration exists: armed, the round trip below runs
+      # and polls PyPI for a project that cannot appear, and a red verification withholds the
+      # GitHub release. That is exactly how the 0.7.0 verify_only run went red.
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true' && vars.PYPI_SDK_TRUSTED_PUBLISHING == 'true'
+        with:
+          packages-dir: dist-py-sdk
+          skip-existing: true
+
+      - name: What PyPI did not get (the sdk)
+        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true' && !(vars.PYPI_TRUSTED_PUBLISHING == 'true' && vars.PYPI_SDK_TRUSTED_PUBLISHING == 'true')
+        run: |
+          echo "::warning::bitspark-archon-sdk ${TAG#v} was BUILT but NOT PUBLISHED: it needs both vars.PYPI_TRUSTED_PUBLISHING and vars.PYPI_SDK_TRUSTED_PUBLISHING set to 'true'. Register its pending publisher on PyPI (see this workflow), set the variable, and re-run this dispatch — every publish step skips what is already on its registry."
 
       # Every verification below runs even if an earlier one failed (`!cancelled()`): a run
       # that stops at the first red verification withholds the evidence of the others, and
@@ -625,6 +663,58 @@ jobs:
           assert not a.verify(k11, b'hello', bytes.fromhex('0100000000000000000000000000000000000000000000000000000000000000' '04201a21f9221727c221b35265ca6248968a426e9fb5168e368d7dcdaa05fa07')), 'identity R must be refused'
           assert not a.verify(bytes.fromhex('05edb8c261651304ea335a4397e0696b9fb37c99aa8023ee1583a2f3e43d9fe4'), bytes.fromhex('6d697865642d6f72646572233133'), bytes.fromhex('b862409fb5c4c4123df2abf7462b88f041ad36dd6864ce872fd5472be363c5b1' '20e561d759891b93dd85ac31f464fc01adb9d3d89074eaa7795084f43661a90b')), 'a mixed-order key must be refused'
           print('installed', a.__version__, a.encode_key(pub))
+          "
+
+      - name: The Python sdk round trip against what was published
+        if: env.REHEARSE != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true' && vars.PYPI_SDK_TRUSTED_PUBLISHING == 'true' && !cancelled()
+        # The sdk ALONE, into an empty venv: the floor has to arrive through the range the
+        # PUBLISHED sdk names, from PyPI, or not at all — which is the cross-component claim.
+        # The refusal asserted is the one only the sdk's own check makes: a genuine envelope
+        # sealed in another domain. An opener that trusted the envelope's domain field would
+        # return its payload; conformance/check-py-sdk-package.mjs proves this assertion fires.
+        run: |
+          set -euo pipefail
+          VER="${TAG#v}"
+          d=$(mktemp -d); cd "$d"
+          python -m venv v
+          ok=0; err=""
+          for i in $(seq 1 60); do
+            if err=$(./v/bin/pip install --quiet --no-cache-dir "bitspark-archon-sdk==$VER" 2>&1); then ok=1; break; fi
+            echo "PyPI not serving bitspark-archon-sdk==$VER yet (try $i/60) — waiting"; sleep 10
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "last attempt said:"; echo "$err" | tail -n 20
+            echo "::error::bitspark-archon-sdk==$VER did not become installable within 10 minutes. Check PyPI before assuming the publish failed — and if the project does not exist at all, its pending publisher was never registered." >&2
+            exit 1
+          fi
+          ./v/bin/python -c "
+          import importlib.metadata as md, sys
+          import archon_core, archon_sdk
+          from archon_sdk import envelope, possession
+          want = '$VER'
+          assert archon_sdk.__version__ == want == md.version('bitspark-archon-sdk'), 'sdk metadata and self-report disagree'
+          reqs = [r for r in (md.requires('bitspark-archon-sdk') or []) if r.startswith('bitspark-archon-core')]
+          assert reqs == ['bitspark-archon-core~=' + want], f'the published sdk names its floor as {reqs}'
+          # ~=X.Y.Z admits a later X.Y.* floor, so the resolved floor is held to the range,
+          # not to equality: a verify_only run after a patch release must not red on it.
+          floor = md.version('bitspark-archon-core')
+          f, w = [int(p) for p in floor.split('.')], [int(p) for p in want.split('.')]
+          assert f[:2] == w[:2] and f[2] >= w[2], f'the sdk pulled floor {floor}, outside ~={want}'
+          seed = bytes(range(32)); pub = archon_core.public_key_from_seed(seed)
+          nonce, binding = bytes(range(16)), b'channel'
+          proof = possession.prove(seed, 'example/pop/v1', nonce, binding)
+          assert possession.verify(pub, 'example/pop/v1', nonce, binding, proof)
+          assert not possession.verify(pub, 'example/pop/v1', nonce, b'another channel', proof)
+          sealed = envelope.seal(seed, 'example/env/v1', b'payload')
+          assert envelope.open(sealed, 'example/env/v1').payload == b'payload'
+          other = envelope.seal(seed, 'example/env/other', b'payload')
+          try:
+              envelope.open(other, 'example/env/v1')
+          except ValueError:
+              pass
+          else:
+              sys.exit('an envelope sealed in another domain was opened')
+          print('installed sdk', archon_sdk.__version__, 'on floor', floor, 'through', reqs[0])
           "
 
       # ---- the outside consumers -------------------------------------------------------

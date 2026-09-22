@@ -279,14 +279,18 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
+      # core and sdk in ONE pip invocation, so the sdk's `bitspark-archon-core~=X` requirement
+      # is satisfied by this checkout's floor rather than by whatever PyPI serves.
       - name: install
-        working-directory: core/py
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e . pytest build
+          python -m pip install -e core/py -e sdk/py pytest build
       - name: test
         working-directory: core/py
+        run: python -m pytest test -q
+      - name: test the sdk
+        working-directory: sdk/py
         run: python -m pytest test -q
       # The oracle, through the shared harness. This is the check that matters: the Python
       # core recomputes all 60 cases and is asserted against the same vectors the Go, Rust
@@ -298,6 +302,15 @@ jobs:
       # also catches a pyproject.toml that only works in-tree.
       - name: build + install the wheel as an outside consumer
         run: node conformance/check-py-package.mjs
+      # The layer above the floor: 38 cases in vectors/sdk.json, the oracle the Go, Rust and
+      # TypeScript sdks are held to.
+      - name: sdk conformance against the oracle
+        run: node conformance/check-py-sdk.mjs
+      # The sdk wheel installed from nothing, on the floor's wheel from this tree. It asserts
+      # the sdk names the floor by a registry range equal to this version, and that an
+      # envelope sealed in another domain is refused — the refusal only archon's check makes.
+      - name: sdk wheel installed as an outside consumer
+        run: node conformance/check-py-sdk-package.mjs
 
   ts:
     name: ts
