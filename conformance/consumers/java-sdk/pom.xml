@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A consumer of the SDK that knows nothing but the sdk's coordinates.
+
+  Deliberately NOT a module of sdk/java, and deliberately naming ONLY archon-sdk: the floor
+  (archon-core) and Bouncy Castle must arrive transitively through the sdk's own POM, the way
+  a stranger gets them. A consumer that had to declare the floor itself would be one the sdk
+  had failed. The version arrives as -Darchon.version so nothing here is edited at release.
+
+  A separate program from conformance/consumers/java, not an extension of it: that one
+  verifies archon-core on every tag including those cut before a Java sdk existed, and a
+  dependency on archon-sdk there would red it on such a tag after Central had been written to.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>example</groupId>
+  <artifactId>archon-sdk-consumer</artifactId>
+  <version>1.0</version>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>dev.bitspark</groupId>
+      <artifactId>archon-sdk</artifactId>
+      <version>${archon.version}</version>
+    </dependency>
+  </dependencies>
+</project>

@@ -188,6 +188,19 @@ jobs:
             got=$(grep -m1 -E '^version:' "$f" | awk '{print $2}')
             [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
           fi
+          # The Java sdk, when the TAG has one (the same test its publish and consumer use): its
+          # version and <scm><tag>, as for the floor, and its dependency on the floor, which
+          # must stay ${project.version}. That is what makes lockstep structural for Java; a
+          # literal there is a second number a release bump can forget.
+          if [ -f sdk/java/pom.xml ]; then
+            f=sdk/java/pom.xml
+            got=$(grep -A1 '<artifactId>archon-sdk</artifactId>' "$f" | grep -m1 -oE '<version>[^<]*</version>' | sed 's|</*version>||g')
+            [ "$got" = "$want" ] || { echo "::error::$f is $got, tag says $want"; fail=1; }
+            scm=$(grep -m1 -oE '<tag>[^<]*</tag>' "$f" | sed 's|</*tag>||g')
+            [ "$scm" = "$TAG" ] || { echo "::error::$f <scm><tag> is $scm, tag says $TAG"; fail=1; }
+            dep=$(grep -A1 '<artifactId>archon-core</artifactId>' "$f" | grep -m1 -oE '<version>[^<]*</version>' | sed 's|</*version>||g')
+            [ "$dep" = '${project.version}' ] || { echo "::error::$f names archon-core at $dep; it must be \${project.version}"; fail=1; }
+          fi
           exit $fail
 
       - name: Hold the Go module tags to the same version
@@ -515,12 +528,63 @@ jobs:
           fi
           echo "deployment-id=$id" >> "$GITHUB_OUTPUT"
 
-      - name: What Central says it is doing with the deployment
-        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true'
+      - name: Publish the signed sdk to Maven Central, after the floor
+        id: maven_publish_sdk
+        # Its own deployment, after the floor's — the dependency order npm and crates.io publish
+        # in — and only when the TAG has a Java sdk. A step of its own rather than a second
+        # module in one bundle so that each artifact has its own idempotence guard: Central
+        # refuses a duplicate, and a re-dispatch that finds the floor already served must still
+        # be able to deploy an sdk that is not.
+        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true' && hashFiles('sdk/java/pom.xml') != ''
+        working-directory: sdk/java
         env:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
-          DEPLOYMENT_ID: ${{ steps.maven_publish.outputs.deployment-id }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+          FLOOR_SERVED: ${{ steps.maven_publish.outputs.served }}
+        run: |
+          set -euo pipefail
+          : "${MAVEN_CENTRAL_USERNAME:?Configure the Central Portal user-token username.}"
+          : "${MAVEN_CENTRAL_PASSWORD:?Configure the Central Portal user-token password.}"
+          : "${MAVEN_GPG_PASSPHRASE:?Configure the signing-key passphrase.}"
+          VER="${TAG#v}"
+
+          # Idempotence, per artifact, exactly as for the floor.
+          POM="https://repo.maven.apache.org/maven2/dev/bitspark/archon-sdk/$VER/archon-sdk-$VER.pom"
+          if curl --fail --silent --max-time 20 "$POM" -o /dev/null; then
+            echo "  dev.bitspark:archon-sdk:$VER is already on Central — nothing to deploy"
+            echo "served=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The sdk resolves archon-core:$VER by coordinates. The floor's step either deployed
+          # it in this run — `deploy` runs `install` first, so it is in the runner's local
+          # repository, byte for byte what was uploaded — or found it already served. Assert
+          # which, rather than let Maven quietly resolve something else.
+          floor="$HOME/.m2/repository/dev/bitspark/archon-core/$VER/archon-core-$VER.jar"
+          if [ ! -f "$floor" ] && [ "$FLOOR_SERVED" != "true" ]; then
+            echo "::error::archon-core:$VER is neither installed by this run nor served by Central; the sdk would be built against nothing it can name" >&2
+            exit 1
+          fi
+
+          # One settings file for both artifacts: core/java/release-settings.xml, whose server id
+          # the credential diagnostic above has already proven against Central.
+          mvn -B -ntp -s ../../core/java/release-settings.xml -Prelease deploy 2>&1 | tee "$RUNNER_TEMP/deploy-sdk.log"
+          id=$(grep -oE 'deploymentId: [0-9a-fA-F-]{36}' "$RUNNER_TEMP/deploy-sdk.log" | head -n1 | awk '{print $2}')
+          if [ -z "$id" ]; then
+            echo "::warning::could not read a deploymentId from the plugin output; the deploy itself succeeded"
+          fi
+          echo "deployment-id=$id" >> "$GITHUB_OUTPUT"
+
+      - name: What Central says it is doing with the deployments
+        # `!cancelled()`: read-only reporting, so it runs even when the sdk's deploy failed —
+        # the floor's deployment state is still worth knowing, and withholding it helps nobody.
+        if: env.REHEARSE != 'true' && env.VERIFY_ONLY != 'true' && !cancelled()
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          # One Central deployment per artifact: the floor's, then the sdk's.
+          DEPLOYMENTS: "archon-core=${{ steps.maven_publish.outputs.deployment-id }} archon-sdk=${{ steps.maven_publish_sdk.outputs.deployment-id }}"
         # The deploy returns when the bundle is VALIDATED, which is not when it is SERVED,
         # and the gap is long — measured at 44 minutes for the first archon-core publication
         # (validated 15:15:38Z, served 15:59:40Z). So this run cannot prove Central serves
@@ -538,61 +602,74 @@ jobs:
         run: |
           import base64, json, os, urllib.request, urllib.error
 
-          deployment = os.environ.get("DEPLOYMENT_ID", "").strip()
-          if not deployment:
-              print("No deployment was created in this run — archon-core was already on "
-                    "Central, or the plugin printed no id. Nothing to ask about.")
+          deployments = []
+          for pair in os.environ.get("DEPLOYMENTS", "").split():
+              artifact, _, deployment = pair.partition("=")
+              if deployment.strip():
+                  deployments.append((artifact, deployment.strip()))
+          if not deployments:
+              print("No deployment was created in this run — each artifact was already on "
+                    "Central, was not deployed, or the plugin printed no id. Nothing to ask about.")
               raise SystemExit(0)
 
           username = os.environ["MAVEN_CENTRAL_USERNAME"]
           password = os.environ["MAVEN_CENTRAL_PASSWORD"]
           token = base64.b64encode(f"{username}:{password}".encode()).decode()
-          request = urllib.request.Request(
-              "https://central.sonatype.com/api/v1/publisher/status?id=" + deployment,
-              data=b"", method="POST",
-              headers={"Authorization": "Bearer " + token},
-          )
 
-          try:
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  body = json.loads(response.read().decode() or "{}")
-          except urllib.error.HTTPError as error:
-              error.close()
-              print(f"::warning::the Portal status endpoint answered HTTP {error.code}. The "
-                    f"deploy itself SUCCEEDED; this step only reports what Central thinks.")
-              raise SystemExit(0)
-          except Exception:
-              print("::warning::could not reach the Portal status endpoint. The deploy itself "
-                    "SUCCEEDED; this step only reports what Central thinks.")
-              raise SystemExit(0)
+          failed = []
+          for artifact, deployment in deployments:
+              request = urllib.request.Request(
+                  "https://central.sonatype.com/api/v1/publisher/status?id=" + deployment,
+                  data=b"", method="POST",
+                  headers={"Authorization": "Bearer " + token},
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      body = json.loads(response.read().decode() or "{}")
+              except urllib.error.HTTPError as error:
+                  error.close()
+                  print(f"::warning::{artifact}: the Portal status endpoint answered HTTP "
+                        f"{error.code}. The deploy itself SUCCEEDED; this step only reports "
+                        f"what Central thinks.")
+                  continue
+              except Exception:
+                  print(f"::warning::{artifact}: could not reach the Portal status endpoint. The "
+                        f"deploy itself SUCCEEDED; this step only reports what Central thinks.")
+                  continue
 
-          state = body.get("deploymentState", "UNKNOWN")
-          errors = body.get("errors") or {}
-          print(f"deployment {deployment}: {state}")
-          if errors:
-              print("Central reported errors against the artifact:")
-              print(json.dumps(errors, indent=2)[:4000])
+              state = body.get("deploymentState", "UNKNOWN")
+              errors = body.get("errors") or {}
+              print(f"{artifact} deployment {deployment}: {state}")
+              if errors:
+                  print(f"Central reported errors against {artifact}:")
+                  print(json.dumps(errors, indent=2)[:4000])
+              if state == "FAILED":
+                  failed.append(artifact)
+                  continue
+              print(f"::notice::Central has the {artifact} deployment in state {state}. Serving "
+                    f"on repo.maven.apache.org is asynchronous and has taken over half an hour "
+                    f"for a first publication, so it is NOT verified here. Dispatch this workflow "
+                    f"again with verify_only to run the Maven Central consumers against the "
+                    f"published bytes; that is the run in which Java counts as published.")
 
-          if state == "FAILED":
-              print("::error::Central FAILED the deployment. This is a failed publish, not a "
-                    "slow one — read the errors above; nothing will ever appear on "
-                    "repo.maven.apache.org for this version.")
+          if failed:
+              print(f"::error::Central FAILED the deployment of {', '.join(failed)}. This is a "
+                    f"failed publish, not a slow one — read the errors above; nothing will ever "
+                    f"appear on repo.maven.apache.org for that version.")
               raise SystemExit(1)
-
-          print(f"::notice::Central has the deployment in state {state}. Serving on "
-                f"repo.maven.apache.org is asynchronous and has taken over half an hour for a "
-                f"first publication, so it is NOT verified here. Dispatch this workflow again "
-                f"with verify_only to run the Maven Central consumer against the published "
-                f"bytes; that is the run in which Java counts as published.")
 
       - name: Pack the Java artifacts without publishing (rehearsal)
         if: env.REHEARSE == 'true'
-        working-directory: core/java
         # A rehearsal must still build what would be uploaded — sources jar, javadoc jar and
         # the POM — because a javadoc error fails a real publish after npm and crates.io have
-        # already gone out. `verify` runs everything short of `deploy`; signing stays off,
-        # since a rehearsal has no business touching the key.
-        run: mvn -B -ntp verify -DskipTests=false
+        # already gone out. Signing stays off, since a rehearsal has no business touching the
+        # key. The floor is INSTALLED rather than verified: the sdk resolves archon-core at a
+        # version Central does not have yet, so the floor this run built must be in the local
+        # repository — exactly as the real publish leaves it, since `deploy` runs `install`.
+        run: |
+          set -euo pipefail
+          (cd core/java && mvn -B -ntp install -DskipTests=false)
+          if [ -f sdk/java/pom.xml ]; then (cd sdk/java && mvn -B -ntp verify -DskipTests=false); fi
 
       - name: Build the Python distributions
         if: env.VERIFY_ONLY != 'true'
@@ -955,6 +1032,78 @@ jobs:
             || { echo "::error::Bouncy Castle did not arrive transitively from archon-core's POM" >&2; exit 1; }
 
           java -cp "tooling/conformance/consumers/java/target/classes:$(cat "$work/cp.txt")" example.Consumer
+
+      - name: The Maven Central sdk consumer, outside the checkout
+        # The floor's consumer, one layer up, under the same rule: it runs only when Central
+        # can already be serving the sdk — a verify_only run, or a re-dispatch whose publish
+        # step found it served — and only for a tag that HAS a Java sdk, so a verify_only of a
+        # tag cut before one existed stays green. The program is tooling/conformance/consumers/
+        # java-sdk, which declares NOTHING but archon-sdk: the floor and Bouncy Castle must
+        # arrive transitively from the published POMs, and a genuine envelope sealed in
+        # another domain must be refused — the refusal only archon's own check makes.
+        if: (env.VERIFY_ONLY == 'true' || steps.maven_publish_sdk.outputs.served == 'true') && hashFiles('sdk/java/pom.xml') != '' && !cancelled()
+        run: |
+          set -euo pipefail
+          VER="${TAG#v}"
+          BASE="https://repo.maven.apache.org/maven2/dev/bitspark/archon-sdk/$VER/archon-sdk-$VER"
+
+          # Each file asserted, none inferred from another — see the floor's consumer.
+          ok=0; err=""
+          for i in $(seq 1 60); do
+            if err=$( { curl --fail --silent --show-error --max-time 20 "$BASE.pom" -o /dev/null \
+                     && curl --fail --silent --show-error --max-time 20 "$BASE.jar" -o /dev/null \
+                     && curl --fail --silent --show-error --max-time 20 "$BASE.jar.asc" -o /dev/null; } 2>&1 ); then
+              ok=1; break
+            fi
+            echo "Central not serving archon-sdk:$VER yet (try $i/60) — waiting"; sleep 10
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "last attempt said:"; echo "$err" | tail -n 20
+            echo "::error::archon-sdk:$VER did not become available within 10 minutes. Check Central before assuming the publish failed." >&2
+            exit 1
+          fi
+
+          work="$(mktemp -d)"
+          repo="$work/m2"
+          printf '%s\n' '<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"/>' > "$work/settings.xml"
+          ok=0; err=""
+          for i in $(seq 1 10); do
+            if err=$(mvn -B -ntp -s "$work/settings.xml" -gs "$work/settings.xml" \
+                 "-Dmaven.repo.local=$repo" "-Darchon.version=$VER" \
+                 -f tooling/conformance/consumers/java-sdk/pom.xml \
+                 package dependency:build-classpath "-Dmdep.outputFile=$work/cp.txt" 2>&1); then
+              ok=1; break
+            fi
+            echo "Central not resolving archon-sdk:$VER yet (try $i/10) — waiting"; sleep 10
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "last attempt said:"; echo "$err" | tail -n 40
+            echo "::error::archon-sdk:$VER is served but did not resolve. Read the Maven output above." >&2
+            exit 1
+          fi
+
+          jar="$repo/dev/bitspark/archon-sdk/$VER/archon-sdk-$VER.jar"
+          test -f "$jar" \
+            || { echo "::error::archon-sdk:$VER was not resolved into the clean repository" >&2; exit 1; }
+          served="$work/served.jar"
+          curl --fail --silent --show-error --max-time 60 "$BASE.jar" -o "$served"
+          resolved_sha=$(sha256sum "$jar" | cut -d' ' -f1)
+          served_sha=$(sha256sum "$served" | cut -d' ' -f1)
+          [ "$resolved_sha" = "$served_sha" ] \
+            || { echo "::error::the resolved sdk jar is not what Central serves — resolved $resolved_sha, served $served_sha" >&2; exit 1; }
+          want_sha1=$(curl --fail --silent --show-error --max-time 20 "$BASE.jar.sha1" | tr -d '[:space:]' | cut -c1-40)
+          got_sha1=$(sha1sum "$served" | cut -d' ' -f1)
+          [ "$want_sha1" = "$got_sha1" ] \
+            || { echo "::error::Central's published .jar.sha1 disagrees with the sdk jar it served — published $want_sha1, computed $got_sha1" >&2; exit 1; }
+          echo "  resolved sdk jar is byte-identical to what Central serves (sha256 $resolved_sha)"
+
+          # The cross-component claim: the consumer named only the sdk.
+          for want in "archon-core-$VER.jar" bcprov-jdk18on; do
+            grep -q "$want" "$work/cp.txt" \
+              || { echo "::error::$want did not arrive transitively from archon-sdk's POM" >&2; exit 1; }
+          done
+
+          java -cp "tooling/conformance/consumers/java-sdk/target/classes:$(cat "$work/cp.txt")" example.Consumer
 
       - name: Create the GitHub release
         if: env.REHEARSE != 'true'

@@ -42,7 +42,9 @@ import java.util.Arrays;
  * present rather than that some library happened to be strict. The small-order {@code R}
  * below is an additional case this core also refuses; it is not part of the shared pair.
  *
- * <p>There is no Java sdk, so there is no proof-of-possession assertion to make.
+ * <p>This program is the FLOOR's consumer and asserts nothing about the sdk: proof of
+ * possession and the envelope are asserted by conformance/consumers/java-sdk, a separate
+ * program so that this one still runs on tags cut before a Java sdk existed.
  */
 public final class Consumer {
 

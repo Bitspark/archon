@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>dev.bitspark</groupId>
+  <artifactId>archon-sdk</artifactId>
+  <version>0.8.0</version>
+
+  <name>archon sdk</name>
+  <description>archon sdk: proof of possession and the signed envelope, one layer above the identity floor. Deterministic given its inputs; no RNG, no clock, no socket.</description>
+  <url>https://github.com/Bitspark/archon</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>bitspark</id>
+      <name>Bitspark contributors</name>
+      <url>https://github.com/Bitspark</url>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/Bitspark/archon.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/Bitspark/archon.git</developerConnection>
+    <url>https://github.com/Bitspark/archon</url>
+    <tag>v0.8.0</tag>
+  </scm>
+
+  <issueManagement>
+    <system>GitHub</system>
+    <url>https://github.com/Bitspark/archon/issues</url>
+  </issueManagement>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <!-- Reproducible builds: a fixed timestamp so the same source yields the same jar. -->
+    <project.build.outputTimestamp>2026-09-21T00:00:00Z</project.build.outputTimestamp>
+  </properties>
+
+  <dependencies>
+    <!--
+      The floor, and the ONLY runtime dependency. Its version is this project's own, not a
+      literal: archon versions in lockstep (ADR 0005), and `${project.version}` makes that
+      structural rather than a second number the release bump could forget. Bouncy Castle
+      arrives transitively through it, which the outside consumer asserts.
+
+      This is a REPOSITORY coordinate, resolved like any other. So a local build resolves
+      archon-core from the local repository first — the release workflow and the checks install
+      the in-tree floor there before building this, and assert that it is the one resolved.
+    -->
+    <dependency>
+      <groupId>dev.bitspark</groupId>
+      <artifactId>archon-core</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.13.4</version>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      For the conformance CLI only, which lives in test sources. Neither the CLI nor this
+      dependency reaches the published jar: the CLI is a dev/CI artifact, not library surface.
+    -->
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>2.11.0</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <resources>
+      <resource>
+        <directory>${project.basedir}</directory>
+        <targetPath>META-INF</targetPath>
+        <includes>
+          <include>LICENSE</include>
+          <include>NOTICE</include>
+        </includes>
+      </resource>
+    </resources>
+    <plugins>
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.14.1</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.4</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.4.2</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals><goal>jar-no-fork</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.11.3</version>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <goals><goal>jar</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <!--
+      Signing and Central publication are OFF by default: a contributor running `mvn test` must
+      not need a GPG key. The release workflow activates this with -Prelease, and passes
+      core/java/release-settings.xml — one settings file, whose server id the credential
+      diagnostic proves, rather than a second copy that could drift from it.
+    -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.8</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals><goal>sign</goal></goals>
+              </execution>
+            </executions>
+            <configuration>
+              <!-- The key arrives on stdin through the workflow, never as an argument. -->
+              <gpgArguments>
+                <arg>--pinentry-mode</arg>
+                <arg>loopback</arg>
+              </gpgArguments>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.11.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <!-- Must match the <server><id> in core/java/release-settings.xml. -->
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>true</autoPublish>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>
