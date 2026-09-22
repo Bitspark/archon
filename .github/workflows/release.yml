@@ -74,8 +74,11 @@ jobs:
       # verify_only: every publish step is skipped and every verification runs. This is how a
       # release that PUBLISHED and then went red on a slow registry is finished — 0.6.2 (npm,
       # five minutes) and 0.7.0 (Central, ten) both did — instead of by hand, and without
-      # re-running publish steps that a registry would refuse as duplicates. Publishes are
-      # idempotent on npm and crates.io (they skip what is served) but NOT on Central.
+      # re-running publish steps that a registry would refuse as duplicates. Since #27 every
+      # publish step is also idempotent on its own — npm and crates.io ask the registry for
+      # the version first, Central's guard asks repo1 for the pom, PyPI uses skip-existing —
+      # so a FULL re-dispatch finishes a partially published release too (0.7.0's PyPI was
+      # published that way); verify_only remains the run that publishes nothing by design.
       VERIFY_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_only || 'false' }}
     steps:
       - uses: actions/checkout@v7
@@ -371,6 +374,15 @@ jobs:
 
           for c in core/rs sdk/rs server/rs cli/rs; do
             pkg=$(grep -m1 '^name = ' "$c/Cargo.toml" | sed 's/name = "\(.*\)"/\1/')
+            # Idempotence, like npm's step: a version crates.io already serves is skipped, not
+            # re-published — `cargo publish` refuses "already exists on crates.io index" and
+            # that refusal ended the 0.7.0 re-dispatch that was only meant to publish PyPI.
+            # The workflow's own comment had claimed this step skipped; it did not, until now.
+            if [ -z "$DRY" ] && curl -sf -A "archon-release (github.com/Bitspark/archon)" \
+                 "https://crates.io/api/v1/crates/$pkg/${TAG#v}" >/dev/null 2>&1; then
+              echo "$pkg@${TAG#v} already on crates.io — skipping"
+              continue
+            fi
             out=$(cd "$c" && cargo publish $DRY --allow-dirty 2>&1) && rc=0 || rc=$?
             echo "$out"
             if [ "$rc" -ne 0 ]; then
@@ -440,6 +452,12 @@ jobs:
           POM="https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/$VER/archon-core-$VER.pom"
           if curl --fail --silent --max-time 20 "$POM" -o /dev/null; then
             echo "  dev.bitspark:archon-core:$VER is already on Central — nothing to deploy"
+            # Record it, because "already served" is the ONE case in which the Central
+            # consumer can run in a publish run: normally it cannot, since Central took 44
+            # minutes to serve 0.7.0 against a job budget of ~37. A re-dispatch that finds
+            # the artifact already there has no propagation to wait for, so the consumer
+            # runs here and one dispatch finishes the release.
+            echo "served=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -570,8 +588,13 @@ jobs:
         run: |
           echo "::warning::bitspark-archon-core ${TAG#v} was BUILT but NOT PUBLISHED: vars.PYPI_TRUSTED_PUBLISHING is not 'true'. Register the pending publisher on PyPI (see this workflow), set the variable, and re-run this dispatch — every publish step skips what is already on its registry."
 
+      # Every verification below runs even if an earlier one failed (`!cancelled()`): a run
+      # that stops at the first red verification withholds the evidence of the others, and
+      # the release step still requires all of them to have passed. The 0.7.0 verify_only
+      # run would have polled PyPI for ten minutes and then never run the Central consumer
+      # — the one step that run existed to execute.
       - name: The Python round trip against what was published
-        if: env.REHEARSE != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true'
+        if: env.REHEARSE != 'true' && vars.PYPI_TRUSTED_PUBLISHING == 'true' && !cancelled()
         # Same standard as npm: "on the registry" is a claim until an install from nothing
         # proves it. PyPI, like npm, serves later than it accepts, and — like npm — the
         # failure has to say which half is at fault.
@@ -622,7 +645,7 @@ jobs:
       # on failure: the 0.6.2 log could not say whether the registry was slow or the
       # install was refused, because the loop had sent stderr to /dev/null.
       - name: The npm consumer, outside the checkout
-        if: env.REHEARSE != 'true'
+        if: env.REHEARSE != 'true' && !cancelled()
         run: |
           set -euo pipefail
           VER="${TAG#v}"
@@ -646,7 +669,7 @@ jobs:
           node consumer.mjs
 
       - name: The crates.io consumer, outside the checkout
-        if: env.REHEARSE != 'true'
+        if: env.REHEARSE != 'true' && !cancelled()
         run: |
           set -euo pipefail
           VER="${TAG#v}"
@@ -667,7 +690,7 @@ jobs:
           cargo run --quiet
 
       - name: The Go consumer, outside the checkout
-        if: env.REHEARSE != 'true'
+        if: env.REHEARSE != 'true' && !cancelled()
         # Go's registry is the proxy, which fetches a tag from this repository on first
         # request; sum.golang.org records it. GOFLAGS is cleared so no -mod=mod or workspace
         # setting from the job leaks in; GOPROXY has no `direct` fallback, so a module that
@@ -695,7 +718,7 @@ jobs:
           go run .
 
       - name: The Maven Central consumer, outside the checkout
-        if: env.VERIFY_ONLY == 'true'
+        if: (env.VERIFY_ONLY == 'true' || steps.maven_publish.outputs.served == 'true') && !cancelled()
         # THIS STEP DOES NOT RUN IN A PUBLISH RUN, and the reason is measured rather than
         # cautious. Central accepted and validated archon-core 0.7.0 at 15:15:38Z and was
         # did not serve it until 15:59:40Z — 44 minutes. This step began life waiting 10
