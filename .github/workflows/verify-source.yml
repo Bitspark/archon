@@ -1,15 +1,18 @@
 # Can a stranger build the tag and use what it contains?
 #
 # Every other language answers that through a registry: release.yml's outside consumers
-# install a published artifact and run it. C++ has no registry — its CMake package is
-# consumed from the immutable public tag — so this workflow IS the C++ equivalent, and the
-# matrix should not say "published" for C++ until it has run green against a real tag.
+# install a published artifact and run it. C++, Swift and Haskell have no registry — they are
+# consumed from the immutable public tag — so this workflow IS their equivalent, and the
+# matrix does not say "published" for any of them until it has run green against a real tag.
 #
-# Read-only by construction: no secrets, `contents: read`, no publish step of any kind. It
-# clones the PUBLIC repository at the tag and builds from that clone. Nothing from the
-# workspace checkout participates except this repository's own script — a build that
-# succeeded because the checkout happened to be lying in the working directory would prove
-# something about the runner, not about the tag.
+# Each consumes the tag the way its own ecosystem does: C++ by installing the tag's CMake
+# package, Swift by `.package(url:, exact:)` with SwiftPM fetching the tag itself, Haskell by
+# a source-repository-package pinned to the tag's commit. See conformance/verify-source.mjs.
+#
+# Read-only by construction: no secrets, `contents: read`, no publish step of any kind.
+# Nothing from the workspace checkout participates except this repository's own script — a
+# build that succeeded because the checkout happened to be lying in the working directory
+# would prove something about the runner, not about the tag.
 
 name: verify-source
 
@@ -87,3 +90,76 @@ jobs:
         run: |
           node conformance/verify-source.mjs verify \
             "${{ inputs.tag }}" "${{ needs.resolve.outputs.sha }}" cpp
+
+  swift:
+    name: swift consumes the tag by URL
+    needs: resolve
+    # Swift 6.4 on Ubuntu 26.04 — the pairing conformance.yml explains: the first Swift built
+    # for an OS whose own OpenSSL (3.5.5) is above the 3.2 floor.
+    runs-on: ubuntu-latest
+    container: swift:6.4.0-resolute
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v7
+        with: { node-version: "22" }
+      - name: the two crypto libraries, at their floors
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y --no-install-recommends libssl-dev pkg-config make curl ca-certificates git
+          SODIUM=1.0.22
+          curl -fsSL "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz" -o /tmp/s.tgz
+          tar -xzf /tmp/s.tgz -C /tmp
+          (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && make install >/dev/null)
+          ldconfig
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          pkg-config --atleast-version=3.2 libcrypto || { echo "::error::OpenSSL is below 3.2"; exit 1; }
+          pkg-config --atleast-version=1.0.21 libsodium || { echo "::error::libsodium is below 1.0.21 — it would accept mixed-order points"; exit 1; }
+      # The consumer names archon by `.package(url:, exact:)` and SwiftPM fetches the tag
+      # itself. Then the revision SwiftPM recorded in Package.resolved is asserted to be the
+      # commit resolve found — a consumer built against anything else fails here.
+      - name: consume the tag the way SwiftPM does
+        env:
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+        run: |
+          node conformance/verify-source.mjs verify "${{ inputs.tag }}" "${{ needs.resolve.outputs.sha }}" swift
+
+  haskell:
+    name: haskell consumes the tag by commit
+    needs: resolve
+    # ubuntu-26.04 carries GHC 9.14.1, Cabal 3.18.1 and OpenSSL 3.5.5.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.14.1"
+          cabal-version: "3.18.1.0"
+      - uses: actions/setup-node@v7
+        with: { node-version: "22" }
+      - name: libsodium, at its floor
+        run: |
+          set -euo pipefail
+          SODIUM=1.0.22
+          curl -fsSL "https://download.libsodium.org/libsodium/releases/libsodium-$SODIUM.tar.gz" -o /tmp/s.tgz
+          tar -xzf /tmp/s.tgz -C /tmp
+          (cd "/tmp/libsodium-$SODIUM" && ./configure --prefix=/usr/local --quiet && make -j"$(nproc)" >/dev/null && sudo make install >/dev/null)
+          sudo ldconfig
+          export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+          pkg-config --atleast-version=1.0.21 libsodium || { echo "::error::libsodium is below 1.0.21 — it would accept mixed-order points"; exit 1; }
+      # The consumer's cabal.project is written here, naming archon by source-repository-package
+      # pinned to the COMMIT resolve found, so Cabal fetches nothing but the tree under test.
+      - name: consume the tag the way Cabal does
+        env:
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+        run: |
+          set -euo pipefail
+          cabal update
+          node conformance/verify-source.mjs verify "${{ inputs.tag }}" "${{ needs.resolve.outputs.sha }}" haskell
