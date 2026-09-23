@@ -1,6 +1,6 @@
 {
   "name": "@bitspark/archon-cli",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "archon CLI: key / keygen / sign / verify over the identity floor.",
   "license": "Apache-2.0",
   "repository": {

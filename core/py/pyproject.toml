@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bitspark-archon-core"
-version = "0.8.0"
+version = "0.8.1"
 description = "archon core: Ed25519 primitives, the canonical key spelling, and the SPKI/PKCS-8 key codec. The identity floor beneath the law."
 readme = "README.md"
 requires-python = ">=3.11"

@@ -10,7 +10,7 @@ import (
 // in all three. It said "0.5.0" from 0.5.0 to 0.8.0 because nothing held it — Go has no
 // release build to stamp it, and the smoke case checked only the line's shape. A build can
 // still override it with `-ldflags "-X main.version=<v>"`.
-var version = "0.8.0"
+var version = "0.8.1"
 
 const versionUsage = "usage: archon version  (prints version + build info)"
 

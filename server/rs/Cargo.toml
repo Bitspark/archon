@@ -7,7 +7,7 @@
 # the tier adoptable by a service that has already chosen its stack.
 [package]
 name = "bitspark-archon-server"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/Bitspark/archon"
@@ -20,8 +20,8 @@ path = "src/lib.rs"
 [dependencies]
 # The floor and the layer above it. `login` is the only part of the sdk this crate touches:
 # the binding, the proofs and the audience grammar, consumed and never reimplemented.
-bitspark-archon-core = { path = "../../core/rs", version = "0.8.0" }
-bitspark-archon-sdk = { path = "../../sdk/rs", version = "0.8.0" }
+bitspark-archon-core = { path = "../../core/rs", version = "0.8.1" }
+bitspark-archon-sdk = { path = "../../sdk/rs", version = "0.8.1" }
 # The transport codec. The login SCHEME is bytes, not JSON, so nothing security-bearing
 # depends on serde.
 serde = { version = "1", features = ["derive"] }

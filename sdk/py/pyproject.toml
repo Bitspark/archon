@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bitspark-archon-sdk"
-version = "0.8.0"
+version = "0.8.1"
 description = "archon sdk: proof of possession and the signed envelope, one layer above the identity floor. Deterministic given its inputs; no RNG, no clock, no socket."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,7 +18,7 @@ authors = [{ name = "Bitspark" }]
 # version. archon versions in lockstep (ADR 0005), so the release's manifest guard holds this
 # range to the tag as well as the version above — an sdk that names an older floor than the
 # one it was tested against is the defect it exists to catch.
-dependencies = ["bitspark-archon-core~=0.8.0"]
+dependencies = ["bitspark-archon-core~=0.8.1"]
 
 classifiers = [
   "Development Status :: 3 - Alpha",

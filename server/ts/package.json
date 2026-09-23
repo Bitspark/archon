@@ -1,6 +1,6 @@
 {
   "name": "@bitspark/archon-server",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "archon login: the service-side handler — four routes, law-free, store-minimal. A fetch-style handler that opens no socket.",
   "license": "Apache-2.0",
   "repository": {
