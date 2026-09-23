@@ -6,3 +6,5 @@ go 1.25
 // separated signing), which this layer is built on. Local builds resolve it through the
 // repository's go.work instead; consumers resolve it from GitHub.
 require github.com/Bitspark/archon/core/go v0.8.1
+
+require filippo.io/edwards25519 v1.2.0 // indirect

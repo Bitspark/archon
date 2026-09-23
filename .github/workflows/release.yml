@@ -929,6 +929,26 @@ jobs:
           grep -q 'github.com/Bitspark/archon/core/go' go.sum && grep -q 'github.com/Bitspark/archon/sdk/go' go.sum
           go run .
 
+          # The CLI as the README installs it: `go install` of the command at this tag, into
+          # the same empty module cache, from the public proxy — and what it SAYS. Every Go
+          # CLI from 0.5.0 through 0.8.0 installed fine and reported "archon 0.5.0", because
+          # no release step ever ran the binary a Go user gets. -mod=readonly is the strict
+          # user setting: it fails when cli/go/go.mod does not list a module the build needs
+          # (filippo.io/edwards25519 was missing from 0.7.0 to 0.8.0), where the default
+          # quietly resolves it. Conditional on the TAG declaring its version constant a
+          # version site — the manifest guard's test — because every earlier CLI prints
+          # 0.5.0, and a re-dispatch of those tags must stay green.
+          if grep -q 'version is a version site' "$GITHUB_WORKSPACE/cli/go/cmd/archon/cmd_version.go" 2>/dev/null; then
+            gobin=$(mktemp -d)
+            GOBIN="$gobin" GOFLAGS=-mod=readonly go install "github.com/Bitspark/archon/cli/go/cmd/archon@v$VER"
+            line=$("$gobin/archon" version)
+            echo "go install github.com/Bitspark/archon/cli/go/cmd/archon@v$VER -> $line"
+            case "$line" in
+              "archon $VER ("*) ;;
+              *) echo "::error::the Go CLI installed at v$VER reports '$line'" >&2; exit 1 ;;
+            esac
+          fi
+
       - name: The Maven Central consumer, outside the checkout
         if: (env.VERIFY_ONLY == 'true' || steps.maven_publish.outputs.served == 'true') && !cancelled()
         # THIS STEP DOES NOT RUN IN A PUBLISH RUN, and the reason is measured rather than
