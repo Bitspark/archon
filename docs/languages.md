@@ -33,34 +33,43 @@ TypeScript carry both oracles; an sdk marked *possession + envelope* conforms to
 and does not implement the login scheme at all — which is a different claim from
 implementing it badly.
 
-## Current state — 0.7.0
+## Current state — 0.8.1
 
 | Language | core | sdk | cli | server | Coordinates | Conforming | Published |
 |---|---|---|---|---|---|---|---|
-| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ proxy + checksum db — **0.7.0**, and automatically (see below) |
-| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.7.0** |
-| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.7.0** |
-| **Python** | ✅ | ✅ possession + envelope | — | — | `bitspark-archon-{core,sdk}` (import `archon_{core,sdk}`) | 105/105; sdk 38/38 | ✅ PyPI — core **0.7.0**, wheel + sdist · sdk ⏳ from the next release, once its own pending publisher is registered |
-| **Java** | ✅ | ✅ possession + envelope | — | — | `dev.bitspark:archon-{core,sdk}` | 105/105; sdk 38/38 | ✅ Maven Central — core **0.7.0**, signed · sdk ⏳ from the next release (no account step needed) |
-| **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | ⏳ consumed from the tag — awaits a `verify-source` run (see below) |
-| **Swift** | ✅ | — | — | — | SwiftPM product `ArchonCore` (git URL + tag) | 105/105 | ⏳ consumed from the tag — awaits a `verify-source` run |
-| **Haskell** | ✅ | — | — | — | `bitspark-archon-core` (module `Archon.Core`), Cabal via Git | 105/105 | ⏳ consumed from the tag — awaits a `verify-source` run |
+| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ proxy + checksum db — **0.8.1**, and automatically (see below) |
+| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.8.1** |
+| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.8.1** |
+| **Python** | ✅ | ✅ possession + envelope | — | — | `bitspark-archon-{core,sdk}` (import `archon_{core,sdk}`) | 105/105; sdk 38/38 | ✅ PyPI — core and sdk **0.8.1**, wheel + sdist |
+| **Java** | ✅ | ✅ possession + envelope | — | — | `dev.bitspark:archon-{core,sdk}` | 105/105; sdk 38/38 | ✅ Maven Central — core and sdk **0.8.1**, signed |
+| **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | ✅ consumed from the tag — **v0.8.1**, `verify-source` green (see below) |
+| **Swift** | ✅ | — | — | — | SwiftPM product `ArchonCore` (git URL + tag) | 105/105 | ✅ consumed from the tag — **v0.8.1**, `verify-source` green |
+| **Haskell** | ✅ | — | — | — | `bitspark-archon-core` (module `Archon.Core`), Cabal via Git | 105/105 | ✅ consumed from the tag — **v0.8.1**, `verify-source` green |
 
 A published version is a version that was published — which is not the same as a version that
-was tagged. **Snapshot taken 2026-09-22 11:20Z**, and dated because an earlier version of
+was tagged. **Snapshot taken 2026-09-23 17:50Z**, and dated because an earlier version of
 this table went stale within the hour: it is a fact about the world, not about this
 repository, so re-measure rather than trust it.
 
-**0.7.0 is on every armed registry**, each verified by an outside consumer that installed it
+**0.8.1 is on every armed registry**, each verified by an outside consumer that installed it
 from the public registry with no source tree reachable:
 
 | registry | has | proof |
 |---|---|---|
-| Go proxy + `sum.golang.org` | **v0.7.0** (`@latest`) | the Go consumer, run 35682432520 |
-| npm | **0.7.0** (`latest`), all four packages | the npm consumer, same run |
-| crates.io | **0.7.0**, all four crates | the crates.io consumer, same run |
-| Maven Central | **0.7.0**, signed | the Central consumer, same run — resolved jar byte-identical to what Central serves |
-| PyPI | **0.7.0**, wheel + sdist | the Python round trip, same run |
+| Go proxy + `sum.golang.org` | **v0.8.1** (`@latest`) | the Go consumer, [run 35897703925](https://github.com/Bitspark/archon/actions/runs/35897703925) — including `go install …/cli/go/cmd/archon@v0.8.1` under `-mod=readonly`, which printed `archon 0.8.1` |
+| npm | **0.8.1** (`latest`), all four packages | the npm consumer, same run — the sdk names its floor as `^0.8.1` |
+| crates.io | **0.8.1**, all four crates | the crates.io consumer, same run |
+| PyPI | **0.8.1**, core and sdk, wheel + sdist | the Python round trips, same run — the sdk resolved its floor through `bitspark-archon-core~=0.8.1` |
+| Maven Central | **0.8.1**, core and sdk, signed | the Central consumers, in the second act Central's asynchronous serving requires (below) — [`verify_only` run 35899447264](https://github.com/Bitspark/archon/actions/runs/35899447264); each resolved jar byte-identical to what Central serves |
+
+**0.8.0 is tagged but was published only where a tag publishes by itself.** `v0.8.0` exists,
+so the Go proxy serves it; it went to no other registry. Its Go and TypeScript CLIs reported
+`archon version` as 0.5.0 — as every release since 0.5.0 had, unnoticed because the smoke test
+checked the version's shape and not its value. A tag cannot be moved, so the correction is
+0.8.1, which went everywhere; the version is now held by value in all three CLI lanes, and
+the release runs the Go CLI a user actually gets. Measured from the public registries, each in
+a clean room: `npm install @bitspark/archon-cli@0.8.1`, `go install …/cli/go/cmd/archon@v0.8.1`
+and `cargo install bitspark-archon-cli@0.8.1` all print `archon 0.8.1`.
 
 To re-measure, ask each registry rather than reading the tag list:
 
@@ -68,7 +77,7 @@ To re-measure, ask each registry rather than reading the tag list:
 curl -s https://registry.npmjs.org/@bitspark/archon | jq '.["dist-tags"], (.versions|keys)'
 curl -s https://crates.io/api/v1/crates/bitspark-archon-core/versions | jq '[.versions[].num]'
 curl -s https://proxy.golang.org/github.com/!bitspark/archon/core/go/@latest
-curl -so /dev/null -w '%{http_code}\n' https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/0.7.0/archon-core-0.7.0.pom
+curl -so /dev/null -w '%{http_code}\n' https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/0.8.1/archon-core-0.8.1.pom
 ```
 
 **Go is the asymmetry to keep in mind:** nobody publishes it, and nothing gates it. Pushing a
@@ -85,22 +94,28 @@ installs the exported package, and builds the tag's consumer against that instal
 Nothing from the workspace participates — a build that succeeded because a checkout happened
 to be lying in the working directory would prove something about the runner, not the tag.
 
-C++ counts as published when that run is green. It cannot run yet: the C++ core landed
-**after** `v0.7.0` was cut, so no existing tag contains it, and the workflow says so rather
-than failing obscurely. The next tag is the one that can answer.
+C++ counts as published when that run is green for the tag, and so do Swift and Haskell,
+which are consumed the same way. `v0.8.1` is the first tag to contain all three, and
+[run 35897379494](https://github.com/Bitspark/archon/actions/runs/35897379494) was green for
+each: the clone's HEAD matched the `0f3ac90` the remote serves, the tag's own oracle passed
+over the tag's own vectors, and each ecosystem's consumer derived the same key — CMake
+against the installed `archon::core`, SwiftPM resolving `archon 0.8.1` by URL (to the tag's
+commit, asserted from `Package.resolved`), and Cabal through a `source-repository-package`
+pinned to that commit.
 
 **Maven Central is the other one.** It accepts and validates in seconds and serves much
 later — **44 minutes** for archon-core 0.7.0, validated 15:15:38Z and served 15:59:40Z, past
-the ~37 minutes a publish job could ever wait — so a green publish run proves the upload,
-not the availability. Java counts as published when a consumer resolves it from the public
+the ~37 minutes a publish job could ever wait. For 0.8.1 it was about 12 minutes (the run
+reported both deployments `PUBLISHING` by 17:48:43Z, and repo1 served both by 17:59:35Z), so
+the delay is not a constant to wait out. A green publish run proves the upload, not the
+availability. Java counts as published when a consumer resolves it from the public
 repository — which happens in a **later** run, not the one that published it. Either a
 `verify_only` dispatch, or a re-dispatch: the publish step skips a version Central already
 serves and records that it did, and the consumer runs on that signal, because an artifact
 already being served has no propagation left to wait for. 0.7.0 was verified the second way.
 
-0.7.0 is the next release for the other registries, and it carries Java — but only because
-the release workflow checks out **two trees**, which is worth understanding before changing
-anything there.
+0.7.0 was the first release to carry Java — and only because the release workflow checks out
+**two trees**, which is worth understanding before changing anything there.
 
 A release checks out its own tag, so anything read from that tree is whatever existed when
 the tag was cut. `v0.7.0` is `9ce7589`: it contains `core/java` at 0.7.0 with the profile, so
@@ -115,13 +130,15 @@ the point: **the product is the tag's, the tooling is the workflow's.** What get
 is the exact tagged source; what checks it is the current program.
 
 Re-cutting the tag was never an option. `core/go/v0.7.0` is already pinned in
-`sum.golang.org` — and on that note, see the Go row above. C++ is the row
-to read carefully: its signing is correct — OpenSSL ≥ 3.2 reproduces every `domain_sign`
-vector byte for byte — and it fails only on acceptance. `EVP_PKEY_public_check` validates
-nothing for Ed25519, and OpenSSL exposes no scalar multiplication for the curve, so the
-profile predicate cannot be written against its public API at all. That is a packaging
-question, not a coding one, and [ADR 0008 §8](architecture/decisions/0008-the-ed25519-verification-profile.md)
-is where it is owed an answer.
+`sum.golang.org` — and on that note, see the Go row above. C++ was the row
+to read carefully: its signing was correct from the start — OpenSSL ≥ 3.2 reproduces every
+`domain_sign` vector byte for byte — but `EVP_PKEY_public_check` validates nothing for
+Ed25519, and OpenSSL exposes no scalar multiplication for the curve, so the profile predicate
+cannot be written against its public API at all. [ADR 0008 §8](architecture/decisions/0008-the-ed25519-verification-profile.md)
+answered it with two libraries: OpenSSL signs, and libsodium ≥ 1.0.21 decides acceptance.
+C++, Swift and Haskell all bind that pair, and each holds the libsodium floor **twice** — at
+build time, and again at run time, because 1.0.20 and 1.0.22 share a soname and a binary
+built against the floor can load a library below it.
 
 The registry prefixes differ by ecosystem because the namespaces do. crates.io and PyPI are
 flat, so those carry `bitspark-`; npm has scopes, so it carries `@bitspark/`. **The prefix is
