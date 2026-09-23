@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Bitspark/atlas/main/schema/atlas-manifest.schema.json",
+  "name": "archon",
+  "greek": "ἄρχων",
+  "gloss": "the officeholder; the one who bears the office",
+  "is": "the identity floor — who you provably are: Ed25519 keys, the canonical key spelling, the SPKI/PKCS-8 codec and signature verification, beneath the law that says what you may do",
+  "layer": "substance",
+  "dependsOn": [],
+  "docs": {
+    "entry": "README.md"
+  }
+}
