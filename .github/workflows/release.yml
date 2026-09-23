@@ -201,6 +201,16 @@ jobs:
             dep=$(grep -A1 '<artifactId>archon-core</artifactId>' "$f" | grep -m1 -oE '<version>[^<]*</version>' | sed 's|</*version>||g')
             [ "$dep" = '${project.version}' ] || { echo "::error::$f names archon-core at $dep; it must be \${project.version}"; fail=1; }
           fi
+          # The Go command's version constant. Go has no release build to stamp `archon version`,
+          # so the constant IS what a `go install .../cli/go/cmd/archon@vX` user is told; it said
+          # "0.5.0" from 0.5.0 to 0.8.0 because nothing held it. Conditional on the file DECLARING
+          # itself a version site, not merely existing: every tag through v0.8.0 has the file with
+          # "0.5.0" in it, and a verify_only of those tags must stay green.
+          f=cli/go/cmd/archon/cmd_version.go
+          if [ -f "$f" ] && grep -q 'version is a version site' "$f"; then
+            got=$(grep -m1 -E '^var version = "' "$f" | cut -d'"' -f2)
+            [ "$got" = "$want" ] || { echo "::error::$f reports $got, tag says $want"; fail=1; }
+          fi
           exit $fail
 
       - name: Hold the Go module tags to the same version

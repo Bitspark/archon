@@ -98,10 +98,16 @@ const LOGIN_USAGE =
 
 // Each case: args, optional stdin, expected stdout (exact) or a `shape` regex, expected
 // exit code. `after` hooks let later cases depend on files earlier ones wrote.
+// The version every lane must REPORT: the command's package version, which release.yml's
+// manifest guard holds to the tag (and cli/rs/Cargo.toml to it). Only the commit in the
+// parentheses is left to shape. Checking the whole line by shape let the Go and TS lanes
+// say "0.5.0" from 0.5.0 to 0.8.0 while Rust said the truth.
+const CLI_VERSION = JSON.parse(readFileSync(join(root, "cli", "ts", "package.json"), "utf8")).version;
 const cases = [
   { name: "--help", args: ["--help"], want: "usage: archon <keygen|key|login|sign|verify|version> [args]\n", code: 0 },
   { name: "unknown subcommand", args: ["nope"], want: "", code: 2 },
-  { name: "version shape", args: ["version"], shape: /^archon \d+\.\d+\.\d+ \(.+\)\n$/, code: 0 },
+  { name: `version is ${CLI_VERSION}`, args: ["version"],
+    shape: new RegExp(`^archon ${CLI_VERSION.replace(/\./g, "\\.")} \\(.+\\)\\n$`), code: 0 },
   { name: "key encode", args: ["key", "encode", PUB], want: `${TEXT}\n`, code: 0 },
   { name: "key decode", args: ["key", "decode", TEXT], want: `${PUB}\n`, code: 0 },
   { name: "key encode refuses 31 bytes", args: ["key", "encode", PUB.slice(0, 62)], want: "", code: 1 },
