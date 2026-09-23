@@ -5,7 +5,9 @@ A release is one commit on `main`, one version in every manifest, five tags, one
 conformance and publication separately, because a tag does not claim an upload to every
 registry, and a registry step that did not run is not a registry that published.
 
-The current release is **0.7.0**. Published versions and tags are immutable: a version burned
+The current release is **0.8.1**. `v0.8.0` is tagged, so the Go proxy serves it, but it went to
+no other registry: its Go and TypeScript CLIs reported `archon version` as 0.5.0, and 0.8.1 is
+the correction. Published versions and tags are immutable: a version burned
 on a registry stays burned, a tag is never moved (`release-tags-immutable` refuses it), and a
 correction is the next version.
 
@@ -154,4 +156,7 @@ So the release workflow has nothing to publish for them, and their proof is
 release, it resolves the tag on the public remote, clones it, and builds each core's own
 consumer against it as a stranger would. **Their rows in the matrix say "published" only once
 that run is green for the tag in question.** A tag cut before a core existed cannot verify it,
-and the workflow says so rather than failing obscurely.
+and the workflow says so rather than failing obscurely. `v0.8.1` is the first tag to contain
+all three, and its run —
+[35897379494](https://github.com/Bitspark/archon/actions/runs/35897379494) — was green for
+each.

@@ -97,8 +97,8 @@ cargo add bitspark-archon-core                   # use archon_core::…
 # TypeScript
 npm install @bitspark/archon                     # also -sdk, -cli, -server
 
-# Python — the floor; import archon_core
-pip install bitspark-archon-core
+# Python — import archon_core, archon_sdk
+pip install bitspark-archon-core                 # also bitspark-archon-sdk
 
 # Java — Maven Central
 #   <dependency><groupId>dev.bitspark</groupId><artifactId>archon-core</artifactId>
