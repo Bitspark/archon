@@ -106,10 +106,10 @@ pip install bitspark-archon-core
 ```
 
 The Go modules resolve directly from this repository and need nothing else; the others are
-on their public registries. Python and Java have the floor published; Python also has an sdk
+on their public registries. Python and Java have the floor published; each also has an sdk
 (possession and envelope, not the login scheme) in this tree, which ships with the next
-release as `bitspark-archon-sdk`. Which language carries which tier, and how each claim is
-proven, is in [docs/languages.md](docs/languages.md).
+release as `bitspark-archon-sdk` and `dev.bitspark:archon-sdk`. Which language carries which
+tier, and how each claim is proven, is in [docs/languages.md](docs/languages.md).
 
 The command is the same in all three languages — install it from whichever you already have:
 

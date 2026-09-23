@@ -25,13 +25,13 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 |---|---|
 | `core` | key bytes, the canonical key text, SPKI/PKCS-8, raw and domain-separated signing |
 | `sdk` | signed envelopes, proof of possession ([`vectors/sdk.json`](../vectors/sdk.json)), and the login scheme's proofs and audience binding ([`vectors/login.json`](../vectors/login.json)) |
+| `cli` | the `archon` command |
+| `server` | the login endpoint |
 
 An sdk tick below names what that sdk carries when it is not all of it. Go, Rust and
 TypeScript carry both oracles; an sdk marked *possession + envelope* conforms to `sdk.json`
 and does not implement the login scheme at all — which is a different claim from
 implementing it badly.
-| `cli` | the `archon` command |
-| `server` | the login endpoint |
 
 ## Current state — 0.7.0
 
@@ -41,7 +41,7 @@ implementing it badly.
 | **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.7.0** |
 | **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.7.0** |
 | **Python** | ✅ | ✅ possession + envelope | — | — | `bitspark-archon-{core,sdk}` (import `archon_{core,sdk}`) | 105/105; sdk 38/38 | ✅ PyPI — core **0.7.0**, wheel + sdist · sdk ⏳ from the next release, once its own pending publisher is registered |
-| **Java** | ✅ | — | — | — | `dev.bitspark:archon-core` | 105/105 | ✅ Maven Central — **0.7.0**, signed |
+| **Java** | ✅ | ✅ possession + envelope | — | — | `dev.bitspark:archon-{core,sdk}` | 105/105; sdk 38/38 | ✅ Maven Central — core **0.7.0**, signed · sdk ⏳ from the next release (no account step needed) |
 | **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | ⏳ consumed from the tag — awaits a `verify-source` run (see below) |
 | **Swift** | ✅ | — | — | — | SwiftPM product `ArchonCore` (git URL + tag) | 105/105 | ⏳ consumed from the tag — awaits a `verify-source` run |
 | **Haskell** | ✅ | — | — | — | `bitspark-archon-core` (module `Archon.Core`), Cabal via Git | 105/105 | ⏳ consumed from the tag — awaits a `verify-source` run |
@@ -168,6 +168,18 @@ local check and the published check cannot drift. Its assertions were chosen by 
 rather than by plausibility: with the core's profile predicate disabled, the mixed-order case
 fails. The obvious candidate — the identity public key — does **not** fail, because Bouncy
 Castle refuses that one itself, so asserting it alone would have proved nothing about archon.
+
+The Java sdk has the same three: `sdk/java/src/test` (17 tests, including the two
+verify-side refusals the oracle cannot catch — see the Python sdk above),
+`conformance/check-java-sdk.mjs`, and `conformance/check-java-sdk-package.mjs`. `archon-sdk`
+names `archon-core` by coordinates, at `${project.version}`, so a plain build would resolve
+whatever floor the local repository or Central holds at that version; the oracle check
+installs the in-tree floor first and asserts the jar the sdk resolved is **byte-identical**
+to the one it just built. The package check runs
+[`conformance/consumers/java-sdk`](../conformance/consumers/java-sdk) — the program the
+release workflow runs against Central — which declares **only** `archon-sdk`, asserts the
+floor and Bouncy Castle arrived transitively, and fails if a genuine envelope sealed in
+another domain opens: measured, by replacing the sdk's domain check with the naive one.
 
 ## What adding a language actually costs
 

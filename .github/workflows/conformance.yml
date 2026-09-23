@@ -178,6 +178,20 @@ jobs:
       # the jar does not leak the conformance CLI or its test-scoped JSON dependency.
       - name: install + consume the jar from outside
         run: node conformance/check-java-package.mjs
+      # The layer above the floor. archon-sdk names archon-core by coordinates, so the in-tree
+      # floor is installed first — the check script does that itself and asserts the sdk
+      # resolved THAT jar, byte for byte, not the one Maven Central serves at the same version.
+      - name: sdk tests, on the in-tree floor
+        run: |
+          set -euo pipefail
+          (cd core/java && mvn -B -q install -DskipTests)
+          (cd sdk/java && mvn -B test)
+      - name: sdk conformance against the oracle
+        run: node conformance/check-java-sdk.mjs
+      # The consumer declares ONLY archon-sdk: the floor and Bouncy Castle must arrive
+      # transitively, and a genuine envelope sealed in another domain must be refused.
+      - name: sdk jar consumed from outside
+        run: node conformance/check-java-sdk-package.mjs
 
   cpp:
     name: cpp
