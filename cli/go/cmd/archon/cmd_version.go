@@ -5,9 +5,12 @@ import (
 	"runtime/debug"
 )
 
-// version defaults to a semver so `archon version` has a valid shape even under `go run`;
-// a release build can override it with `-ldflags "-X main.version=<v>"`.
-var version = "0.5.0"
+// version is a version site: held to the tag by release.yml's manifest guard, and to the
+// other two lanes by cli/smoke.mjs, which pins `archon version` to cli/ts's package version
+// in all three. It said "0.5.0" from 0.5.0 to 0.8.0 because nothing held it — Go has no
+// release build to stamp it, and the smoke case checked only the line's shape. A build can
+// still override it with `-ldflags "-X main.version=<v>"`.
+var version = "0.8.0"
 
 const versionUsage = "usage: archon version  (prints version + build info)"
 
