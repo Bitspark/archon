@@ -149,21 +149,23 @@
       "valid": false
     },
     {
+      "note": "a 15-byte nonce, with a GENUINE signature over its layout 01 ‖ 000f ‖ nonce ‖ 0009 ‖ binding — Ed25519ph, context archon/test/pop, derived with OpenSSL 3.2.4 (the procedure validated first by reproducing `basic` byte-for-byte). The equation holds, so only the sdk's MIN_NONCE_SIZE refusal can make this false. Until 0.8.0 this case carried `basic`'s signature, which is false over this layout whether or not an sdk checks the nonce: measured, an sdk with the refusal deleted passed it.",
       "name": "nonce-15-rejected",
       "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
       "domain": "archon/test/pop",
       "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "binding": "73657373696f6e3a31",
-      "sig": "237325894706dbc4c85a3e64a2091ad90d4061694205487794a6b34c0b4e46ec8a92ef770c20e6bc9d620d424846fde074a56b4ca8d660061fb1280c6ef8990b",
+      "sig": "f7d062cb7aa8e94a61e8455ca774ac5117663fdfa2749426eb005f338bc4e7da9facf47949a38f550522562dbf872849719717c3faab260c89ea1016cc7d1901",
       "valid": false
     },
     {
+      "note": "an empty binding, with a GENUINE signature over its layout 01 ‖ 0010 ‖ nonce ‖ 0000 — derived as for nonce-15-rejected. The equation holds, so only the sdk's refusal of an unbound proof can make this false. Until 0.8.0 this case carried `basic`'s signature and pinned nothing.",
       "name": "binding-empty-rejected",
       "pubkey": "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737",
       "domain": "archon/test/pop",
       "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "binding": "",
-      "sig": "237325894706dbc4c85a3e64a2091ad90d4061694205487794a6b34c0b4e46ec8a92ef770c20e6bc9d620d424846fde074a56b4ca8d660061fb1280c6ef8990b",
+      "sig": "e278b3806d0c48670e705b824872baa57a9732c6ecd5fd2c8a46283b849a7d6b66fa4698918948a931926d68a853d90a08b1c8d32192f3e23e6bd89f2fe7c103",
       "valid": false
     },
     {
