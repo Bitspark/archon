@@ -154,11 +154,18 @@ The Python sdk has the same three, one layer up: `sdk/py/test` (16 tests),
 `conformance/check-py-sdk-package.mjs`, which installs the sdk wheel on the floor's wheel from
 the same tree and asserts two things only an install can show — that the sdk names its floor
 by a registry range equal to its own version, and that an envelope genuinely sealed in
-another domain is refused. The unit tests carry two refusals the oracle cannot: `sdk.json`'s
-`nonce-15-rejected` and `binding-empty-rejected` **verify** cases hold signatures that are
-not genuine over their own layout, so they come out `false` whether or not an sdk checks the
-shape at all. Measured: with both refusals deleted, all 12 `possession_verify` cases still
-pass, and only the unit tests go red.
+another domain is refused.
+
+Writing the Python sdk found a gap in `sdk.json` itself, in every language. Its
+`nonce-15-rejected` and `binding-empty-rejected` **verify** cases carried `basic`'s signature,
+which is not genuine over their own layouts — so they came out `false` whether or not an sdk
+checked the shape at all. Measured: with both refusals deleted, all 12 `possession_verify`
+cases still passed. Since 0.8.0 both carry a **genuine** signature over their layout, derived
+with OpenSSL 3.2.4 as the authoring rule requires (the procedure validated first by
+reproducing `basic` byte-for-byte, and the results confirmed genuine by PyCryptodome, a
+second implementation). Measured again: the same deleted-refusals sdk now fails both, and all
+five sdks — Go, Rust, TypeScript, Python, Java — pass. The unit tests keep their own
+genuine-signature versions, as in-language pins of the same refusals.
 
 For Java they are `core/java/src/test`, `conformance/check-java.mjs`, and
 `conformance/check-java-package.mjs`. The third resolves `dev.bitspark:archon-core` into a
@@ -169,8 +176,8 @@ rather than by plausibility: with the core's profile predicate disabled, the mix
 fails. The obvious candidate — the identity public key — does **not** fail, because Bouncy
 Castle refuses that one itself, so asserting it alone would have proved nothing about archon.
 
-The Java sdk has the same three: `sdk/java/src/test` (17 tests, including the two
-verify-side refusals the oracle cannot catch — see the Python sdk above),
+The Java sdk has the same three: `sdk/java/src/test` (17 tests, including in-language pins of
+the two verify-side refusals — see the Python sdk above),
 `conformance/check-java-sdk.mjs`, and `conformance/check-java-sdk-package.mjs`. `archon-sdk`
 names `archon-core` by coordinates, at `${project.version}`, so a plain build would resolve
 whatever floor the local repository or Central holds at that version; the oracle check

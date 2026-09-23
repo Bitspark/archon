@@ -17,9 +17,10 @@ import org.junit.jupiter.api.Test;
  *
  * <p>The oracle in vectors/sdk.json is the cross-language authority and is driven by
  * conformance/check-java-sdk.mjs; these cover the same ground from inside Java, plus what the
- * oracle's {@code ok} / {@code error} protocol cannot express: which exception is thrown, that
- * verification never throws, and the two refusals whose oracle cases carry no genuine signature (a
- * short nonce and an empty binding on the VERIFY side — see the tests below).
+ * oracle's {@code ok} / {@code error} protocol cannot express: which exception is thrown, and that
+ * verification never throws. The two verify-side refusals below (a short nonce and an empty
+ * binding) are also pinned by the oracle since 0.8.0; before that its cases for them carried no
+ * genuine signature, and these tests were the only thing that caught their removal.
  */
 final class SdkTest {
 
@@ -90,10 +91,9 @@ final class SdkTest {
   }
 
   /**
-   * The oracle's {@code binding-empty-rejected} verify case carries a signature that is not
-   * genuine over its own layout, so it is false whether or not the refusal exists. This one IS
-   * genuine: the exact bytes the scheme would sign if it allowed an empty binding, signed in the
-   * domain. Only the sdk's own check can refuse it.
+   * A GENUINE signature over the exact bytes the scheme would sign if it allowed an empty
+   * binding, in the domain — so only the sdk's own check can refuse it. The oracle's {@code
+   * binding-empty-rejected} verify case has pinned the same thing since 0.8.0.
    */
   @Test
   void verifyRefusesAGenuineSignatureOverAnUnboundLayout() {
@@ -103,7 +103,7 @@ final class SdkTest {
     assertFalse(Possession.verify(pub, DOMAIN, NONCE, new byte[0], genuine));
   }
 
-  /** The same gap for {@code nonce-15-rejected}: a genuine signature over the 15-byte layout. */
+  /** The same for {@code nonce-15-rejected}: a genuine signature over the 15-byte layout. */
   @Test
   void verifyRefusesAGenuineSignatureOverAShortNonce() {
     byte[] pub = Crypto.publicKeyFromSeed(SEED);

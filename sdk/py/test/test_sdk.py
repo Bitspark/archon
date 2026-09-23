@@ -2,9 +2,10 @@
 
 The oracle in `vectors/sdk.json` is the cross-language authority and is driven by
 `conformance/check-py-sdk.mjs`; these tests cover the same ground from inside Python, plus
-what the oracle's `ok` / `error` protocol cannot express: which exception is raised, that
-verification never raises, and the two refusals whose oracle cases carry no genuine
-signature (a short nonce and an empty binding on the VERIFY side — see the tests below).
+what the oracle's `ok` / `error` protocol cannot express: which exception is raised, and that
+verification never raises. The two verify-side refusals below (a short nonce and an empty
+binding) are also pinned by the oracle since 0.8.0; before that its cases for them carried
+no genuine signature, and these tests were the only thing that caught their removal.
 """
 
 import pytest
@@ -75,17 +76,16 @@ def test_prove_refuses_what_is_not_a_proof():
 
 
 def test_verify_refuses_a_genuine_signature_over_an_unbound_layout():
-    # The oracle's `binding-empty-rejected` verify case carries a signature that is not
-    # genuine over its own layout, so it is false whether or not the refusal exists. This
-    # one IS genuine: the exact bytes the scheme would sign if it allowed an empty binding,
-    # signed in the domain. Only the sdk's own check can refuse it.
+    # A GENUINE signature over the exact bytes the scheme would sign if it allowed an empty
+    # binding, in the domain — so only the sdk's own check can refuse it. The oracle's
+    # `binding-empty-rejected` verify case has pinned the same thing since 0.8.0.
     pub = public_key_from_seed(SEED)
     unbound = b"\x01" + b"\x00\x10" + NONCE + b"\x00\x00"
     assert not possession.verify(pub, DOMAIN, NONCE, b"", sign_in_domain(SEED, DOMAIN, unbound))
 
 
 def test_verify_refuses_a_genuine_signature_over_a_short_nonce():
-    # The same gap for `nonce-15-rejected`: a genuine signature over the 15-byte layout.
+    # The same for `nonce-15-rejected`: a genuine signature over the 15-byte layout.
     pub = public_key_from_seed(SEED)
     short = bytes(15)
     layout = b"\x01" + b"\x00\x0f" + short + b"\x00\x07" + BINDING
