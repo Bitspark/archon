@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               bitspark-archon-core
-version:            0.8.0
+version:            0.8.1
 synopsis:           archon's identity floor: Ed25519 keys, their canonical text, SPKI/PKCS-8, domain-separated signing
 description:
     The Haskell presentation of archon's core. It answers two questions — are these bytes that

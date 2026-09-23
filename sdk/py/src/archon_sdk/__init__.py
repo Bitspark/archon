@@ -21,6 +21,6 @@ are held to. The login scheme, which the other three also carry, is not here yet
 from . import envelope, possession
 from .envelope import Opened
 
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 
 __all__ = ["envelope", "possession", "Opened", "__version__"]

@@ -10,7 +10,7 @@
 # and archon shipped no CLI at all. `sign` / `verify` are new: raw bytes, domain-aware.
 [package]
 name = "bitspark-archon-cli"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/Bitspark/archon"
@@ -21,10 +21,10 @@ name = "archon"
 path = "src/main.rs"
 
 [dependencies]
-bitspark-archon-core = { path = "../../core/rs", version = "0.8.0" }
+bitspark-archon-core = { path = "../../core/rs", version = "0.8.1" }
 # The layer above the floor. `login` is the only part of it this CLI touches: the login
 # scheme's binding and proof, which the CLI consumes and never reimplements.
-bitspark-archon-sdk = { path = "../../sdk/rs", version = "0.8.0" }
+bitspark-archon-sdk = { path = "../../sdk/rs", version = "0.8.1" }
 # keygen's OS CSPRNG — the CLI's, never the library's.
 getrandom = "0.4"
 # login's HTTP + JSON. minreq is chosen on a MEASUREMENT, not a preference: against a

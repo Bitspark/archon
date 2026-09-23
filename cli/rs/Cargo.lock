@@ -55,7 +55,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "bitspark-archon-cli"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "argon2",
  "bitspark-archon-core",
@@ -71,14 +71,14 @@ dependencies = [
 
 [[package]]
 name = "bitspark-archon-core"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "ed25519-dalek",
 ]
 
 [[package]]
 name = "bitspark-archon-sdk"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "bitspark-archon-core",
 ]

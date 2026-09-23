@@ -17,6 +17,6 @@ use (
 // Bitspark/archon is private, so a CI runner has no credentials for that lookup and the
 // build dies on `git ls-remote` while a developer machine sails through on GOPRIVATE plus
 // a token. These replaces say what `use` already means, unconditionally.
-replace github.com/Bitspark/archon/core/go v0.8.0 => ./core/go
+replace github.com/Bitspark/archon/core/go v0.8.1 => ./core/go
 
-replace github.com/Bitspark/archon/sdk/go v0.8.0 => ./sdk/go
+replace github.com/Bitspark/archon/sdk/go v0.8.1 => ./sdk/go
