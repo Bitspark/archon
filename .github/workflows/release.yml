@@ -880,6 +880,33 @@ jobs:
           fi
           node consumer.mjs
 
+          # The CLI as the README installs it — `npm install -g @bitspark/archon-cli` — into a
+          # fresh prefix, and what it SAYS. The consumer above installs only the floor and the
+          # sdk, so no release step ever ran the npm CLI: from 0.5.0 through 0.8.0 it printed
+          # "archon 0.5.0". Its own retry, because npm serves each package's record on its
+          # own schedule — archon-cli 0.8.1 appeared three minutes after the other three.
+          # Conditional on the tag declaring its version site, as the Go CLI's check is: the
+          # TS lane began reading its package.json in the same change (#37), and every
+          # earlier npm CLI prints 0.5.0, so a re-dispatch of those tags must stay green.
+          if grep -q 'version is a version site' "$GITHUB_WORKSPACE/cli/go/cmd/archon/cmd_version.go" 2>/dev/null; then
+            prefix=$(mktemp -d); ok=0; err=""
+            for i in $(seq 1 60); do
+              if err=$(npm install -g --prefix "$prefix" --no-audit --no-fund --registry https://registry.npmjs.org --@bitspark:registry=https://registry.npmjs.org "@bitspark/archon-cli@$VER" 2>&1); then ok=1; break; fi
+              echo "registry not serving @bitspark/archon-cli@$VER yet (try $i/60) - waiting"; sleep 10
+            done
+            if [ "$ok" -ne 1 ]; then
+              echo "last attempt said:"; echo "$err" | tail -n 20
+              echo "::error::@bitspark/archon-cli@$VER did not become installable within 10 minutes. The publish steps SUCCEEDED - check the registry before assuming the release failed." >&2
+              exit 1
+            fi
+            line=$("$prefix/bin/archon" version)
+            echo "npm install -g @bitspark/archon-cli@$VER -> $line"
+            case "$line" in
+              "archon $VER ("*) ;;
+              *) echo "::error::the npm CLI installed at $VER reports '$line'" >&2; exit 1 ;;
+            esac
+          fi
+
       - name: The crates.io consumer, outside the checkout
         if: env.REHEARSE != 'true' && !cancelled()
         run: |
@@ -900,6 +927,21 @@ jobs:
           fi
           grep -A2 'name = "bitspark-archon-' Cargo.lock | grep -q 'registry+https://github.com/rust-lang/crates.io-index' || { echo "::error::the crates did not resolve from crates.io" >&2; exit 1; }
           cargo run --quiet
+
+          # The CLI as the README installs it — `cargo install bitspark-archon-cli`, pinned to
+          # this version, into a fresh root — and what it SAYS. The consumer above builds
+          # against the libraries only, so no release step ever built the published CLI
+          # crate: a file missing from its package, or a dependency that no longer resolves,
+          # would reach users unseen. The Rust lane has always reported its version truly
+          # (CARGO_PKG_VERSION), so this runs for every tag.
+          root=$(mktemp -d)
+          cargo install --quiet --root "$root" bitspark-archon-cli --version "=$VER"
+          line=$("$root/bin/archon" version)
+          echo "cargo install bitspark-archon-cli@$VER -> $line"
+          case "$line" in
+            "archon $VER ("*) ;;
+            *) echo "::error::the crates.io CLI installed at $VER reports '$line'" >&2; exit 1 ;;
+          esac
 
       - name: The Go consumer, outside the checkout
         if: env.REHEARSE != 'true' && !cancelled()
