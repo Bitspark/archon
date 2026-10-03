@@ -1,0 +1,74 @@
+# Adopting archon
+
+Which part of archon does which job, what it deliberately leaves to you, and what it will not
+interoperate with. Language coverage and the exact published versions are in
+[languages.md](languages.md) and are not repeated here; this page names the tier, and that
+page says which languages carry it. The current release is **0.8.1**.
+
+## Which part does which job
+
+| You need to… | Use | Tier | Notes |
+|---|---|---|---|
+| spell a public key as text, or read and write PEM | `encode_key` / `decode_key`, the SPKI and PKCS#8 codecs | `core` | one spelling, `ed25519:<64 hex>`; byte codecs, not key storage |
+| sign bytes any Ed25519 verifier can check | raw `sign` / `verify` | `core` | pure Ed25519 (RFC 8032); see [the two schemes](#the-two-signature-schemes) |
+| sign bytes so the signature counts in one context only | `sign_in_domain` / `verify_in_domain` | `core` | Ed25519ph with the domain as the RFC 8032 context; refused in every other domain and as a raw signature |
+| prove you hold a key, over a challenge and something it is bound to | possession `prove` / `verify` | `sdk` | the binding must not be empty; what goes into it is your protocol's to define |
+| send a payload that only opens under its expected domain and key | envelope `seal` / `open` | `sdk` | |
+| let a person's key authorize a key-less client (a browser, a CI job) for a stated scope and time | the login scheme ([login.md](login.md)), `archon login`, and the mounted login handler | `sdk`, `cli`, `server` | Go, Rust and TypeScript; Python and Java have possession and envelope but not login |
+| keep a person's key on their machine under a name and a password | `archon key`, `keygen --store`, `login --key` | `cli` | [ADR 0007](architecture/decisions/0007-custody-in-the-command-and-the-login-server-tier.md) §A; for people — agents and CI use seed files |
+| decide what a key is allowed to do | **not archon** — a grant layer such as thesmos | — | the login handler passes the authority payload, as opaque bytes, to an `AdmitAuthority` callback you supply, and never reads it |
+
+## What each tier owns
+
+- **`core`** — key bytes, the key text, the PEM codecs, raw and domain-separated signing, and
+  [the verification profile](architecture/decisions/0008-the-ed25519-verification-profile.md):
+  what every implementation accepts, written down once and checked ahead of the library.
+- **`sdk`** — possession, the envelope and the login scheme's binding and proofs: deterministic
+  byte layouts with vectors. No clock, no entropy, no I/O; time and randomness are arguments.
+- **`server`** — the login handler a service mounts: the routes, a configured audience,
+  injected clock and entropy, one in-memory record per pending login. It opens no socket and
+  interprets no authority.
+- **`cli`** — the `archon` command, and the one place keys are kept (the store above).
+
+## The two signature schemes
+
+archon signs in two ways, and they are not interchangeable.
+
+- **Raw** — pure Ed25519 over exactly the bytes given. Any standard Ed25519 implementation
+  produces and checks these.
+- **Domain-separated** — Ed25519ph with the domain as the RFC 8032 context string. Possession
+  proofs, envelopes and login proofs are all built on it. A signature made in one domain
+  verifies in no other domain and never as a raw signature.
+
+WebCrypto's Ed25519, SSH agents and CryptoKit sign pure Ed25519 only. They can at most
+produce raw signatures; **none of them can produce an archon domain signature, so none can
+make a possession, envelope or login proof**. HSMs and hardware tokens vary: only one that
+computes Ed25519ph with a caller-supplied context could, and archon has tested none as a
+signer. A raw signature never stands in for a domain signature — the domain-separated verify
+refuses it, by design.
+
+## What the login scheme is, and is not
+
+archon login is its own proof-of-possession protocol, specified in [login.md](login.md): a
+person approves a scope and a duration with a key they hold, and a key-less client receives a
+delegation bound to the service's configured audience. It borrows device-flow vocabulary for
+its error codes. **It is not an OAuth or OpenID Connect provider, not SAML, and not a browser
+single sign-on integration**, and it issues no bearer token. Whether the person behind the key
+may do anything is the authority layer's question, answered in your `AdmitAuthority`.
+
+## Not available — proposed only
+
+These are open proposals with no decision. Do not build on them as if they existed:
+
+- `archon sign --key <name>` — signing with a stored key; today `sign` takes `--key-file` or
+  `--seed`, and only `login` reads the store ([#47](https://github.com/Bitspark/archon/issues/47));
+- a reusable signer interface for other tools to sign through archon's store without receiving
+  the seed (#47);
+- request-authentication and key-enrollment profiles for authenticating ordinary API requests
+  ([#48](https://github.com/Bitspark/archon/issues/48)).
+
+## Getting started
+
+The README's [quickstart](../README.md) is executed as written, in all three command
+implementations, on every push. `node cli/quickstart.mjs -- archon` runs it against the
+`archon` you have installed.

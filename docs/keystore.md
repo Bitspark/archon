@@ -1,6 +1,6 @@
 # The archon key store — file format
 
-**Status:** for review on the LANE A PR · implements [ADR 0007](architecture/decisions/0007-custody-in-the-command-and-the-login-server-tier.md) §A
+**Status:** shipped — in every release since 0.4.0, in all three command implementations · implements [ADR 0007](architecture/decisions/0007-custody-in-the-command-and-the-login-server-tier.md) §A
 
 `archon key` stores a 32-byte Ed25519 seed under a name, encrypted with a password-derived
 key. This document is the byte contract: the three binaries (`cli/{rs,go,ts}`) write and read
