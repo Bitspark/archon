@@ -1,6 +1,14 @@
 # 0007 — custody enters the command, and a login server tier enters the repository
 
 **Status:** **ACCEPTED** (2026-09-10) · **Type:** scope / tier
+
+> **Status note, 2026-10-04 — amended by [0009](0009-the-signing-boundary-and-the-signer-contract.md)
+> in two places, nothing else.** §A's refusal of a daemon **stands**, but its stated reason ("an
+> unlocked seed held by a process is an agent again, which is what cannot sign here") is replaced:
+> that argument covers third-party agents, not an archon agent, and the reasons that do apply are
+> unlocked-key lifetime, session access control, revocation and no demonstrated need. §C.5's refusal
+> of executable discovery by name **stands**, and a downstream tool may run `archon` from an
+> absolute path its integrator pins (0009 §5). Custody remains **not** a library surface.
 **Re-rules two subtractions**, both by the operator on archon#16, first-hand, verbatim:
 custody (*"a - Yes"*, 12:15Z) and the server package (*"a - Yes!"*, 12:21Z). Both are also in `docs/growth-plan.md` §10. Written by
 the archon maintainers from the proposers' requirements (the first consumer
