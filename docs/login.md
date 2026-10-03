@@ -158,6 +158,20 @@ verifies under `principal`; the authority is admissible for `browser` under the 
 stored, so junk cannot be deposited against a pending request. A request is consumed by its
 first verified answer.
 
+**The law runs at most once at a time per request, and never for a late answer.** A verified
+answer takes the request's *admission turn* before the law runs and re-checks the request while
+holding it. An answer that arrives while another is being admitted waits. If the other is stored,
+the waiting answer gets `409` and the law never runs for it. If the other is refused, the turn
+passes on, so a stranger's refused answer delays the person by the law's running time but never
+denies them. The turn belongs to one request, so a slow law holds up no other login. This is
+**not** an exactly-once boundary: a refused answer's law did run, and a process can stop after
+the law returns but before the answer is stored. So a law must do one of three things:
+
+- only validate;
+- make its effects idempotent, keyed by the browser key it is handed, which names the
+  delegation;
+- leave its effects until the browser has collected.
+
 State is one in-memory record per pending request, dropped at `expires_in` (five minutes) or on
 collection. Nothing outlives the login.
 
