@@ -2,7 +2,7 @@
 //
 // Separate from check.mjs on purpose. That script is the tri-core check and needs Go, Rust
 // and Node; making every further language a prerequisite would mean a contributor with no
-// Python toolchain can no longer run the one command the README advertises. Bitwire splits
+// Python toolchain can no longer run the one command the README advertises. bitwire splits
 // the same way: a cheap cross-language job, then one job per additional binding.
 //
 // Splitting costs nothing, because agreement here is transitive THROUGH THE ORACLE rather
