@@ -139,8 +139,9 @@ Runtime dependencies, in full: `ed25519-dalek` (Rust) · the standard library's
 published form of the implementation the standard library is maintained from; see ADR 0008
 §5 for why a blocklist was not enough) · `@noble/curves` and `@noble/hashes` (TypeScript,
 because noble v3 unbundles SHA-512 and makes you supply it) · PyCryptodome (Python, the one
-mainstream route to Ed25519ph with a context). Nothing else, in any language, at any
-version. Each core binds its language's Ed25519 and archon writes only the encodings and
+mainstream route to Ed25519ph with a context) · Bouncy Castle, `bcprov-jdk18on` (Java) ·
+OpenSSL ≥ 3.2 to sign and libsodium ≥ 1.0.21 to decide what is accepted (C++, Swift and
+Haskell — [why two](docs/languages.md)). Nothing else, in any language, at any version. Each core binds its language's Ed25519 and archon writes only the encodings and
 the checks on top; the curve arithmetic is not reimplemented here. What every core
 *accepts* is written down once, in [ADR 0008](docs/architecture/decisions/0008-the-ed25519-verification-profile.md),
 and checked ahead of the library rather than inherited from it.
