@@ -17,6 +17,7 @@ use archon_core::keycodec::{pkcs8_pem_to_seed, seed_to_pkcs8_pem};
 use archon_core::keytext::encode_key;
 
 use crate::keystore;
+use zeroize::Zeroizing;
 
 pub const USAGE: &str =
     "usage: archon key <add <name> [--seed <hex>|--seed-file <file>|--pkcs8 <file>]|\
@@ -130,24 +131,28 @@ pub fn take_password_fd(args: &[String]) -> Result<(Vec<String>, Option<i32>), S
     Ok((rest, fd))
 }
 
-fn trim_newline(mut b: Vec<u8>) -> Vec<u8> {
+/// In place, so the password is never copied to a buffer nothing will wipe.
+fn trim_newline(b: &mut Vec<u8>) {
     while matches!(b.last(), Some(b'\n') | Some(b'\r')) {
         b.pop();
     }
-    b
 }
 
 /// Sources the password: `--password-fd`, then `ARCHON_KEY_PASSWORD`, then an interactive
 /// prompt. `confirm` asks twice when a key is being created, where a typo would otherwise
 /// be discovered only at the next unlock.
-pub fn read_password(fd: Option<i32>, confirm: bool) -> Result<Vec<u8>, String> {
+///
+/// `Zeroizing`, as every unlocked seed is (docs/keystore.md §4, #53): wiped on drop,
+/// best-effort. The environment's own copy of `ARCHON_KEY_PASSWORD` is not ours to wipe.
+pub fn read_password(fd: Option<i32>, confirm: bool) -> Result<Zeroizing<Vec<u8>>, String> {
     if let Some(n) = fd {
-        let mut buf = Vec::new();
+        let mut buf = Zeroizing::new(Vec::new());
         read_from_fd(n, &mut buf)?;
-        return Ok(trim_newline(buf));
+        trim_newline(&mut buf);
+        return Ok(buf);
     }
     if let Ok(v) = std::env::var("ARCHON_KEY_PASSWORD") {
-        return Ok(v.into_bytes());
+        return Ok(Zeroizing::new(v.into_bytes()));
     }
     if !std::io::stdin().is_terminal() {
         return Err(
@@ -155,16 +160,20 @@ pub fn read_password(fd: Option<i32>, confirm: bool) -> Result<Vec<u8>, String> 
                 .to_string(),
         );
     }
-    let first = rpassword::prompt_password("password: ")
-        .map_err(|e| format!("could not read the password: {e}"))?;
+    let first = Zeroizing::new(
+        rpassword::prompt_password("password: ")
+            .map_err(|e| format!("could not read the password: {e}"))?,
+    );
     if confirm {
-        let second = rpassword::prompt_password("password (again): ")
-            .map_err(|e| format!("could not read the password: {e}"))?;
-        if first != second {
+        let second = Zeroizing::new(
+            rpassword::prompt_password("password (again): ")
+                .map_err(|e| format!("could not read the password: {e}"))?,
+        );
+        if *first != *second {
             return Err("the two passwords differ".to_string());
         }
     }
-    Ok(first.into_bytes())
+    Ok(Zeroizing::new(first.as_bytes().to_vec()))
 }
 
 #[cfg(unix)]
@@ -261,7 +270,7 @@ pub fn read_default_key_name() -> Result<Option<String>, String> {
 /// way (`--password-fd`, then `ARCHON_KEY_PASSWORD`, then a prompt) — and the seal. It is
 /// the ONE unlock path, shared by `key export` and `login --key`, so no two commands can
 /// ask for a password differently.
-pub fn unlock_named_key(name: &str, fd: Option<i32>) -> Result<[u8; SEED_SIZE], String> {
+pub fn unlock_named_key(name: &str, fd: Option<i32>) -> Result<Zeroizing<[u8; SEED_SIZE]>, String> {
     let path = key_path(name)?;
     let raw = fs::read(&path).map_err(|_| format!("no key named {name:?} in archon's store"))?;
     let password = read_password(fd, false)?;
@@ -288,7 +297,7 @@ pub fn seal_and_write(path: &Path, seed: &[u8], password: &[u8]) -> Result<Strin
         keystore::KeyParams::default(),
     )?;
     write_key_file(path, &blob)?;
-    let mut fixed = [0u8; SEED_SIZE];
+    let mut fixed = Zeroizing::new([0u8; SEED_SIZE]);
     fixed.copy_from_slice(seed);
     Ok(encode_key(&public_key_from_seed(&fixed)))
 }
@@ -375,32 +384,37 @@ pub fn run_add(args: &[String]) -> Result<(), String> {
 
     let (seed, from) = match (&seed_hex, &seed_file, &pkcs8_file) {
         (Some(h), _, _) => (
-            seed_from_hexish(h).map_err(|e| format!("--seed: {e}"))?,
+            Zeroizing::new(seed_from_hexish(h).map_err(|e| format!("--seed: {e}"))?),
             Some("--seed".to_string()),
         ),
         (_, Some(f), _) => {
-            let raw = fs::read_to_string(f).map_err(|e| format!("could not read {f:?}: {e}"))?;
+            let raw = Zeroizing::new(
+                fs::read_to_string(f).map_err(|e| format!("could not read {f:?}: {e}"))?,
+            );
             (
-                seed_from_hexish(&raw).map_err(|e| format!("{f}: {e}"))?,
+                Zeroizing::new(seed_from_hexish(&raw).map_err(|e| format!("{f}: {e}"))?),
                 Some(f.clone()),
             )
         }
         (_, _, Some(f)) => {
-            let raw = fs::read_to_string(f).map_err(|e| format!("could not read {f:?}: {e}"))?;
+            let raw = Zeroizing::new(
+                fs::read_to_string(f).map_err(|e| format!("could not read {f:?}: {e}"))?,
+            );
             (
-                pkcs8_pem_to_seed(&raw).map_err(|e| format!("{f}: {e}"))?,
+                Zeroizing::new(pkcs8_pem_to_seed(&raw).map_err(|e| format!("{f}: {e}"))?),
                 Some(f.clone()),
             )
         }
         _ => {
-            let mut s = [0u8; SEED_SIZE];
-            getrandom::fill(&mut s).map_err(|e| format!("could not read OS randomness: {e}"))?;
+            let mut s = Zeroizing::new([0u8; SEED_SIZE]);
+            getrandom::fill(&mut s[..])
+                .map_err(|e| format!("could not read OS randomness: {e}"))?;
             (s, None)
         }
     };
 
     let password = read_password(fd, true)?;
-    let principal = seal_and_write(&path, &seed, &password)?;
+    let principal = seal_and_write(&path, &seed[..], &password)?;
     match from {
         None => println!("generated and stored {name} ({principal})."),
         Some(src) => {
@@ -558,9 +572,9 @@ pub fn run_export(args: &[String]) -> Result<(), String> {
         );
     }
     let seed = unlock_named_key(&name, fd)?;
-    let pem = seed_to_pkcs8_pem(&seed)?;
+    let pem = Zeroizing::new(seed_to_pkcs8_pem(&seed[..])?);
     if out == "-" {
-        print!("{pem}");
+        print!("{}", pem.as_str());
         eprintln!("wrote the seed of {name} to stdout; the store's copy remains.");
         return Ok(());
     }

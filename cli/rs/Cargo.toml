@@ -44,6 +44,9 @@ argon2 = "0.6"
 chacha20poly1305 = "0.11"
 unicode-normalization = "0.1"
 rpassword = "7"
+# Best-effort wiping of the seed, the password and the derived key (docs/keystore.md §4,
+# #53). Already in the graph through ed25519-dalek and rustls, so it adds no crate.
+zeroize = "1"
 
 # The keystore conformance driver is a dev/CI artifact, not part of the command, so it is
 # a separate bin behind a feature that is off by default. It needs no dependency of its

@@ -30,6 +30,7 @@ use crate::cmd::key_store::{
 };
 use crate::cmd::resolve_seed;
 use crate::io::wants_help;
+use zeroize::Zeroizing;
 
 const USAGE: &str =
     "usage: archon login <url> [--key <name> | --seed <hex> | --key-file <pkcs8.pem> | --seed-file <file>] \
@@ -483,23 +484,30 @@ pub fn confirm(input: &mut impl BufRead) -> Result<bool, String> {
 /// for, and never before. Seed files stay beside the store permanently, so an agent's
 /// non-interactive run and a person's login are the same code with two custody sources
 /// (ADR 0007 §A; archon#16, answer 2).
-fn resolve_login_seed(src: &LoginSource, fd: Option<i32>) -> Result<[u8; SEED_SIZE], String> {
+///
+/// Every source's seed is `Zeroizing`, as the Go lane's is (docs/keystore.md §4, #53).
+fn resolve_login_seed(
+    src: &LoginSource,
+    fd: Option<i32>,
+) -> Result<Zeroizing<[u8; SEED_SIZE]>, String> {
     if let Some(name) = &src.store_key {
         return unlock_named_key(name, fd);
     }
     if let Some(path) = &src.seed_file {
-        let raw =
-            std::fs::read_to_string(path).map_err(|e| format!("could not read {path:?}: {e}"))?;
-        return seed_from_hex_file(&raw);
+        let raw = Zeroizing::new(
+            std::fs::read_to_string(path).map_err(|e| format!("could not read {path:?}: {e}"))?,
+        );
+        return seed_from_hex_file(&raw).map(Zeroizing::new);
     }
-    resolve_seed(src.seed_hex.as_deref(), src.key_file.as_deref(), USAGE)
+    resolve_seed(src.seed_hex.as_deref(), src.key_file.as_deref(), USAGE).map(Zeroizing::new)
 }
 
 /// Accept the two hex seed-file shapes in use: 64 hex characters (a raw 32-byte seed) and
 /// 128 (seed followed by public key), the shape the first consumer's `key` files carry (archon#16,
 /// answer 4).
 pub fn seed_from_hex_file(text: &str) -> Result<[u8; SEED_SIZE], String> {
-    let raw = from_hex(text.trim()).map_err(|e| format!("seed file is not hex: {e}"))?;
+    let raw =
+        Zeroizing::new(from_hex(text.trim()).map_err(|e| format!("seed file is not hex: {e}"))?);
     match raw.len() {
         32 | 64 => {
             let mut seed = [0u8; SEED_SIZE];
@@ -1114,6 +1122,18 @@ mod tests {
 
     const BROWSER: &str =
         "ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f";
+
+    /// #53, the command's side of `keystore::tests::secrets_leave_as_zeroizing`: the
+    /// password, the store unlock and the login seed from every source leave wiped-on-drop,
+    /// pinned as types so a change back to a bare array or vector fails to compile.
+    #[test]
+    fn command_secrets_leave_as_zeroizing() {
+        type Seed = Result<Zeroizing<[u8; SEED_SIZE]>, String>;
+        type Password = Result<Zeroizing<Vec<u8>>, String>;
+        let _: fn(Option<i32>, bool) -> Password = crate::cmd::key_store::read_password;
+        let _: fn(&str, Option<i32>) -> Seed = unlock_named_key;
+        let _: fn(&LoginSource, Option<i32>) -> Seed = resolve_login_seed;
+    }
 
     fn valid_request() -> LoginRequest {
         LoginRequest {

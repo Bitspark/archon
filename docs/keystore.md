@@ -143,9 +143,9 @@ seed held by a process is an agent again, and an agent cannot compute archon's E
 context possession proof (ADR 0007 §A), so there would be nothing to gain.
 
 **Zeroise the decrypted seed after use** where the language allows. Best-effort is worth doing
-and is not a security claim. Today only `cli/go` does it, on the seed and the password
-(`keystore.Zeroise`). `cli/rs` does not yet, although Rust allows it ([#53](https://github.com/Bitspark/archon/issues/53)),
-and it is not possible in TypeScript.
+and is not a security claim. `cli/go` (`keystore.Zeroise`) and `cli/rs` (`zeroize::Zeroizing`,
+since [#53](https://github.com/Bitspark/archon/issues/53)) do it, on the seed, the password and
+the derived key. It is not possible in TypeScript.
 
 ## 5. Names
 
