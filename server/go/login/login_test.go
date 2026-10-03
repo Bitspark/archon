@@ -1247,53 +1247,133 @@ func TestABlockingAdmitterDoesNotBlockTheHandler(t *testing.T) {
 	}
 }
 
-// The re-check on re-lock, which is what makes verifying outside the lock safe: if a second
-// answer lands while the first is still being verified, exactly one wins and the other is a
-// 409 — never a silent overwrite of a proof the browser may already hold.
-func TestASecondAnswerDuringVerificationLosesCleanly(t *testing.T) {
-	// Only the FIRST admitter waits. An earlier version of this gated on a buffered channel,
-	// which deadlocked: once the test drained it, the second admitter could send into it and
-	// block as well. sync.Once says "first" without depending on who has drained what.
-	entered := make(chan struct{})
-	release := make(chan struct{})
-	var once sync.Once
-	h, _ := newTestHandler(t, func(browser, principal []byte, authority json.RawMessage) error {
-		first := false
-		once.Do(func() { first = true })
-		if first {
-			close(entered)
-			<-release
-		}
-		return nil
-	})
+// gatedLaw holds its FIRST call inside the law until released, and counts every call. Only the
+// first waits: an earlier version gated on a buffered channel, which deadlocked once the test
+// drained it and a later caller could block in it as well.
+type gatedLaw struct {
+	entered, release chan struct{}
+	refuseFirst      bool
+	mu               sync.Mutex
+	n                int
+}
 
-	browserSeed, personSeed := seedFor(12), seedFor(120)
+func newGatedLaw(refuseFirst bool) *gatedLaw {
+	return &gatedLaw{entered: make(chan struct{}), release: make(chan struct{}), refuseFirst: refuseFirst}
+}
+
+func (g *gatedLaw) admit(browser, principal []byte, authority json.RawMessage) error {
+	g.mu.Lock()
+	g.n++
+	first := g.n == 1
+	g.mu.Unlock()
+	if first {
+		close(g.entered)
+		<-g.release
+		if g.refuseFirst {
+			return errors.New("refused by the law")
+		}
+	}
+	return nil
+}
+
+func (g *gatedLaw) calls() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.n
+}
+
+// raceTwoAnswers begins a login, sends a first answer that stops inside the law, then a second,
+// and releases the first only once the second has passed its snapshot check with the request
+// still unanswered — the window the admission turn exists for, reached every time rather than
+// by luck. The signal is the clock: while the first is held in the law, the next read of the
+// clock anywhere is the second answer's snapshot. No sleeping, no timeout.
+func raceTwoAnswers(t *testing.T, law *gatedLaw, browserSeed, firstSeed, secondSeed []byte) (first, second int, collected map[string]any) {
+	t.Helper()
+	h, _ := newTestHandler(t, law.admit)
 	browserKey := crypto.PublicKeyFromSeed(browserSeed)
-	w := do(h, http.MethodPost, "/", map[string]any{
+	begun := decode(t, do(h, http.MethodPost, "/", map[string]any{
 		"browser": keytext.EncodeKey(browserKey), "scope": []string{"read:projects"}, "valid_for": 3600,
-	}, nil)
-	begun := decode(t, w)
+	}, nil))
 	id := begun["id"].(string)
 	idBytes, _ := hex.DecodeString(id)
 	nonce, _ := hex.DecodeString(begun["nonce"].(string))
 	req := &sdk.Request{ID: idBytes, Nonce: nonce, Browser: browserKey,
 		Scope: []string{"read:projects"}, ValidFor: 3600}
-	proof, _ := sdk.Prove(personSeed, audience, req)
-	body := map[string]any{
-		"principal":  keytext.EncodeKey(crypto.PublicKeyFromSeed(personSeed)),
-		"possession": hex.EncodeToString(proof),
+	body := func(seed []byte) map[string]any {
+		proof, _ := sdk.Prove(seed, audience, req)
+		return map[string]any{
+			"principal":  keytext.EncodeKey(crypto.PublicKeyFromSeed(seed)),
+			"possession": hex.EncodeToString(proof),
+		}
 	}
 
-	first := make(chan int, 1)
-	go func() { first <- do(h, http.MethodPost, "/"+id+"/answer", body, nil).Code }()
-	<-entered // the first is inside the law, having passed its snapshot check
-
-	// The second runs the whole path while the first is suspended, and wins the store.
-	if code := do(h, http.MethodPost, "/"+id+"/answer", body, nil).Code; code != http.StatusNoContent {
-		t.Fatalf("second answer = %d, want 204 — it should reach the store first", code)
+	snapshotted := make(chan struct{})
+	var once sync.Once
+	base := h.clock
+	h.clock = func() time.Time {
+		select {
+		case <-law.entered:
+			once.Do(func() { close(snapshotted) })
+		default:
+		}
+		return base()
 	}
-	close(release)
-	if code := <-first; code != http.StatusConflict {
-		t.Fatalf("first answer = %d, want 409 — it must not overwrite the stored proof", code)
+
+	firstCode, secondCode := make(chan int, 1), make(chan int, 1)
+	go func() { firstCode <- do(h, http.MethodPost, "/"+id+"/answer", body(firstSeed), nil).Code }()
+	<-law.entered
+	go func() { secondCode <- do(h, http.MethodPost, "/"+id+"/answer", body(secondSeed), nil).Code }()
+	<-snapshotted
+	close(law.release)
+	first, second = <-firstCode, <-secondCode
+
+	h.clock = base
+	proof, _ := sdk.ProveCollect(browserSeed, audience, req)
+	w := do(h, http.MethodGet, "/"+id+"/answer", nil, map[string]string{CollectHeader: hex.EncodeToString(proof)})
+	if w.Code == http.StatusOK {
+		collected = decode(t, w)
+	}
+	return first, second, collected
+}
+
+// Two CLIs answering one login, the second landing while the first is inside the law: the
+// second waits for the ADMISSION TURN, finds the request answered, and is a 409 WITHOUT THE LAW
+// RUNNING for it (#61). It used to run the law and then lose, leaving whatever that law did
+// behind — and before that turn existed, it won outright.
+func TestAnAnswerArrivingDuringAdmissionNeverReachesTheLaw(t *testing.T) {
+	law := newGatedLaw(false)
+	slowSeed, fastSeed := seedFor(120), seedFor(121)
+	first, second, collected := raceTwoAnswers(t, law, seedFor(12), slowSeed, fastSeed)
+	if first != http.StatusNoContent {
+		t.Fatalf("first answer = %d, want 204 — it holds the turn and is stored", first)
+	}
+	if second != http.StatusConflict {
+		t.Fatalf("second answer = %d, want 409 — it must neither overwrite nor be stored", second)
+	}
+	if n := law.calls(); n != 1 {
+		t.Fatalf("the law ran %d times, want 1 — it must not run for the answer that waited", n)
+	}
+	if collected["principal"] != keytext.EncodeKey(crypto.PublicKeyFromSeed(slowSeed)) {
+		t.Fatalf("collected %v, want the admitted answer", collected["principal"])
+	}
+}
+
+// The other half of the turn: a REFUSED answer hands it on. Otherwise a stranger who saw the id
+// could answer with their own key and, refused or not, keep the person out of their own login.
+func TestARefusedAnswerReleasesTheTurn(t *testing.T) {
+	law := newGatedLaw(true)
+	strangerSeed, personSeed := seedFor(130), seedFor(131)
+	first, second, collected := raceTwoAnswers(t, law, seedFor(13), strangerSeed, personSeed)
+	if first != http.StatusForbidden {
+		t.Fatalf("stranger's answer = %d, want 403 — the law refused it", first)
+	}
+	if second != http.StatusNoContent {
+		t.Fatalf("person's answer = %d, want 204 — it takes the turn and is admitted", second)
+	}
+	if n := law.calls(); n != 2 {
+		t.Fatalf("the law ran %d times, want 2", n)
+	}
+	if collected["principal"] != keytext.EncodeKey(crypto.PublicKeyFromSeed(personSeed)) {
+		t.Fatalf("collected %v, want the person's answer", collected["principal"])
 	}
 }

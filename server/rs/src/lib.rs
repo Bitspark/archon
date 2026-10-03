@@ -30,7 +30,7 @@
 #![forbid(unsafe_code)]
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use archon_core::keytext;
 use archon_sdk::login;
@@ -81,6 +81,12 @@ pub(crate) const MAX_BODY_BYTES: usize = 64 * 1024;
 /// It runs OUTSIDE the store's lock: it is the service's code and may block on a database or
 /// a network, and a law that held the lock would decide the throughput of every login in the
 /// process.
+///
+/// It is called AT MOST ONCE AT A TIME PER REQUEST, and never for an answer that arrives after
+/// another was stored (see the answer route). That is not an exactly-once boundary: a refused
+/// answer's law did run, and a process can stop after the law returns and before the answer is
+/// stored. So it must only validate, or make its effects idempotent (keyed by the browser key
+/// it is handed, which names the delegation), or leave them until the browser has collected.
 pub type AdmitAuthority =
     Box<dyn Fn(&[u8], &[u8], &[u8]) -> Result<(), String> + Send + Sync + 'static>;
 
@@ -95,7 +101,7 @@ pub type Entropy = Box<dyn Fn(&mut [u8]) -> Result<(), String> + Send + Sync + '
 
 /// One pending login. Written once at begin; only `answered` and `last_poll` ever change, and
 /// NEITHER ENTERS A BINDING — which is what makes it safe to verify a proof against a copy
-/// taken outside the lock.
+/// taken outside the lock. `turn` is shared, never replaced.
 pub(crate) struct Record {
     pub id: Vec<u8>,
     pub nonce: Vec<u8>,
@@ -105,6 +111,11 @@ pub(crate) struct Record {
     pub expires: u64,
     pub answered: Option<Answer>,
     pub last_poll: Option<u64>,
+    /// The request's ADMISSION TURN. An answer holds it from after its proof verifies until it
+    /// is stored or refused, so the law runs once at a time per request and never for an answer
+    /// that arrives after another was stored. Its own lock, not the store's: a slow law stalls
+    /// no other login.
+    pub turn: Arc<Mutex<()>>,
 }
 
 /// What the CLI posted and the browser collects, held verbatim between the two.

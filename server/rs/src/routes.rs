@@ -5,6 +5,8 @@
 //! [`Response`] are the smallest shapes the routes need, so an adapter for axum, hyper, or a
 //! bare `std::net` loop is a dozen lines beside this crate rather than a dependency inside it.
 
+use std::sync::{Arc, Mutex};
+
 use archon_core::keytext;
 use archon_sdk::login;
 use serde::Deserialize;
@@ -224,6 +226,7 @@ impl Handler {
             expires: now + self.ttl,
             answered: None,
             last_poll: None,
+            turn: Arc::new(Mutex::new(())),
         };
         // A request that cannot produce a binding must not be handed out: the CLI would
         // fetch it, show it, and fail at signing time with nothing to explain.
@@ -440,9 +443,13 @@ impl Handler {
     /// moved out for the same reason. Both are safe outside the lock because every field a
     /// binding is computed from is written once at begin and never mutated.
     ///
-    /// What CAN change while unlocked is whether the request is still unanswered, so that
-    /// check is REPEATED on re-lock: two CLIs answering one login is ordinary — a person with
-    /// two terminals — and the second must get 409, not overwrite the first.
+    /// What CAN change while unlocked is whether the request is still unanswered. Two CLIs
+    /// answering one login is ordinary — a person with two terminals — and the second must get
+    /// 409, neither overwriting the first nor running the law for an admission nobody can use
+    /// (#61). So a verified answer TAKES THE REQUEST'S ADMISSION TURN and re-checks holding it;
+    /// only the holder runs the law and stores. A REFUSED answer drops the turn like any other,
+    /// so a stranger's refused answer delays the person by the law's running time and never
+    /// denies them.
     fn answer(&self, req: &Request, id_hex: &str) -> Response {
         let body: AnswerBody = match parse_body(&req.body) {
             Ok(b) => b,
@@ -458,7 +465,7 @@ impl Handler {
         };
 
         let now = (self.clock)();
-        let (request, browser, already) = {
+        let (request, browser, turn, already) = {
             let mut store = self.store.lock().expect("store lock");
             let Some(record) = store.requests.get(id_hex) else {
                 return Response::error(404, ERR_EXPIRED_TOKEN);
@@ -470,6 +477,7 @@ impl Handler {
             (
                 record.as_request(),
                 record.browser.clone(),
+                record.turn.clone(),
                 record.answered.is_some(),
             )
         };
@@ -479,6 +487,25 @@ impl Handler {
 
         if !login::verify(&principal, &self.audience, &request, &possession) {
             return Response::error(403, ERR_INVALID_GRANT);
+        }
+
+        // Take the turn; it is dropped however this answer ends. The guard protects no data, so
+        // a law that panicked while holding it leaves nothing inconsistent: take it anyway.
+        let _turn = turn.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        {
+            let mut store = self.store.lock().expect("store lock");
+            let Some(record) = store.requests.get(id_hex) else {
+                return Response::error(404, ERR_EXPIRED_TOKEN);
+            };
+            if (self.clock)() >= record.expires {
+                store.requests.remove(id_hex);
+                return Response::error(404, ERR_EXPIRED_TOKEN);
+            }
+            if record.answered.is_some() {
+                // Another answer was stored while this one waited. Storing here would discard
+                // a proof the browser may already have collected.
+                return Response::error(409, ERR_INVALID_REQUEST);
+            }
         }
         // `get()` is the source text as the CLI wrote it. Nothing here re-encodes it: it
         // reaches the law and the browser as the same bytes, or the tier is not opaque.
@@ -494,14 +521,11 @@ impl Handler {
         let Some(record) = store.requests.get_mut(id_hex) else {
             return Response::error(404, ERR_EXPIRED_TOKEN);
         };
+        // Only the holder of the turn stores, so nothing can have been stored since the
+        // re-check; what can have happened is expiry while the law ran.
         if (self.clock)() >= record.expires {
             store.requests.remove(id_hex);
             return Response::error(404, ERR_EXPIRED_TOKEN);
-        }
-        if record.answered.is_some() {
-            // Another answer won while this one was being verified. Storing here would
-            // discard a proof the browser may already have collected.
-            return Response::error(409, ERR_INVALID_REQUEST);
         }
         record.answered = Some(Answer {
             principal: body.principal.clone(),

@@ -1150,32 +1150,64 @@ fn every_pinned_error_code_is_emitted() {
 
 // TWO CLIs ANSWERING ONE LOGIN, the second landing while the first is still inside the law.
 //
-// This is the case the RE-LOCKED `answered` check exists for, and the only case that reaches
-// it: a sequential second answer is caught by the earlier check, so without a race that branch
-// is dead code a refactor could quietly delete. A person with two terminals is ordinary; what
-// must not happen is the slow one overwriting an answer the browser may already hold.
-#[test]
-fn a_second_answer_during_verification_loses_cleanly() {
+// The ADMISSION TURN's case (#61): the second waits for the first, re-checks, and is refused
+// WITHOUT THE LAW RUNNING for it. It used to run the law and then lose, leaving whatever that
+// law did behind — and before the re-check existed, it won outright.
+//
+// `race_two_answers` reaches that window every time rather than by luck: it releases the first
+// answer only once the second has passed its snapshot check with the request still unanswered.
+// The signal is the clock — while the first is held in the law, the next read of the clock
+// anywhere is the second answer's snapshot. No sleeping.
+struct Race {
+    first: u16,
+    second: u16,
+    law_calls: usize,
+    collected: Option<String>,
+}
+
+fn race_two_answers(
+    refuse_first: bool,
+    browser_seed: [u8; 32],
+    first_seed: [u8; 32],
+    second_seed: [u8; 32],
+) -> Race {
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
     use std::sync::mpsc;
     use std::time::Duration;
 
     let (entered_tx, entered_rx) = mpsc::channel::<()>();
     let (release_tx, release_rx) = mpsc::channel::<()>();
+    let (snap_tx, snap_rx) = mpsc::channel::<()>();
     let release_rx = Mutex::new(release_rx);
-    let entered = Mutex::new(Some(entered_tx));
+    let entered_tx = Mutex::new(entered_tx);
+    let snap_tx = Mutex::new(Some(snap_tx));
+    let in_law = Arc::new(AtomicBool::new(false));
+    let calls = Arc::new(AtomicUsize::new(0));
 
+    let (law_in, law_calls) = (in_law.clone(), calls.clone());
+    let clock_in = in_law.clone();
     let h = Arc::new(
         Handler::new(
             Config::new(AUDIENCE)
-                .clock(Box::new(|| 1_789_034_640))
+                .clock(Box::new(move || {
+                    if clock_in.load(Ordering::SeqCst) {
+                        // The take is its own statement so the lock is not held past it.
+                        let first_read = snap_tx.lock().unwrap().take();
+                        if let Some(tx) = first_read {
+                            let _ = tx.send(());
+                        }
+                    }
+                    1_789_034_640
+                }))
                 .entropy(counting_entropy())
                 .admit(Box::new(move |_, _, _| {
-                    // See the note in the blocking-admitter test: the take is its own
-                    // statement so the lock is not held across the wait.
-                    let first = entered.lock().unwrap().take();
-                    if let Some(tx) = first {
-                        let _ = tx.send(());
+                    if law_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                        law_in.store(true, Ordering::SeqCst);
+                        let _ = entered_tx.lock().unwrap().send(());
                         let _ = release_rx.lock().unwrap().recv();
+                        if refuse_first {
+                            return Err("refused by the law".to_string());
+                        }
                     }
                     Ok(())
                 })),
@@ -1183,46 +1215,34 @@ fn a_second_answer_during_verification_loses_cleanly() {
         .expect("Handler::new"),
     );
 
-    let browser_seed = seed_for(23);
     let (id, request) = begin(&h, &browser_seed, &["read:projects"], 3600);
+    let body = |seed: &[u8; 32]| {
+        answer_body(
+            seed,
+            &login::prove(seed, AUDIENCE, &request).expect("prove"),
+        )
+    };
+    let (first_body, second_body) = (body(&first_seed), body(&second_seed));
 
-    // The binding does not name the principal (§3.2), so two different key holders can each
-    // make a genuine proof for one request. Both are real; only one can win.
-    let (slow_seed, fast_seed) = (seed_for(230), seed_for(231));
-    let slow = answer_body(
-        &slow_seed,
-        &login::prove(&slow_seed, AUDIENCE, &request).expect("prove"),
-    );
-    let fast = answer_body(
-        &fast_seed,
-        &login::prove(&fast_seed, AUDIENCE, &request).expect("prove"),
-    );
-
-    let h2 = h.clone();
-    let id2 = id.clone();
-    let slow_answer = std::thread::spawn(move || {
-        h2.handle(&req("POST", &format!("/{id2}/answer"), &slow, &[]))
+    let (h1, id1) = (h.clone(), id.clone());
+    let first = std::thread::spawn(move || {
+        h1.handle(&req("POST", &format!("/{id1}/answer"), &first_body, &[]))
             .status
     });
     entered_rx
         .recv_timeout(Duration::from_secs(5))
         .expect("the law never ran");
-
-    // The second CLI, arriving while the first is still being admitted, wins outright.
-    assert_eq!(
-        h.handle(&req("POST", &format!("/{id}/answer"), &fast, &[]))
-            .status,
-        204
-    );
-
+    let (h2, id2) = (h.clone(), id.clone());
+    let second = std::thread::spawn(move || {
+        h2.handle(&req("POST", &format!("/{id2}/answer"), &second_body, &[]))
+            .status
+    });
+    snap_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the second answer never reached its snapshot");
     let _ = release_tx.send(());
-    assert_eq!(
-        slow_answer.join().unwrap(),
-        409,
-        "the answer that lost the race must be refused, not stored over the winner"
-    );
+    let (first, second) = (first.join().unwrap(), second.join().unwrap());
 
-    // And the browser gets the one that won, not the one that finished last.
     let collect =
         to_hex(&login::prove_collect(&browser_seed, AUDIENCE, &request).expect("prove_collect"));
     let r = h.handle(&req(
@@ -1231,15 +1251,51 @@ fn a_second_answer_during_verification_loses_cleanly() {
         "",
         &[(COLLECT_HEADER, collect.as_str())],
     ));
+    let collected =
+        (r.status == 200).then(|| body_json(&r)["principal"].as_str().unwrap().to_string());
+    Race {
+        first,
+        second,
+        law_calls: calls.load(Ordering::SeqCst),
+        collected,
+    }
+}
+
+#[test]
+fn an_answer_arriving_during_admission_never_reaches_the_law() {
+    let (slow_seed, fast_seed) = (seed_for(230), seed_for(231));
+    let race = race_two_answers(false, seed_for(23), slow_seed, fast_seed);
+    assert_eq!(race.first, 204, "the answer holding the turn is stored");
     assert_eq!(
-        r.status,
-        200,
-        "collect: {}",
-        String::from_utf8_lossy(&r.body)
+        race.second, 409,
+        "the answer that waited finds the request answered"
     );
     assert_eq!(
-        body_json(&r)["principal"].as_str().unwrap(),
-        keytext::encode_key(&crypto::public_key_from_seed(&fast_seed))
+        race.law_calls, 1,
+        "the law must not run for the answer that waited"
+    );
+    assert_eq!(
+        race.collected.as_deref(),
+        Some(keytext::encode_key(&crypto::public_key_from_seed(&slow_seed)).as_str()),
+        "the browser gets the answer that was admitted"
+    );
+}
+
+// The other half of the turn: a REFUSED answer hands it on. Otherwise a stranger who saw the id
+// could answer with their own key and, refused or not, keep the person out of their own login.
+#[test]
+fn a_refused_answer_releases_the_turn() {
+    let (stranger_seed, person_seed) = (seed_for(240), seed_for(241));
+    let race = race_two_answers(true, seed_for(24), stranger_seed, person_seed);
+    assert_eq!(race.first, 403, "the law refused the first answer");
+    assert_eq!(
+        race.second, 204,
+        "the waiting answer takes the turn and is admitted"
+    );
+    assert_eq!(race.law_calls, 2);
+    assert_eq!(
+        race.collected.as_deref(),
+        Some(keytext::encode_key(&crypto::public_key_from_seed(&person_seed)).as_str())
     );
 }
 

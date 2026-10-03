@@ -464,29 +464,44 @@ test("a pending law does not block another request", async () => {
 
 // TWO CLIs ANSWERING ONE LOGIN, the second landing while the first is still inside the law.
 //
-// This is the case the RE-CHECK after the await exists for, and the only case that reaches it:
-// a sequential second answer is caught by the earlier check, so without an interleaving that
-// branch is dead code a refactor could quietly delete. In this lane the interleaving is not a
-// rare race — an `await` GUARANTEES it — which is why the Rust lane's version of this test is
-// carried here from the start rather than added after something went wrong.
-test("a second answer during verification loses cleanly", async () => {
-  let enteredResolve: (() => void) | undefined;
+// The ADMISSION TURN's case (#61): the second waits for the first, re-checks, and is refused
+// WITHOUT THE LAW RUNNING for it. It used to run the law and then lose, leaving whatever that
+// law did behind. In this lane the interleaving is not a rare race — an `await` GUARANTEES it —
+// so the test is deterministic: a few turns of the event loop are enough for an unguarded
+// second answer to reach the law and settle, and the assertions below say it did neither.
+async function laterTurns(n = 5): Promise<void> {
+  for (let i = 0; i < n; i++) await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+function gatedLaw(firstOutcome: "admit" | "refuse"): {
+  admit: AdmitAuthority;
+  enteredLaw: Promise<void>;
+  release: () => void;
+  calls: () => number;
+} {
+  let enteredResolve: () => void = () => {};
   const enteredLaw = new Promise<void>((resolve) => {
     enteredResolve = resolve;
   });
-  let release: (() => void) | undefined;
+  let release: () => void = () => {};
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-
-  let first = true;
-  const { handler } = makeHandler(async () => {
-    if (first) {
-      first = false;
-      enteredResolve?.();
+  let calls = 0;
+  const admit: AdmitAuthority = async () => {
+    calls += 1;
+    if (calls === 1) {
+      enteredResolve();
       await gate;
+      if (firstOutcome === "refuse") throw new Error("refused by the law");
     }
-  });
+  };
+  return { admit, enteredLaw, release, calls: () => calls };
+}
+
+test("an answer arriving while another is being admitted never reaches the law", async () => {
+  const law = gatedLaw("admit");
+  const { handler } = makeHandler(law.admit);
 
   const browserSeed = seedFor(23);
   const { id, req } = await begin(handler, browserSeed, ["read:projects"], 3600);
@@ -498,24 +513,61 @@ test("a second answer during verification loses cleanly", async () => {
   const slow = handler.handle(
     request("POST", `/${id}/answer`, answerBody(slowSeed, proveLogin(slowSeed, AUDIENCE, req))),
   );
-  await enteredLaw;
+  await law.enteredLaw;
 
-  const fast = await handler.handle(
-    request("POST", `/${id}/answer`, answerBody(fastSeed, proveLogin(fastSeed, AUDIENCE, req))),
-  );
-  assert.equal(fast.status, 204, "the second CLI, arriving while the first is being admitted, wins outright");
+  let fastSettled = false;
+  const fast = handler
+    .handle(request("POST", `/${id}/answer`, answerBody(fastSeed, proveLogin(fastSeed, AUDIENCE, req))))
+    .finally(() => {
+      fastSettled = true;
+    });
+  await laterTurns();
+  assert.equal(law.calls(), 1, "the second answer must wait for the turn, not run the law beside the first");
+  assert.equal(fastSettled, false, "the second answer must wait for the first to finish with the law");
 
-  release?.();
-  assert.equal((await slow).status, 409, "the answer that lost the race must be refused, not stored over the winner");
+  law.release();
+  assert.equal((await slow).status, 204, "the answer holding the turn is stored");
+  assert.equal((await fast).status, 409, "the answer that waited finds the request answered");
+  assert.equal(law.calls(), 1, "and the law never ran for it");
 
   const collect = toHex(proveCollect(browserSeed, AUDIENCE, req));
   const collected = await handler.handle(request("GET", `/${id}/answer`, undefined, { [COLLECT_HEADER]: collect }));
   assert.equal(collected.status, 200);
   assert.equal(
     (await bodyOf(collected))["principal"],
-    encodeKey(getPublicKey(fastSeed)),
-    "the browser must get the answer that won the race",
+    encodeKey(getPublicKey(slowSeed)),
+    "the browser gets the answer that was admitted",
   );
+});
+
+// The other half of the turn: a REFUSED answer must hand it on. Otherwise a stranger who saw the
+// id could answer with their own key and, refused or not, keep the person out of their own login.
+test("a refused answer releases the turn to the one waiting", async () => {
+  const law = gatedLaw("refuse");
+  const { handler } = makeHandler(law.admit);
+
+  const browserSeed = seedFor(24);
+  const { id, req } = await begin(handler, browserSeed, ["read:projects"], 3600);
+
+  const strangerSeed = seedFor(240);
+  const personSeed = seedFor(241);
+  const stranger = handler.handle(
+    request("POST", `/${id}/answer`, answerBody(strangerSeed, proveLogin(strangerSeed, AUDIENCE, req))),
+  );
+  await law.enteredLaw;
+  const person = handler.handle(
+    request("POST", `/${id}/answer`, answerBody(personSeed, proveLogin(personSeed, AUDIENCE, req))),
+  );
+  await laterTurns();
+
+  law.release();
+  assert.equal((await stranger).status, 403, "the law refused the first answer");
+  assert.equal((await person).status, 204, "the waiting answer takes the turn and is admitted");
+  assert.equal(law.calls(), 2);
+
+  const collect = toHex(proveCollect(browserSeed, AUDIENCE, req));
+  const collected = await handler.handle(request("GET", `/${id}/answer`, undefined, { [COLLECT_HEADER]: collect }));
+  assert.equal((await bodyOf(collected))["principal"], encodeKey(getPublicKey(personSeed)));
 });
 
 // THE CROSS-LANE WIRE FIXTURE, the same file the Go and Rust lanes read. A cross-lane smoke

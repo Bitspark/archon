@@ -77,6 +77,13 @@ const (
 //
 // A nil AdmitAuthority means the proof alone suffices — correct for a service whose law
 // needs nothing beyond "this key holder was here and approved this scope".
+//
+// It is called AT MOST ONCE AT A TIME PER REQUEST, and never for an answer that arrives
+// after another was stored (see Handler.answer). That is not an exactly-once boundary: a
+// refused answer's law did run, and a process can stop after the law returns and before the
+// answer is stored. So it must only validate, or make its effects idempotent (keyed by the
+// browser key it is handed, which names the delegation), or leave them until the browser has
+// collected.
 type AdmitAuthority func(browser, principal []byte, authority json.RawMessage) error
 
 // Clock and Entropy are CONSTRUCTOR ARGUMENTS rather than package-level calls, which is the
@@ -376,6 +383,7 @@ func (h *Handler) begin(w http.ResponseWriter, r *http.Request) {
 		scope:    body.Scope,
 		validFor: body.ValidFor,
 		expires:  now.Add(h.ttl),
+		turn:     make(chan struct{}, 1),
 	}
 	// A request that cannot produce a binding must not be handed out: the CLI would fetch
 	// it, show it, and fail at signing time with nothing to explain. Constructing the
@@ -576,7 +584,8 @@ type answerBody struct {
 //
 // A request is consumed by its first verified answer: a second one is `409`, not a
 // silent overwrite. Two CLIs racing to answer one login is a real situation (a person with
-// two terminals), and the winner must be the one whose proof was stored.
+// two terminals), and the winner must be the one whose proof was stored — and the loser's
+// law must not run at all (#61), which is what the admission turn below is for.
 func (h *Handler) answer(w http.ResponseWriter, r *http.Request, idHex string) {
 	var body answerBody
 	if err := readJSON(r, &body); err != nil {
@@ -603,10 +612,12 @@ func (h *Handler) answer(w http.ResponseWriter, r *http.Request, idHex string) {
 	// same reason: neither needs the lock, because the binding's inputs are immutable after
 	// begin (see store.snapshot).
 	//
-	// What CAN change while unlocked is whether the request is still unanswered, so both
-	// checks are REPEATED on re-lock. The window is real: two CLIs answering one login is an
-	// ordinary situation — a person with two terminals — and the second must get 409, not
-	// overwrite the first.
+	// What CAN change while unlocked is whether the request is still unanswered. The window
+	// is real: two CLIs answering one login is an ordinary situation — a person with two
+	// terminals — and the second must get 409, neither overwriting the first nor running the
+	// law for an admission nobody can use. So a verified answer TAKES THE REQUEST'S ADMISSION
+	// TURN and re-checks holding it; only the holder runs the law and stores. The turn is per
+	// request, not the store's mutex, so a slow law still stalls no other login.
 	now := h.clock()
 	rec, answered, err := h.store.snapshot(idHex, now)
 	if errors.Is(err, errExpired) {
@@ -624,6 +635,24 @@ func (h *Handler) answer(w http.ResponseWriter, r *http.Request, idHex string) {
 		writeError(w, http.StatusForbidden, errInvalidGrant)
 		return
 	}
+
+	// Take the turn, and hand it on however this answer ends — a REFUSED answer must release
+	// it, or a stranger who saw the id could keep the person out of their own login. The wait
+	// is bounded by the holder's law, which bounds the holder's own request the same way.
+	rec.turn <- struct{}{}
+	defer func() { <-rec.turn }()
+
+	_, answered, err = h.store.snapshot(idHex, h.clock())
+	if errors.Is(err, errExpired) {
+		writeError(w, http.StatusNotFound, errExpiredToken)
+		return
+	}
+	if answered {
+		// Another answer was stored while this one waited. Storing here would discard a
+		// proof the browser may already have collected.
+		writeError(w, http.StatusConflict, errInvalidRequest)
+		return
+	}
 	if h.admit != nil {
 		if err := h.admit(rec.browser, principal, body.Authority); err != nil {
 			writeError(w, http.StatusForbidden, errInvalidGrant)
@@ -631,14 +660,9 @@ func (h *Handler) answer(w http.ResponseWriter, r *http.Request, idHex string) {
 		}
 	}
 
-	conflict := false
+	// Only the holder of the turn stores, so nothing can have been stored since the
+	// re-check; what can have happened is expiry while the law ran.
 	err = h.store.update(idHex, h.clock(), func(live *record) error {
-		if live.answered != nil {
-			// Another answer won while this one was being verified. Storing here would
-			// discard a proof the browser may already have collected.
-			conflict = true
-			return nil
-		}
 		live.answered = &answer{
 			Principal:  body.Principal,
 			Possession: body.Possession,
@@ -650,10 +674,6 @@ func (h *Handler) answer(w http.ResponseWriter, r *http.Request, idHex string) {
 		// It expired during verification. Refusing is right: the person's approval was for
 		// a request that no longer exists, and the browser has stopped waiting.
 		writeError(w, http.StatusNotFound, errExpiredToken)
-		return
-	}
-	if conflict {
-		writeError(w, http.StatusConflict, errInvalidRequest)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

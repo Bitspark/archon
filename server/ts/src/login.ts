@@ -58,8 +58,12 @@ const MIN_ENTROPY = 16;
  * Omitting it means the proof alone suffices, which is right for a service whose law needs
  * nothing beyond "this key holder was here and approved this scope".
  *
- * It may be async, and the handler awaits it. See the note on `answer` for why every check it
- * depends on is repeated afterwards.
+ * It may be async, and the handler awaits it. It is called AT MOST ONCE AT A TIME PER
+ * REQUEST, and never for an answer that arrives after another was stored (see `answer`). That
+ * is not an exactly-once boundary: a refused answer's law did run, and a process can stop
+ * after the law returns and before the answer is stored. So it must only validate, or make its
+ * effects idempotent (keyed by the browser key it is handed, which names the delegation), or
+ * leave them until the browser has collected.
  */
 export type AdmitAuthority = (
   browser: Uint8Array,
@@ -105,8 +109,8 @@ interface Answer {
   authority: string | undefined;
 }
 
-/** One pending login. Written once at begin; only `answered` and `lastPoll` ever change, and
- *  NEITHER ENTERS A BINDING. */
+/** One pending login. Written once at begin; only `answered`, `lastPoll` and `admission` ever
+ *  change, and NONE OF THEM ENTERS A BINDING. */
 interface Record_ {
   id: Uint8Array;
   nonce: Uint8Array;
@@ -116,6 +120,9 @@ interface Record_ {
   expires: number;
   answered: Answer | undefined;
   lastPoll: number | undefined;
+  /** The ADMISSION TURN: settles when the answer that last took it is done with the law.
+   *  undefined when nobody holds it. See `#answer`. */
+  admission: Promise<void> | undefined;
 }
 
 /** One registered offer (§4.1): what a prover is willing to delegate, to a key it does not
@@ -370,6 +377,7 @@ export class Handler {
       expires: this.#clock() + this.ttlSeconds,
       answered: undefined,
       lastPoll: undefined,
+      admission: undefined,
     };
     // A request that cannot produce a binding must not be handed out: the CLI would fetch it,
     // show it, and fail at signing time with nothing to explain.
@@ -564,15 +572,18 @@ export class Handler {
    *
    * THE AWAIT IS THE HAZARD. `AdmitAuthority` is the SERVICE's code and may be async — a
    * database, a network call — and JavaScript hands the runtime to every other pending request
-   * at that `await`. So the state this decision rests on is RE-CHECKED afterwards: a second
-   * CLI answering the same login while the first was being admitted is ordinary (a person with
-   * two terminals), and the loser must get 409 rather than overwrite an answer the browser may
-   * already have collected.
+   * at that `await`. A second CLI answering the same login while the first is being admitted is
+   * ordinary (a person with two terminals), so a verified answer first TAKES THE REQUEST'S
+   * ADMISSION TURN and re-checks the record holding it: one law at a time per request, and none
+   * at all for an answer that arrives after another was stored — it gets 409 without the law
+   * running, where it used to run the law and then lose (#61). A REFUSED answer releases the
+   * turn, so a stranger's refused answer delays the person by the law's running time and never
+   * denies them.
    *
-   * The three server lanes reach the same rule from opposite directions: go and rs must keep
-   * the law OUT of the store's mutex so one slow law cannot decide the throughput of every
-   * login; here there is no mutex to hold, and the danger is the interleaving that an `await`
-   * makes certain rather than merely possible.
+   * The three server lanes reach the same rule from opposite directions: go and rs keep the
+   * law OUT of the store's mutex, behind a per-request turn, so one slow law cannot decide the
+   * throughput of every login; here there is no mutex to hold, and the turn is a promise chained
+   * on the record.
    */
   async #answer(request: Request, idHex: string): Promise<Response> {
     let body: Record<string, unknown>;
@@ -614,24 +625,45 @@ export class Handler {
     if (!verifyLogin(principal, this.audience, toRequest(record), possession)) {
       return fail(403, ERR_INVALID_GRANT);
     }
-    if (this.#admit !== undefined) {
-      try {
-        await this.#admit(record.browser, principal, new TextEncoder().encode(authority ?? ""));
-      } catch {
-        return fail(403, ERR_INVALID_GRANT);
-      }
-    }
 
-    // Everything the decision rested on, re-read after the await.
-    const still = this.#live(idHex);
-    if (still === undefined) return fail(404, ERR_EXPIRED_TOKEN);
-    if (still.answered !== undefined) {
-      // Another answer won while this one was being admitted. Storing here would discard a
-      // proof the browser may already have collected.
-      return fail(409, ERR_INVALID_REQUEST);
+    // Take the turn. Reading the previous holder and installing this one happen with no
+    // `await` between them, so two answers can never both believe they hold it.
+    const previous = record.admission;
+    let release: () => void = () => {};
+    const mine = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    record.admission = mine;
+    try {
+      await previous;
+
+      // Everything the decision rests on, re-read now that the turn is ours.
+      const live = this.#live(idHex);
+      if (live === undefined) return fail(404, ERR_EXPIRED_TOKEN);
+      if (live.answered !== undefined) {
+        // Another answer was stored while this one waited. Storing here would discard a proof
+        // the browser may already have collected, and running the law for it would be an
+        // admission nobody can use.
+        return fail(409, ERR_INVALID_REQUEST);
+      }
+      if (this.#admit !== undefined) {
+        try {
+          await this.#admit(live.browser, principal, new TextEncoder().encode(authority ?? ""));
+        } catch {
+          return fail(403, ERR_INVALID_GRANT);
+        }
+      }
+
+      // The record can expire while the law runs. Nothing else can change: only the holder of
+      // the turn stores an answer.
+      const still = this.#live(idHex);
+      if (still === undefined) return fail(404, ERR_EXPIRED_TOKEN);
+      still.answered = { principal: principalText, possession: possessionText, authority };
+      return new Response(null, { status: 204 });
+    } finally {
+      release();
+      if (record.admission === mine) record.admission = undefined;
     }
-    still.answered = { principal: principalText, possession: possessionText, authority };
-    return new Response(null, { status: 204 });
   }
 
   /**

@@ -36,6 +36,13 @@ type record struct {
 	// down rather than served. It is not rate limiting in any wider sense, and ADR 0007
 	// §B says not to add any.
 	lastPoll time.Time
+
+	// turn is the request's ADMISSION TURN: a one-slot channel, made at begin, and holding
+	// the slot is holding the turn. An answer takes it after its proof verifies and before
+	// the law runs, so the law runs once at a time per request and never for an answer that
+	// arrives after another was stored (see Handler.answer). A channel rather than a mutex
+	// because snapshot copies the record, and a copied channel is the same channel.
+	turn chan struct{}
 }
 
 // answer is what the CLI posted and the browser collects, held verbatim between the two.
