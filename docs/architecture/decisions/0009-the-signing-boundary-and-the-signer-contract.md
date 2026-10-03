@@ -100,13 +100,16 @@ The seed-backed signer ships in the sdk. Store-backed signing ships only as the 
   moving its facts to a domain instead (operator ruling, 2026-10-04: a clean cut, no legacy path).
 - **Two-stage key selection.** A caller learns the key's principal **without a password** — the
   store header carries the public key in the clear (`archon key list --json`) — builds its bytes,
-  then asks for a signature naming the principal it expects (`--expect <ed25519:…>`). archon treats
-  the header as provisional until the seal opens and the seed derives the header key, and **refuses**
-  if that key is not the expected one: a store entry replaced between the two stages is never
-  signed for silently. thesmos needs this order — the signer's key is inside the bytes it signs.
+  then asks for a signature naming the principal it expects (`--expect <ed25519:…>`). A header that
+  already names another key is refused **before the password is asked for**; archon still treats
+  the header as provisional until the seal opens and the seed derives the header key, and refuses
+  if that key is not the expected one — **always before signing**, so a mismatched key never
+  produces a signature at all and a store entry replaced between the two stages is never signed for
+  silently. thesmos needs this order — the signer's key is inside the bytes it signs.
 - **A machine mode.** A versioned machine output (one JSON record on stdout: version, principal,
   scheme, domain, signature; one JSON error record with a semantic category on failure) is
-  selected explicitly. The current 128-hex-digit output is unchanged for existing invocations.
+  selected explicitly. Without it the output stays the signature alone, 128 hex digits — with
+  `--key` as with `--seed` — so a caller attaches exactly 64 bytes without parsing anything.
 - **Secret channels.** The message arrives by `--in <file>` or stdin; the password by
   `--password-fd` or `ARCHON_KEY_PASSWORD` as today, or **from the controlling terminal**
   (`/dev/tty`, the Windows console) — **never from the stdin that carries the message.** Today every
