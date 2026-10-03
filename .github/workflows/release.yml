@@ -362,6 +362,22 @@ jobs:
                   "resolved the secrets unchanged. Issue a fresh Portal user token."
               )
 
+      - name: Build the four TypeScript packages
+        if: env.VERIFY_ONLY != 'true'
+        # From their own lockfiles, in dependency order, BEFORE the publish step rewrites the
+        # `file:` links. Nothing else in this job builds all four: check.mjs builds core, sdk
+        # and cli for the oracles it drives and never server/ts, which is how every version of
+        # @bitspark/archon-server through 0.8.1 reached npm as a package.json and nothing else
+        # (#55). Each package's `prepack` builds it again at publish; this step installs the
+        # compiler that needs, and fails here, by name, if a package does not build.
+        run: |
+          set -euo pipefail
+          for d in core/ts sdk/ts cli/ts server/ts; do
+            echo "::group::$d"
+            ( cd "$d" && npm ci --no-audit --no-fund && npm run build )
+            echo "::endgroup::"
+          done
+
       - name: Publish to npm, floor first
         if: env.VERIFY_ONLY != 'true'
         # Order is a dependency order, not a preference: the sdk names the floor, the command
@@ -385,10 +401,33 @@ jobs:
           DRY=""; [ "$REHEARSE" = "true" ] && DRY="--dry-run"
           FLOOR=$(node -p "require('./core/ts/package.json').version")
 
+          # The tarball must carry every file package.json points at. npm packs an empty match
+          # of `files` without complaint, which is how @bitspark/archon-server shipped as a
+          # package.json alone through 0.8.1 (#55); this refuses that whatever the cause.
+          entry_points_packed() {
+            npm pack --dry-run --json --ignore-scripts > "$RUNNER_TEMP/pack.json"
+            node -e '
+              // npm 11 prints an array of packs, npm 12 an object keyed by package name.
+              const out = require(process.argv[1]);
+              const pack = Array.isArray(out) ? out[0] : Object.values(out)[0];
+              const pkg = require(require("node:path").resolve("package.json"));
+              const packed = new Set(pack.files.map((f) => f.path));
+              const want = [pkg.main, pkg.types, ...Object.values(pkg.bin ?? {})]
+                .filter(Boolean).map((p) => p.replace(/^\.\//, ""));
+              const missing = want.filter((p) => !packed.has(p));
+              if (want.length === 0 || missing.length > 0) {
+                console.error(`::error::${pkg.name}@${pkg.version} would publish without ${missing.join(", ") || "any entry point"}: its ${packed.size} file(s) are ${[...packed].join(", ")}`);
+                process.exit(1);
+              }
+              console.log(`${pkg.name}@${pkg.version}: ${packed.size} files, carrying ${want.join(", ")}`);
+            ' "$RUNNER_TEMP/pack.json"
+          }
+
           publish() {
             d="$1"; shift
             ( cd "$d"
               for dep in "$@"; do npm pkg set "dependencies.$dep=^$FLOOR"; done
+              entry_points_packed
               PKG=$(node -p "require('./package.json').name")
               VER=$(node -p "require('./package.json').version")
               if npm view "$PKG@$VER" version >/dev/null 2>&1; then
@@ -867,18 +906,28 @@ jobs:
           # and a public install must not carry a placeholder token to the registry. The
           # consumer is anonymous by definition.
           export NPM_CONFIG_USERCONFIG=$(mktemp)
+          # The server tier too, from the first tag whose server package builds itself when
+          # packed (`prepack`, #55). Every earlier @bitspark/archon-server is a package.json and
+          # nothing else, so a re-dispatch of those tags checks the floor and the sdk only, and
+          # says so rather than staying silent about the third package.
+          PKGS=("@bitspark/archon-sdk@$VER" "@bitspark/archon@$VER"); MODE=""
+          if node -e 'process.exit(require(process.argv[1]).scripts?.prepack ? 0 : 1)' "$GITHUB_WORKSPACE/server/ts/package.json"; then
+            PKGS+=("@bitspark/archon-server@$VER"); MODE="--server"
+          else
+            echo "::notice::$TAG's @bitspark/archon-server predates #55 and carries no code: not consumed"
+          fi
           ok=0; err=""
           for i in $(seq 1 60); do
             if err=$(npm install --no-audit --no-fund --registry https://registry.npmjs.org --@bitspark:registry=https://registry.npmjs.org \
-                 "@bitspark/archon-sdk@$VER" "@bitspark/archon@$VER" 2>&1); then ok=1; break; fi
-            echo "registry not serving @bitspark/archon-sdk@$VER + @bitspark/archon@$VER yet (try $i/60) — waiting"; sleep 10
+                 "${PKGS[@]}" 2>&1); then ok=1; break; fi
+            echo "registry not serving ${PKGS[*]} yet (try $i/60) — waiting"; sleep 10
           done
           if [ "$ok" -ne 1 ]; then
             echo "last attempt said:"; echo "$err" | tail -n 20
-            echo "::error::@bitspark/archon-sdk@$VER did not become installable within 10 minutes. The publish steps SUCCEEDED — check the registry before assuming the release failed." >&2
+            echo "::error::${PKGS[*]} did not become installable within 10 minutes. The publish steps SUCCEEDED — check the registry before assuming the release failed." >&2
             exit 1
           fi
-          node consumer.mjs
+          node consumer.mjs $MODE
 
           # The CLI as the README installs it — `npm install -g @bitspark/archon-cli` — into a
           # fresh prefix, and what it SAYS. The consumer above installs only the floor and the
