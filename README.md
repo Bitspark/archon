@@ -8,7 +8,8 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Ed25519 identity with **one** spelling. A key is `ed25519:<64 hex>` — the same 32 bytes, the
-same text, in Rust, Go and TypeScript, checked against one oracle on every push. The PEM
+same text, in each of the eight languages archon ships ([languages](docs/languages.md)),
+checked against one oracle on every push. The PEM
 codecs are RFC 5280 SPKI and RFC 5958 PKCS-8, nothing invented. Signing is
 domain-separated, so a signature made for one context cannot count in another.
 
@@ -16,19 +17,28 @@ It answers exactly two questions — *are these bytes that key?* and *is this si
 key's?* — and deliberately answers nothing else. What a key is allowed to do, and where a
 key is kept, are somebody else's questions. See [Scope](#scope).
 
+<!-- quickstart: cli/smoke.mjs runs this block as written, in all three CLI lanes, on every push (cli/quickstart.mjs) -->
 ```console
-$ archon keygen --out seed.hex --pub-out key.txt --pub-format text
-$ cat key.txt
+$ archon keygen --out key.pem --pub-out key.txt --pub-format text
 ed25519:d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a
+$ printf 'hello' > message.txt
+$ archon sign --key-file key.pem --domain example.v1 --in message.txt > sig.hex
 
-$ echo -n "hello" | archon sign --seed "$(cat seed.hex)" --domain example.v1 > sig.hex
-
-$ echo -n "hello" | archon verify --pubkey "$(cat key.txt)" --sig "$(cat sig.hex)" --domain example.v1
+$ archon verify --pubkey "$(cat key.txt)" --sig "$(cat sig.hex)" --domain example.v1 --in message.txt
 valid
+$ archon verify --pubkey "$(cat key.txt)" --sig "$(cat sig.hex)" --domain example.v2 --in message.txt
+invalid
 ```
 
+`keygen` prints the public key text and writes two files: `key.pem`, the private key as a
+PKCS#8 PEM, and `key.txt`, the public key text. `sign` reads the PEM with `--key-file`, so
+the private key never appears on a command line. The last line is the point of signing in
+a domain: the same signature is `invalid` in any other domain.
+
 `verify` prints `valid` or `invalid` and exits 0 or 1 — a verdict on stdout, not a usage
-error, so a failed check is scriptable.
+error, so a failed check is scriptable. The block above is executed exactly as written by
+[`cli/smoke.mjs`](cli/smoke.mjs) in all three command implementations on every push;
+`node cli/quickstart.mjs -- archon` runs it against the `archon` you have installed.
 
 The same three operations, as a library:
 
@@ -144,9 +154,16 @@ It deliberately does **not** own:
 
 - **Authority.** Whether a key may do a thing is not archon's question. The login server
   hands the authority payload to the consumer through `AdmitAuthority` and never reads it.
-- **Custody.** Storing a key, encrypting it at rest, rotating it, running a root ceremony,
-  retiring an epoch — none of it. `archon key` writes a file you name and reads a file you
-  name; it manages nothing and is not a keychain.
+- **Custody, past one store.** The libraries hold no key: `core` and `sdk` take the seed
+  bytes they are given and never learn a file path, a password or a directory. The command
+  has exactly one custody feature, accepted in
+  [ADR 0007](docs/architecture/decisions/0007-custody-in-the-command-and-the-login-server-tier.md):
+  `archon key` keeps seeds under names in a password-protected store (Argon2id and
+  XChaCha20-Poly1305, one file per key — [the format](docs/keystore.md)), and `archon login`
+  signs with a stored key or the default one. It is for people; agents and CI use seed
+  files. Rotation, root ceremonies, retiring an epoch, recovery, hardware tokens and agents
+  are not archon's — rotation is the authority's (issue to the new key, let the old grants
+  expire).
 - **Succession.** There is no re-key path. A key dies with itself; loss or compromise means
   generating a new one.
 
@@ -160,6 +177,7 @@ universal**, and a project that already has a canonical byte-to-text spelling wo
 
 - [Architecture decisions](docs/architecture/decisions/) — why the boundaries are where they are
 - [The login scheme](docs/login.md) — proof of possession, audience binding, delegation
+- [Adopting archon](docs/adoption.md) — which tier does which job, the two signature schemes, and what is not available
 - [The key store](docs/keystore.md) — what `archon key` does and does not do
 - [Conformance](conformance/) and [the oracle](vectors/) — how agreement is established
 - [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)

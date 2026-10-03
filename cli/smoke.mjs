@@ -19,6 +19,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { runQuickstart } from "./quickstart.mjs";
 
 const isWindows = process.platform === "win32";
 const exe = isWindows ? ".exe" : "";
@@ -557,6 +558,19 @@ if (process.platform !== "win32") {
     }
   }
   runStore(writer, ["key", "rm", "moded"]);
+}
+
+// ---- the README's quickstart, as written (issue #49) ------------------------------
+//
+// The first commands an adopter copies. For three releases they did not work — `keygen
+// --out` wrote a PEM that `sign --seed` cannot read — because nothing ran them. Now every
+// lane runs the README's own block, verbatim, through cli/quickstart.mjs: a mismatch between
+// what keygen writes and what sign reads goes red here, on the pull request, not on a user.
+for (const lane of lanes) {
+  for (const r of runQuickstart(join(root, "README.md"), lane.argv)) {
+    if (r.ok) { checked++; console.log(`ok   quickstart [${lane.name}] $ ${r.command}`); }
+    else { failures++; console.error(`FAIL quickstart [${lane.name}] $ ${r.command}\n       ${r.detail}`); }
+  }
 }
 
 rmSync(tmp, { recursive: true, force: true });

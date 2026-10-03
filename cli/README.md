@@ -3,7 +3,8 @@
 Three native binaries — `cli/rs`, `cli/go`, `cli/ts` — each build the **same** `archon`
 command with **identical** stdout and exit codes, pinned by [`smoke.mjs`](smoke.mjs)
 (the case table, the store's cross-binary checks, one store-key login and one offered login
-per lane against a server the run hosts itself — × 3 binaries, on every push). They are thin presentation + I/O layers over the
+per lane against a server the run hosts itself, and the top-level README's quickstart run as
+written by [`quickstart.mjs`](quickstart.mjs) — × 3 binaries, on every push). They are thin presentation + I/O layers over the
 floor, never part of it: the library stays dependency-minimal; the CLI's I/O lives here.
 
 ```
@@ -142,8 +143,9 @@ command's `sign` and `verify` share the names and nothing else. They work on byt
 `keygen` without `--seed` draws from the OS CSPRNG. That RNG lives **here**, in the CLI,
 and not in the library — the library takes a seed it is given and never invents one
 ([ADR 0002](../docs/architecture/decisions/0002-keycodec-is-a-byte-codec-not-key-custody.md)).
-It is not custody in stele's sense: nothing is named, stored or managed; a file you name is
-written and forgotten. Anyone who wants no keygen at all can use
+`keygen --out` is not custody: nothing is named, stored or managed; the file you name is
+written and forgotten. `keygen --store <name>` is, and belongs to the key store above.
+Anyone who wants no keygen at all can use
 `openssl genpkey -algorithm ed25519` — it emits the PKCS#8 PEM this command reads.
 
 ## Building
