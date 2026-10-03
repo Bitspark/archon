@@ -97,7 +97,7 @@ fix does not, and needs the next version.
 | Maven Central (`dev.bitspark`) | `dev.bitspark:archon-core`, then `dev.bitspark:archon-sdk` — two deployments, the floor's first, each with its own repo1 idempotence guard, so a re-dispatch that finds one served still deploys the other; both signed, each with sources and javadoc jars | repository secrets `MAVEN_CENTRAL_USERNAME` / `MAVEN_CENTRAL_PASSWORD` (a Central Portal token pair, not a login) and `MAVEN_GPG_PRIVATE_KEY` / `MAVEN_GPG_PASSPHRASE` (fingerprint `A49669B73C7462D05870C0DECB3E10222F8E5BBB`, public key on `keyserver.ubuntu.com`); the same pair and key that published `dev.bitspark:bitwire`. One settings file for both, `core/java/release-settings.xml`, whose server id the credential diagnostic proves | installed 2026-09-21; first used for 0.7.0, whose credential diagnostic passed before npm published. The namespace is verified, so a new artifact id needs no account step |
 
 Trusted-publisher fields are case-sensitive and unvalidated at save time; a typo is an auth
-failure at publish time. A Maven 401 is not evidence that a secret was mis-set: Bitwire's
+failure at publish time. A Maven 401 is not evidence that a secret was mis-set: bitwire's
 investigation showed a credential pair reaching Maven unchanged and being refused by Central
 itself, and a fresh pair succeeding — diagnose with a read-only request before rotating.
 

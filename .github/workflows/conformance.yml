@@ -33,6 +33,21 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Bitspark's naming rule: a project is written as its repository is named, character for
+  # character (Bitspark/.github NAMING.md). scripts/naming.mjs and its repository list are
+  # copied unchanged from Bitspark/.github/naming; it reads Markdown and text prose only, so
+  # code comments and UI strings are still a reviewer's to catch.
+  naming:
+    name: naming
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - run: node scripts/naming.mjs
+
   rust:
     name: rust
     runs-on: ubuntu-latest
