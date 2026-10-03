@@ -72,3 +72,9 @@ These are open proposals with no decision. Do not build on them as if they exist
 The README's [quickstart](../README.md) is executed as written, in all three command
 implementations, on every push. `node cli/quickstart.mjs -- archon` runs it against the
 `archon` you have installed.
+
+[`examples/login`](../examples/login/) is a whole login on the published TypeScript packages
+at exact versions: a service mounting the handler with an `admit` callback, a key-less
+client, and a person with `archon login`. CI runs it on every push, installing from the
+registry rather than from this repository. Its README also says what `admit` receives as
+the authority payload.

@@ -1,0 +1,19 @@
+{
+  "name": "archon-login-example",
+  "private": true,
+  "description": "A service, a key-less client and a person logging in, on archon's published packages",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node run.mjs"
+  },
+  "dependencies": {
+    "@bitspark/archon": "0.8.1",
+    "@bitspark/archon-cli": "0.8.1",
+    "@bitspark/archon-sdk": "0.8.1",
+    "@bitspark/archon-server": "0.8.1"
+  }
+}
