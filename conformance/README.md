@@ -12,7 +12,7 @@ builds all three cores' conformance CLIs, drives each as a black box over
 against the oracle carried in the vector itself. Every core is checked against the
 standard — and therefore against every other core.
 
-That is the whole setup. A fresh clone needs a Rust toolchain, Go 1.25 and Node 22 on
+That is the whole setup. A fresh clone needs a Rust toolchain, Go 1.26 and Node 22 on
 PATH; `npm ci` for the TypeScript core runs itself if `node_modules` is missing, and the
 command works from any directory (paths derive from the script's own location, not from
 cwd). The same command is what [CI](../.github/workflows/conformance.yml) runs on every

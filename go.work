@@ -1,7 +1,7 @@
 // Workspace: the floor and the layer above it resolve each other locally, so a change
 // to core/go is visible to sdk/go without a push and a pseudo-version bump. Consumers
 // never see this file — they resolve sdk/go's require line from GitHub.
-go 1.25
+go 1.26.0
 
 use (
 	./cli/go
