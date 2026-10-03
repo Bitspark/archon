@@ -18,6 +18,7 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use unicode_normalization::UnicodeNormalization;
+use zeroize::Zeroizing;
 
 /// Follows the envelope's `"arcn" ‖ version` (`sdk/{go,rs,ts}`). It is what stops a
 /// 134-byte non-key file being LISTED as a key: `key list` reads the header without a
@@ -72,19 +73,24 @@ pub const EMPTY_PASSWORD: &str = "an empty password is refused: it would look en
 
 /// Derives the file key. The password is UTF-8, normalised NFC so the same characters typed
 /// on different platforms derive the same key.
-fn derive_key(password: &[u8], salt: &[u8], p: KeyParams) -> Result<[u8; 32], String> {
-    let normalised: Vec<u8> = match std::str::from_utf8(password) {
+///
+/// The normalised password and the key are `Zeroizing`, as are the seeds below
+/// (docs/keystore.md §4, #53): wiped on drop, best-effort. A copy the compiler makes when a
+/// value moves, or the one the cipher keeps of its key, is not reached — which is why §4
+/// calls this worth doing and not a security claim.
+fn derive_key(password: &[u8], salt: &[u8], p: KeyParams) -> Result<Zeroizing<[u8; 32]>, String> {
+    let normalised = Zeroizing::new(match std::str::from_utf8(password) {
         Ok(text) => text.nfc().collect::<String>().into_bytes(),
         // Not valid UTF-8: there is nothing to normalise, so the bytes are used as given
         // rather than mangled. The other lanes reach the same bytes the same way.
         Err(_) => password.to_vec(),
-    };
+    });
     let params = Params::new(p.memory_kib, p.time, p.parallelism as u32, Some(32))
         .map_err(|e| format!("argon2id parameters are not usable: {e}"))?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
-    let mut out = [0u8; 32];
+    let mut out = Zeroizing::new([0u8; 32]);
     argon
-        .hash_password_into(&normalised, salt, &mut out)
+        .hash_password_into(&normalised, salt, &mut out[..])
         .map_err(|e| format!("argon2id: {e}"))?;
     Ok(out)
 }
@@ -153,7 +159,7 @@ pub fn seal(
     if nonce.len() != NONCE_SIZE {
         return Err(format!("nonce must be {NONCE_SIZE} bytes"));
     }
-    let mut seed_fixed = [0u8; SEED_SIZE];
+    let mut seed_fixed = Zeroizing::new([0u8; SEED_SIZE]);
     seed_fixed.copy_from_slice(seed);
     let mut salt_fixed = [0u8; SALT_SIZE];
     salt_fixed.copy_from_slice(salt);
@@ -163,7 +169,7 @@ pub fn seal(
         public_key: public_key_from_seed(&seed_fixed),
     });
     let key = derive_key(password, salt, p)?;
-    let aead = XChaCha20Poly1305::new(&Key::from(key));
+    let aead = XChaCha20Poly1305::new(&Key::from(*key));
     let xnonce =
         XNonce::try_from(nonce).map_err(|_| format!("nonce must be {NONCE_SIZE} bytes"))?;
     let ciphertext = aead
@@ -185,18 +191,18 @@ pub fn seal(
 /// Reverses [`seal`] and then checks the decrypted seed against the header's public key.
 /// The tag proves the bytes are ours; that check proves they are CONSISTENT — a file can
 /// verify and still be refused.
-pub fn open(file: &[u8], password: &[u8]) -> Result<[u8; SEED_SIZE], String> {
+pub fn open(file: &[u8], password: &[u8]) -> Result<Zeroizing<[u8; SEED_SIZE]>, String> {
     let header = parse_header(file)?;
     if password.is_empty() {
         return Err(EMPTY_PASSWORD.to_string());
     }
     let key = derive_key(password, &header.salt, header.params)?;
-    let aead = XChaCha20Poly1305::new(&Key::from(key));
+    let aead = XChaCha20Poly1305::new(&Key::from(*key));
     let nonce = &file[HEADER_SIZE..HEADER_SIZE + NONCE_SIZE];
     let xnonce =
         XNonce::try_from(nonce).map_err(|_| format!("nonce must be {NONCE_SIZE} bytes"))?;
-    let seed = aead
-        .decrypt(
+    let seed = Zeroizing::new(
+        aead.decrypt(
             &xnonce,
             Payload {
                 msg: &file[HEADER_SIZE + NONCE_SIZE..],
@@ -205,11 +211,12 @@ pub fn open(file: &[u8], password: &[u8]) -> Result<[u8; SEED_SIZE], String> {
         )
         // One message for a wrong password and a tampered file alike: which of the two it
         // was is not something the holder of a bad password should learn.
-        .map_err(|_| "could not open: wrong password, or the file has been altered".to_string())?;
+        .map_err(|_| "could not open: wrong password, or the file has been altered".to_string())?,
+    );
     if seed.len() != SEED_SIZE {
         return Err("the sealed plaintext is not a seed".to_string());
     }
-    let mut out = [0u8; SEED_SIZE];
+    let mut out = Zeroizing::new([0u8; SEED_SIZE]);
     out.copy_from_slice(&seed);
     if public_key_from_seed(&out) != header.public_key {
         return Err("the sealed seed does not derive the public key in the header".to_string());
@@ -269,4 +276,21 @@ pub fn validate_name(name: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #53: the unlocked seed and the derived key leave this module wiped-on-drop. Written
+    /// as types, so a change back to a bare array fails to compile here instead of passing
+    /// quietly. The command's side — the password, the store unlock, the login seed — is
+    /// pinned the same way in `cmd::login`'s tests; this file is also built into the
+    /// conformance binary, which has no `cmd`.
+    #[test]
+    fn secrets_leave_as_zeroizing() {
+        type Secret<const N: usize> = Result<Zeroizing<[u8; N]>, String>;
+        let _: fn(&[u8], &[u8]) -> Secret<SEED_SIZE> = open;
+        let _: fn(&[u8], &[u8], KeyParams) -> Secret<32> = derive_key;
+    }
 }

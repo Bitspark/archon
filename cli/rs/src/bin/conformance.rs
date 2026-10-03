@@ -85,7 +85,7 @@ fn main() {
                 &hex_decode(&str_of(c, "file")),
                 str_of(c, "password").as_bytes(),
             ) {
-                Ok(seed) => json!({ "ok": { "seed": hex_encode(&seed) } }),
+                Ok(seed) => json!({ "ok": { "seed": hex_encode(&seed[..]) } }),
                 Err(_) => json!({ "error": true }),
             },
             "keystore_name" => {
