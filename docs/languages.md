@@ -39,7 +39,7 @@ implementing it badly.
 |---|---|---|---|---|---|---|---|
 | **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ proxy + checksum db — **0.8.1**, and automatically (see below) |
 | **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.8.1** |
-| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.8.1** |
+| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.8.1**; ❌ **except `-server`**, published without its code in every version through 0.8.1 ([#55](https://github.com/Bitspark/archon/issues/55)) |
 | **Python** | ✅ | ✅ possession + envelope | — | — | `bitspark-archon-{core,sdk}` (import `archon_{core,sdk}`) | 105/105; sdk 38/38 | ✅ PyPI — core and sdk **0.8.1**, wheel + sdist |
 | **Java** | ✅ | ✅ possession + envelope | — | — | `dev.bitspark:archon-{core,sdk}` | 105/105; sdk 38/38 | ✅ Maven Central — core and sdk **0.8.1**, signed |
 | **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | ✅ consumed from the tag — **v0.8.1**, `verify-source` green (see below) |
@@ -57,7 +57,7 @@ from the public registry with no source tree reachable:
 | registry | has | proof |
 |---|---|---|
 | Go proxy + `sum.golang.org` | **v0.8.1** (`@latest`) | the Go consumer, [run 35897703925](https://github.com/Bitspark/archon/actions/runs/35897703925) — including `go install …/cli/go/cmd/archon@v0.8.1` under `-mod=readonly`, which printed `archon 0.8.1` |
-| npm | **0.8.1** (`latest`), all four packages | the npm consumer, same run — the sdk names its floor as `^0.8.1` |
+| npm | **0.8.1** (`latest`), all four packages — but `@bitspark/archon-server` is a `package.json` and nothing else ([#55](https://github.com/Bitspark/archon/issues/55)) | the npm consumer, same run — the sdk names its floor as `^0.8.1`. It installed the floor and the sdk only, which is how the empty server went unnoticed; from the next release it runs a whole login through the published server too |
 | crates.io | **0.8.1**, all four crates | the crates.io consumer, same run |
 | PyPI | **0.8.1**, core and sdk, wheel + sdist | the Python round trips, same run — the sdk resolved its floor through `bitspark-archon-core~=0.8.1` |
 | Maven Central | **0.8.1**, core and sdk, signed | the Central consumers, in the second act Central's asynchronous serving requires (below) — [`verify_only` run 35899447264](https://github.com/Bitspark/archon/actions/runs/35899447264); each resolved jar byte-identical to what Central serves |

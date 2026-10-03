@@ -7,6 +7,9 @@
 //   d=$(mktemp -d) && cp conformance/consumers/ts/consumer.mjs "$d" && cd "$d" && npm init -y >/dev/null \
 //     && npm_config_cache=$(mktemp -d) npm install --no-audit --no-fund @bitspark/archon-sdk@X @bitspark/archon@X \
 //     && node consumer.mjs
+//
+// With `--server`, and @bitspark/archon-server@X installed beside them, it also runs a whole
+// login through the published server tier (below).
 import { readFileSync } from "node:fs";
 import * as core from "@bitspark/archon";
 import { provePossession, verifyPossession } from "@bitspark/archon-sdk";
@@ -53,8 +56,44 @@ if (!range.startsWith("^") || range.includes("file:")) {
   process.exit(1);
 }
 
-if (!(inDomain && !otherDomain && !asRaw && identityR && mixedA && pop)) {
+// The server tier, a whole login through the PUBLISHED handler, in-process: the browser
+// begins, the person's command fetches what it will be shown, answers with the sdk's proof,
+// and the browser collects with its own. Every version through 0.8.1 published this package
+// as a package.json and nothing else (#55), and no step noticed, because nothing imported it.
+let server = true;
+if (process.argv.includes("--server")) {
+  const { Handler, COLLECT_HEADER } = await import("@bitspark/archon-server");
+  const { proveLogin, proveCollect, verifyLogin } = await import("@bitspark/archon-sdk");
+  const hex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  const audience = "https://service.example/api";
+  const handler = new Handler({ audience, mount: "/api/login" });
+  const call = (path, init) => handler.handle(new Request(`${audience}${path}`, init));
+  const json = { "content-type": "application/json" };
+
+  const kSeed = new Uint8Array(32).fill(0x22);
+  const browser = core.getPublicKey(kSeed);
+  const begun = await call("/login", {
+    method: "POST", headers: json,
+    body: JSON.stringify({ browser: core.encodeKey(browser), scope: ["read:projects"], valid_for: 60 }),
+  });
+  const { id, nonce } = await begun.json();
+  const fetched = await call(`/login/${id}`);
+  const shown = await fetched.json();
+  const req = { id: unhex(id), nonce: unhex(nonce), browser, scope: shown.scope, validFor: shown.valid_for };
+  const answered = await call(`/login/${id}/answer`, {
+    method: "POST", headers: json,
+    body: JSON.stringify({ principal: core.encodeKey(pub), possession: hex(proveLogin(seed, audience, req)) }),
+  });
+  const collected = await call(`/login/${id}/answer`, { headers: { [COLLECT_HEADER]: hex(proveCollect(kSeed, audience, req)) } });
+  const answer = collected.status === 200 ? await collected.json() : {};
+  server = begun.status === 201 && fetched.status === 200 && answered.status === 204 && collected.status === 200
+    && answer.principal === core.encodeKey(pub) && verifyLogin(pub, audience, req, unhex(answer.possession));
+  console.log(`server: begin ${begun.status}, fetch ${fetched.status}, answer ${answered.status}, collect ${collected.status}; login verified=${server}`);
+}
+
+if (!(inDomain && !otherDomain && !asRaw && identityR && mixedA && pop && server)) {
   console.error("FAIL: the published npm packages do not behave as the release claims");
   process.exit(1);
 }
-console.log("OK: @bitspark/archon + @bitspark/archon-sdk from registry.npmjs.org");
+const which = process.argv.includes("--server") ? " + @bitspark/archon-server" : "";
+console.log(`OK: @bitspark/archon + @bitspark/archon-sdk${which} from registry.npmjs.org`);
