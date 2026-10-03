@@ -13,6 +13,7 @@
 // Same shell-free spawning discipline as conformance/check.mjs.
 
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync,
          writeFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -470,6 +471,134 @@ for (const lane of lanes) {
   // fetch keeps connections alive; close them or server.close waits on them forever.
   server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
+}
+
+// 3c. `sign --key` (ADR 0009 §5): every lane signs with the key go sealed, and the signature
+//     is the ORACLE's (OpenSSL-derived), never a lane's. The refusals are pinned by their
+//     machine-mode category, which is the part a calling tool branches on; the sentence on
+//     stderr is free to change. Two of them run with NO password source and NO terminal
+//     (detached: a new session on POSIX, no console on Windows): one proves the password is
+//     never sought anywhere else, the other that an unexpected key is refused BEFORE the
+//     password — a refusal that came after the prompt would read `password`.
+{
+  const OTHER_TEXT = oracle.key_encode.find((c) => c.pubkey !== PUB).text;
+  const multibyte = oracle.domain_sign.find((c) => c.name === "domain-multibyte");
+  const multibyteMsg = join(tmp, "multibyte.bin");
+  writeFileSync(multibyteMsg, Buffer.from(multibyte.message, "hex"));
+  const noPassword = (({ ARCHON_KEY_PASSWORD, ...rest }) => ({ ...rest, ARCHON_HOME: storeHome }))(process.env);
+  const runSign = (lane, args, { input, env, detached } = {}) => {
+    const [program, ...pre] = lane.argv;
+    const r = spawnSync(program, [...pre, ...args], {
+      encoding: "utf8",
+      shell: false,
+      input,
+      detached: detached === true,
+      env: env ?? { ...process.env, ARCHON_HOME: storeHome, ARCHON_KEY_PASSWORD: PASSWORD },
+    });
+    return `${r.stdout ?? ""}[${r.status}]`;
+  };
+  const record = (domainMember, sig) =>
+    `{"version":1,"principal":"${TEXT}","scheme":"ed25519ph-context","domain":${domainMember},"signature":"${sig}"}\n`;
+  const refused = (category) => `{"version":1,"error":"${category}"}\n[1]`;
+  const storeSign = ["sign", "--key", "shared", "--domain", "archon/test/v1", "--expect", TEXT];
+  const cases = [
+    ["signs with the store key (OpenSSL reference)", [...storeSign, "--in", msgPath], {}, `${HELLO_V1}\n[0]`],
+    ["reads the message from stdin", storeSign, { input: Buffer.from(V1_VERIFY.message, "hex") }, `${HELLO_V1}\n[0]`],
+    ["--json prints the versioned record", [...storeSign, "--in", msgPath, "--json"], {},
+      `${record('"archon/test/v1"', HELLO_V1)}[0]`],
+    ["--json writes a multibyte domain as itself (OpenSSL reference)",
+      ["sign", "--key", "shared", "--domain", multibyte.domain, "--expect", TEXT, "--in", multibyteMsg, "--json"], {},
+      `${record(`"${multibyte.domain}"`, multibyte.result.ok)}[0]`],
+    ["refuses --key without --domain: the store does not sign raw",
+      ["sign", "--key", "shared", "--expect", TEXT, "--in", msgPath, "--json"], {}, refused("usage")],
+    ["refuses --key without --expect",
+      ["sign", "--key", "shared", "--domain", "archon/test/v1", "--in", msgPath, "--json"], {}, refused("usage")],
+    ["refuses a domain the core refuses",
+      ["sign", "--key", "shared", "--domain", "", "--expect", TEXT, "--in", msgPath, "--json"], {}, refused("domain")],
+    ["refuses a key the store does not have",
+      ["sign", "--key", "nobody", "--domain", "archon/test/v1", "--expect", TEXT, "--in", msgPath, "--json"], {}, refused("no-key")],
+    ["refuses a wrong password", [...storeSign, "--in", msgPath, "--json"],
+      { env: { ...process.env, ARCHON_HOME: storeHome, ARCHON_KEY_PASSWORD: "not the password" } }, refused("unlock-failed")],
+    ["refuses an unexpected key before asking for a password",
+      ["sign", "--key", "shared", "--domain", "archon/test/v1", "--expect", OTHER_TEXT, "--in", msgPath, "--json"],
+      { env: noPassword, detached: true }, refused("key-mismatch")],
+    ["with no password given, finds no terminal and signs nothing", [...storeSign, "--in", msgPath, "--json"],
+      { env: noPassword, detached: true }, refused("password")],
+  ];
+  for (const lane of lanes) {
+    for (const [label, args, opts, want] of cases) {
+      expect(`sign --key: ${lane.name} ${label}`, runSign(lane, args, opts), want);
+    }
+  }
+
+  // The machine mode's escaping, which no oracle vector exercises: `"` and `\` in a domain.
+  // The domain member is pinned as written here by hand; the signature by its shape, and by
+  // the three lanes agreeing on it (its value is the OpenSSL-pinned cases' business above).
+  const odd = 'archon/"quoted"\\path';
+  const oddPrefix = `{"version":1,"principal":"${TEXT}","scheme":"ed25519ph-context","domain":"archon/\\"quoted\\"\\\\path","signature":"`;
+  const oddOut = lanes.map((lane) => runSign(lane, ["sign", "--seed", SEED, "--domain", odd, "--in", msgPath, "--json"]));
+  for (const [i, lane] of lanes.entries()) {
+    const out = oddOut[i];
+    const shaped = out.startsWith(oddPrefix) && /^[0-9a-f]{128}"\}\n\[0\]$/u.test(out.slice(oddPrefix.length));
+    expect(`sign --json: ${lane.name} escapes a quote and a backslash in the domain`,
+      shaped && out === oddOut[0] ? "escaped, and the lanes agree" : out, "escaped, and the lanes agree");
+  }
+
+  // THE CONTROLLING TERMINAL, on Linux where a pseudo-terminal can be driven unattended: the
+  // message arrives on stdin (a file), the password is typed into the terminal, and the person
+  // is shown what they are signing — length and SHA-256, computed here, not by a lane — before
+  // the prompt. A lane that read the password from stdin would take the message for it.
+  // Windows has no unattended equivalent (a pseudo-console needs a host to drive it), so there
+  // the no-terminal refusal above is what is pinned.
+  if (process.platform === "linux") {
+    const PTY = [
+      "import os, pty, sys",
+      "msg, out, password, argv = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]",
+      "pid, fd = pty.fork()",
+      "if pid == 0:",
+      "    os.dup2(os.open(msg, os.O_RDONLY), 0)",
+      "    os.dup2(os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 1)",
+      "    os.execv(argv[0], argv)",
+      "seen, sent = b'', False",
+      "while True:",
+      "    try:",
+      "        chunk = os.read(fd, 1024)",
+      "    except OSError:",
+      "        break",
+      "    if not chunk:",
+      "        break",
+      "    seen += chunk",
+      "    if not sent and seen.endswith(b'password: '):",
+      "        os.write(fd, password.encode() + bytes([13]))",
+      "        sent = True",
+      "_, status = os.waitpid(pid, 0)",
+      "sys.stdout.write(str(os.waitstatus_to_exitcode(status)) + chr(10))",
+      "sys.stdout.buffer.write(seen)",
+    ].join("\n");
+    const message = readFileSync(msgPath);
+    const shown = `signing ${message.length} bytes (sha256 ${createHash("sha256").update(message).digest("hex")}) ` +
+      `in domain "archon/test/v1" with shared (${TEXT})`;
+    for (const lane of lanes) {
+      const out = join(tmp, `pty-${lane.name}.out`);
+      const r = spawnSync("python3", ["-c", PTY, msgPath, out, PASSWORD, ...lane.argv, ...storeSign], {
+        encoding: "utf8",
+        shell: false,
+        env: noPassword,
+        timeout: 120_000,
+      });
+      if (r.error) {
+        failures++;
+        console.error(`FAIL sign --key: ${lane.name} terminal prompt: python3 did not run: ${r.error.message}`);
+        continue;
+      }
+      const [code, ...transcript] = (r.stdout ?? "").split("\n");
+      const signed = existsSync(out) ? readFileSync(out, "utf8") : "";
+      expect(`sign --key: ${lane.name} takes the password from the terminal, the message from stdin`,
+        `${signed}[${code}]`, `${HELLO_V1}\n[0]`);
+      expect(`sign --key: ${lane.name} shows what it signs before the password`,
+        transcript.join("\n").includes(shown) ? "shown" : transcript.join("\n"), "shown");
+    }
+  }
 }
 
 // 4. Refusals every lane owes: no --reveal, a wrong password, a duplicate name, and the

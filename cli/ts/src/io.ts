@@ -40,6 +40,24 @@ export function takeInFlag(args: string[]): [string[], string | undefined] {
 }
 
 /** `<cmd> --help` / `-h` as the first token: help is success (usage to stdout, exit 0). */
+/**
+ * A JSON string literal by the one rule the three binaries share, so machine output is
+ * byte-identical across them: `"` and `\` are escaped, every C0 control is `\u00xx` in
+ * lowercase hex, and everything else — U+2028 included, which Go's encoder would escape — is
+ * written as itself.
+ */
+export function jsonString(s: string): string {
+  let out = '"';
+  for (const ch of s) {
+    const c = ch.codePointAt(0) as number;
+    if (ch === '"') out += '\\"';
+    else if (ch === '\\') out += '\\\\';
+    else if (c < 0x20) out += `\\u${c.toString(16).padStart(4, "0")}`;
+    else out += ch;
+  }
+  return `${out}"`;
+}
+
 export function wantsHelp(args: string[]): boolean {
   return args[0] === "--help" || args[0] === "-h";
 }

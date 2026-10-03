@@ -9,9 +9,11 @@
 import { randomBytes } from "node:crypto";
 import {
   chmodSync,
+  closeSync,
   existsSync,
   fstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   readSync,
@@ -19,9 +21,11 @@ import {
   statSync,
   unlinkSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { ReadStream } from "node:tty";
 
 import { encodeKey, getPublicKey, pkcs8PemToSeed, pubkeyFromHex, seedFromHex, seedToPkcs8Pem }
   from "@bitspark/archon";
@@ -130,16 +134,16 @@ export interface HiddenPromptIo {
   write(text: string): void;
 }
 
-/** The real terminal. The fd read is injectable too, so the byte-reading closure — the one
- *  place this file touches fd 0 — can be exercised by a test without a TTY. */
+/** A terminal's prompt operations over injectable primitives, so the byte-reading closure can
+ *  be exercised by a test without a TTY. */
 export const terminalIo = (
-  readOne: (into: Buffer) => number = (into) => readSync(0, into, 0, 1, null),
+  readOne: (into: Buffer) => number,
+  setRaw: (raw: boolean) => void = () => {},
+  writeOut: (text: string) => void = () => {},
 ): HiddenPromptIo => {
   const chunk = Buffer.alloc(1);
   return {
-    setRawMode: (raw) => {
-      process.stdin.setRawMode(raw);
-    },
+    setRawMode: setRaw,
     readByte: () => {
       let n = 0;
       try {
@@ -149,16 +153,71 @@ export const terminalIo = (
       }
       return n === 0 ? -1 : (chunk[0] as number);
     },
-    write: (text) => {
-      process.stderr.write(text);
-    },
+    write: writeOut,
   };
 };
 
-/** A prompt that does not echo. Node has no rpassword, so raw mode is done by hand. */
-export function promptHidden(label: string, io: HiddenPromptIo = terminalIo()): string {
+export const NO_TERMINAL =
+  "no password: there is no terminal to prompt on — set ARCHON_KEY_PASSWORD or pass --password-fd <n>";
+
+/** The controlling terminal, opened for one prompt and closed after it. */
+export interface ControllingTerminal {
+  io: HiddenPromptIo;
+  close(): void;
+}
+
+/**
+ * Opens the CONTROLLING TERMINAL — `/dev/tty`, or the Windows console — rather than reading
+ * the prompt from fd 0 (ADR 0009 §5). stdin may be carrying the very message being signed,
+ * and a password read from it would take that message's bytes for a password; a tool that
+ * runs `archon` with a pipe on stdin still leaves the person's terminal reachable here. The
+ * Windows devices are spelled in the `\\.\` namespace: Node prefixes plain paths with `\\?\`,
+ * which turns `CONIN$` into a file name.
+ */
+export function openControllingTerminal(): ControllingTerminal {
+  let inFd: number;
+  let outFd: number;
+  try {
+    if (process.platform === "win32") {
+      inFd = openSync("\\\\.\\CONIN$", "r+");
+      try {
+        outFd = openSync("\\\\.\\CONOUT$", "w");
+      } catch (e) {
+        closeSync(inFd);
+        throw e;
+      }
+    } else {
+      inFd = openSync("/dev/tty", "r+");
+      outFd = inFd;
+    }
+  } catch {
+    throw new Error(NO_TERMINAL);
+  }
+  // A ReadStream only for raw mode: every byte is read synchronously from the descriptor, so
+  // the stream never runs on the event loop. Destroying it closes inFd.
+  const stream = new ReadStream(inFd);
+  return {
+    io: terminalIo(
+      (into) => readSync(inFd, into, 0, 1, null),
+      (raw) => {
+        stream.setRawMode(raw);
+      },
+      (text) => {
+        writeSync(outFd, text);
+      },
+    ),
+    close: () => {
+      stream.destroy();
+      if (outFd !== inFd) closeSync(outFd);
+    },
+  };
+}
+
+/** A prompt that does not echo. Node has no rpassword, so raw mode is done by hand. The
+ *  terminal is the prompt's own, opened in cooked mode, so cooked is what it is left in. */
+export function promptHidden(label: string, io: HiddenPromptIo): string {
   io.write(label);
-  const wasRaw = process.stdin.isRaw === true;
+  const wasRaw = false;
   io.setRawMode(true);
   const buf: string[] = [];
   for (;;) {
@@ -182,27 +241,29 @@ export function promptHidden(label: string, io: HiddenPromptIo = terminalIo()): 
 
 /**
  * Sources the password: --password-fd, then ARCHON_KEY_PASSWORD, then an interactive
- * prompt. `confirm` asks twice when a key is being created, where a typo would otherwise
- * be discovered only at the next unlock.
+ * prompt on the controlling terminal — never fd 0. `confirm` asks twice when a key is being
+ * created, where a typo would otherwise be discovered only at the next unlock. `preamble` is
+ * shown on that terminal before the prompt, and only when there is a prompt.
  */
-export function readPassword(fd: number | undefined, confirm: boolean): string {
+export function readPassword(fd: number | undefined, confirm: boolean, preamble = ""): string {
   if (fd !== undefined) {
     refuseLoosePasswordFile(fd);
     return trimNewline(readFileSync(fd, "utf8"));
   }
   const env = process.env["ARCHON_KEY_PASSWORD"];
   if (env !== undefined) return env;
-  if (process.stdin.isTTY !== true) {
-    throw new Error(
-      "no password: stdin is not a terminal — set ARCHON_KEY_PASSWORD or pass --password-fd <n>",
-    );
+  const terminal = openControllingTerminal();
+  try {
+    if (preamble !== "") terminal.io.write(preamble);
+    const first = promptHidden("password: ", terminal.io);
+    if (confirm) {
+      const second = promptHidden("password (again): ", terminal.io);
+      if (first !== second) throw new Error("the two passwords differ");
+    }
+    return first;
+  } finally {
+    terminal.close();
   }
-  const first = promptHidden("password: ");
-  if (confirm) {
-    const second = promptHidden("password (again): ");
-    if (first !== second) throw new Error("the two passwords differ");
-  }
-  return first;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,14 +305,23 @@ export function readDefaultKeyName(): string | undefined {
  * for a password differently.
  */
 export function unlockNamedKey(name: string, fd: number | undefined): Uint8Array {
+  return keystore.open(readNamedKey(name).file, readPassword(fd, false));
+}
+
+/**
+ * A stored key's file and the public key its header CLAIMS, opening nothing and asking for
+ * no password. The claim is what `sign --key --expect` checks before the prompt; it is proven
+ * only when the seal opens, because `keystore.open` refuses a seed that does not derive it.
+ */
+export function readNamedKey(name: string): { file: Uint8Array; publicKey: Uint8Array } {
   const path = keyPath(name);
-  let raw: Uint8Array;
+  let file: Uint8Array;
   try {
-    raw = new Uint8Array(readFileSync(path));
+    file = new Uint8Array(readFileSync(path));
   } catch {
     throw new Error(`no key named ${JSON.stringify(name)} in archon's store`);
   }
-  return keystore.open(raw, readPassword(fd, false));
+  return { file, publicKey: keystore.parseHeader(file).publicKey };
 }
 
 // ---------------------------------------------------------------------------
