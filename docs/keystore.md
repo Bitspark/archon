@@ -142,8 +142,10 @@ There is no pepper and no stretching beyond Argon2id. No lock timeout and no dae
 seed held by a process is an agent again, and an agent cannot compute archon's Ed25519ph-with-
 context possession proof (ADR 0007 §A), so there would be nothing to gain.
 
-**Zeroise the decrypted seed after use** where the language allows — best-effort in Go and Rust,
-not possible in TypeScript. Best-effort is worth doing and is not a security claim.
+**Zeroise the decrypted seed after use** where the language allows. Best-effort is worth doing
+and is not a security claim. Today only `cli/go` does it, on the seed and the password
+(`keystore.Zeroise`). `cli/rs` does not yet, although Rust allows it ([#53](https://github.com/Bitspark/archon/issues/53)),
+and it is not possible in TypeScript.
 
 ## 5. Names
 
