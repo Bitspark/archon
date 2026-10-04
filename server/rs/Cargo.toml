@@ -11,15 +11,16 @@ version = "0.9.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/Bitspark/archon"
-description = "archon's service side: the login handler (four routes, law-free, store-minimal) and the request profile's verifier with its replay store."
+description = "archon's service side: the login handler (four routes, law-free, store-minimal), the request profile's verifier with its replay store, and key enrollment's server half."
 
 [lib]
 name = "archon_server"
 path = "src/lib.rs"
 
 [dependencies]
-# The floor and the layer above it. `login` and `request` are the parts of the sdk this crate
-# touches: the bindings, the proofs and the audience grammar, consumed and never reimplemented.
+# The floor and the layer above it. `login`, `request` and `enroll` are the parts of the sdk this
+# crate touches: the bindings, the proofs and the audience grammar, consumed and never
+# reimplemented.
 bitspark-archon-core = { path = "../../core/rs", version = "0.9.0" }
 bitspark-archon-sdk = { path = "../../sdk/rs", version = "0.9.0" }
 # The transport codec. The login SCHEME is bytes, not JSON, so nothing security-bearing
@@ -29,5 +30,7 @@ serde = { version = "1", features = ["derive"] }
 # crate as the bytes the CLI sent rather than as a re-encoding of a parsed value.
 serde_json = { version = "1", features = ["raw_value"] }
 serde_path_to_error = "0.1"
+# The intent digest an enrollment record binds (`enroll`): the sdk's own SHA-256, no new crate.
+sha2 = { version = "0.11", default-features = false }
 # The id and nonce source, used only behind the injectable Entropy so tests never touch it.
 getrandom = "0.4"
