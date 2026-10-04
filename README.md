@@ -1,4 +1,11 @@
-# archon
+<!-- design:figure id=archon-wordmark -->
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/img/archon-wordmark-dark.svg">
+    <img alt="archon — the officeholder; the one who bears the office. The archon wordmark: a key held upright, a ring bow with the one axiom fill at its centre (the held seed) and the canonical spelling cut into the bits below it, set beside the lowercase archon in the family hairline / one-axiom-fill language." src="./docs/img/archon-wordmark-light.svg" width="280">
+  </picture>
+</p>
+<!-- /design:figure -->
 
 <p align="center"><em>ἄρχων — the officeholder; the one who bears the office.</em></p>
 <p align="center"><em>Who you provably are — as bytes anyone can re-check.</em></p>
@@ -6,6 +13,8 @@
 [![conformance](https://github.com/Bitspark/archon/actions/workflows/conformance.yml/badge.svg)](https://github.com/Bitspark/archon/actions/workflows/conformance.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Bitspark/archon/core/go.svg)](https://pkg.go.dev/github.com/Bitspark/archon/core/go)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
+---
 
 Ed25519 identity with **one** spelling. A key is `ed25519:<64 hex>` — the same 32 bytes, the
 same text, in each of the eight languages archon ships ([languages](docs/languages.md)),
@@ -180,7 +189,7 @@ It deliberately does **not** own:
 
 [ADR 0001](docs/architecture/decisions/0001-archon-scope.md) works an example in which archon
 argued to take something and was — correctly — refused: a Merkle-inclusion format that
-thesmos defines for its own verification. archon had measured that thesmos's code depends on
+[thesmos](https://github.com/Bitspark/thesmos) defines for its own verification. archon had measured that thesmos's code depends on
 the format, and took that to mean archon should own it. In the ADR's words, *"a dependency
 graph says what a module touches; it does not say what a module is."*
 
@@ -197,3 +206,5 @@ graph says what a module touches; it does not say what a module is."*
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+<p align="center"><sub><em>Prove who you are. The law decides the rest.</em></sub></p>
