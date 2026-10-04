@@ -8,4 +8,4 @@ jobs:
     name: substrate
     runs-on: ubuntu-latest
     steps:
-      - run: echo "impostor: claims success without checking anything"
+      - run: echo impostor claims success without checking anything
