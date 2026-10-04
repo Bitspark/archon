@@ -99,10 +99,11 @@ func TestEndToEnd(t *testing.T) {
 		called             bool
 		browser, principal []byte
 		authority          json.RawMessage
+		req                Admitted
 	}
-	h, _ := newTestHandler(t, func(browser, principal []byte, authority json.RawMessage) error {
+	h, _ := newTestHandler(t, func(browser, principal []byte, authority json.RawMessage, req Admitted) error {
 		admitted.called = true
-		admitted.browser, admitted.principal, admitted.authority = browser, principal, authority
+		admitted.browser, admitted.principal, admitted.authority, admitted.req = browser, principal, authority, req
 		return nil
 	})
 
@@ -180,6 +181,12 @@ func TestEndToEnd(t *testing.T) {
 	}
 	if string(admitted.authority) != `{"grants":["read:projects"]}` {
 		t.Fatalf("the authority reached the law altered: %s", admitted.authority)
+	}
+	// The law evaluates what the proof bound (#61): the request id, and the scope and validity
+	// the person approved — not a scope it would have to look up or assume.
+	if !bytes.Equal(admitted.req.ID, idBytes) || admitted.req.ValidFor != 28800 ||
+		strings.Join(admitted.req.Scope, ",") != "read:projects,read:campaigns" {
+		t.Fatalf("the law was handed %+v, want the request the proof covers", admitted.req)
 	}
 
 	// COLLECT — the browser proves K and takes the answer.
@@ -318,7 +325,7 @@ func TestRefusals(t *testing.T) {
 	})
 
 	t.Run("the law can refuse, and then nothing is stored", func(t *testing.T) {
-		h, _, id, req := setup(t, func(browser, principal []byte, authority json.RawMessage) error {
+		h, _, id, req := setup(t, func(browser, principal []byte, authority json.RawMessage, _ Admitted) error {
 			return errors.New("the law says no")
 		})
 		proof, _ := sdk.Prove(personSeed, audience, req)
@@ -997,7 +1004,7 @@ func TestEveryPinnedErrorCodeIsEmitted(t *testing.T) {
 	got["answer_already_answered"] = do(h, http.MethodPost, "/"+id+"/answer", answer(good), nil)
 
 	// A service whose law refuses.
-	refusing, _ := newTestHandler(t, func(_, _ []byte, _ json.RawMessage) error { return errors.New("no") })
+	refusing, _ := newTestHandler(t, func(_, _ []byte, _ json.RawMessage, _ Admitted) error { return errors.New("no") })
 	id2, req2 := openLogin(t, refusing, seedFor(21))
 	proof2, _ := sdk.Prove(personSeed, audience, req2)
 	got["answer_authority_refused"] = do(refusing, http.MethodPost, "/"+id2+"/answer", answer(proof2), nil)
@@ -1199,7 +1206,7 @@ func TestWireShapesMatchTheSharedFixture(t *testing.T) {
 func TestABlockingAdmitterDoesNotBlockTheHandler(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
-	h, _ := newTestHandler(t, func(browser, principal []byte, authority json.RawMessage) error {
+	h, _ := newTestHandler(t, func(browser, principal []byte, authority json.RawMessage, _ Admitted) error {
 		close(entered)
 		<-release // hold the law open
 		return nil
@@ -1261,7 +1268,7 @@ func newGatedLaw(refuseFirst bool) *gatedLaw {
 	return &gatedLaw{entered: make(chan struct{}), release: make(chan struct{}), refuseFirst: refuseFirst}
 }
 
-func (g *gatedLaw) admit(browser, principal []byte, authority json.RawMessage) error {
+func (g *gatedLaw) admit(browser, principal []byte, authority json.RawMessage, _ Admitted) error {
 	g.mu.Lock()
 	g.n++
 	first := g.n == 1

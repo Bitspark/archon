@@ -154,9 +154,14 @@ JSON over HTTPS; bytes as lowercase hex; keys as archon key text. Error bodies a
 The server verifies **before storing** an answer: the id is pending and unexpired; the nonce is
 the request's; the binding recomputed from the stored request and the server's own audience
 verifies under `principal`; the authority is admissible for `browser` under the law
-(`AdmitAuthority(browser, principal, authority)`). Anything else is refused and nothing is
-stored, so junk cannot be deposited against a pending request. A request is consumed by its
+(`AdmitAuthority(browser, principal, authority, request)`). Anything else is refused and nothing
+is stored, so junk cannot be deposited against a pending request. A request is consumed by its
 first verified answer.
+
+**The law is handed the request the proof covers**: its id, and the scope and `valid_for` the
+person was shown and approved, exactly as the binding carried them (§3.2). A law therefore
+decides against what was signed, not against a scope it would have to look up or assume. Each
+lane hands it a copy, so nothing the law does to it reaches the stored request.
 
 **The law runs at most once at a time per request, and never for a late answer.** A verified
 answer takes the request's *admission turn* before the law runs and re-checks the request while
@@ -168,8 +173,7 @@ denies them. The turn belongs to one request, so a slow law holds up no other lo
 the law returns but before the answer is stored. So a law must do one of three things:
 
 - only validate;
-- make its effects idempotent, keyed by the browser key it is handed, which names the
-  delegation;
+- make its effects idempotent, keyed by the request id it is handed;
 - leave its effects until the browser has collected.
 
 State is one in-memory record per pending request, dropped at `expires_in` (five minutes) or on

@@ -54,7 +54,12 @@ const MIN_ENTROPY = 16;
 
 /**
  * Interprets the authority payload — the ONLY place one is interpreted, and archon ships no
- * implementation. THROWING refuses the answer with `403 invalid_grant` and stores nothing.
+ * implementation. It is handed the browser key the delegation is for, the principal that signed
+ * the proof, the opaque payload, and the request the proof is for (`Admitted`: its id and the
+ * scope and validity the person approved, exactly as the proof bound them), so the law evaluates
+ * what was signed rather than what it assumes (#61); a law written for the first three
+ * arguments keeps working. THROWING refuses the answer with `403 invalid_grant` and stores
+ * nothing.
  * Omitting it means the proof alone suffices, which is right for a service whose law needs
  * nothing beyond "this key holder was here and approved this scope".
  *
@@ -62,14 +67,26 @@ const MIN_ENTROPY = 16;
  * REQUEST, and never for an answer that arrives after another was stored (see `answer`). That
  * is not an exactly-once boundary: a refused answer's law did run, and a process can stop
  * after the law returns and before the answer is stored. So it must only validate, or make its
- * effects idempotent (keyed by the browser key it is handed, which names the delegation), or
- * leave them until the browser has collected.
+ * effects idempotent (keyed by the request id it is handed), or leave them until the browser
+ * has collected.
  */
 export type AdmitAuthority = (
   browser: Uint8Array,
   principal: Uint8Array,
   authority: Uint8Array,
+  request: Admitted,
 ) => void | Promise<void>;
+
+/** The request a verified answer is for, as its proof bound it. The law gets copies: nothing it
+ *  does to them reaches the stored request. */
+export interface Admitted {
+  /** The server's request id, unique per login — the key for idempotent effects. */
+  readonly id: Uint8Array;
+  /** The entries the person was shown and approved, in order. */
+  readonly scope: readonly string[];
+  /** The delegation's approved lifetime in seconds. */
+  readonly validFor: number;
+}
 
 /** Seconds since the Unix epoch. A config field rather than a call to `Date.now()`, which is
  *  the sdk's rule and the reason the suite never sleeps. */
@@ -648,7 +665,11 @@ export class Handler {
       }
       if (this.#admit !== undefined) {
         try {
-          await this.#admit(live.browser, principal, new TextEncoder().encode(authority ?? ""));
+          await this.#admit(live.browser, principal, new TextEncoder().encode(authority ?? ""), {
+            id: new Uint8Array(live.id),
+            scope: [...live.scope],
+            validFor: live.validFor,
+          });
         } catch {
           return fail(403, ERR_INVALID_GRANT);
         }

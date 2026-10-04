@@ -13,7 +13,7 @@ import { getPublicKey } from "@bitspark/archon";
 import { encodeKey } from "@bitspark/archon";
 import { LOGIN_MAX_FIELD_SIZE, proveCollect, proveLogin, verifyLogin, type LoginRequest } from "@bitspark/archon-sdk";
 
-import { COLLECT_HEADER, DEFAULT_INTERVAL_SECONDS, DEFAULT_TTL_SECONDS, Handler, type AdmitAuthority, type Entropy } from "../src/login.js";
+import { COLLECT_HEADER, DEFAULT_INTERVAL_SECONDS, DEFAULT_TTL_SECONDS, Handler, type Admitted, type AdmitAuthority, type Entropy } from "../src/login.js";
 import { authoritySpan, checkCode, checkScopeEntry, fromHex, stripMount, toHex } from "../src/json.js";
 
 const AUDIENCE = "https://dawn.example/api";
@@ -130,9 +130,9 @@ function countedEntropy(): { entropy: Entropy; drawn: () => number } {
 
 // THE WHOLE PROTOCOL, browser and CLI played against the handler with the real sdk.
 test("end to end", async () => {
-  let seen: { browser: Uint8Array; principal: Uint8Array; authority: string } | undefined;
-  const { handler } = makeHandler((browser, principal, authority) => {
-    seen = { browser, principal, authority: new TextDecoder().decode(authority) };
+  let seen: { browser: Uint8Array; principal: Uint8Array; authority: string; request: Admitted } | undefined;
+  const { handler } = makeHandler((browser, principal, authority, request) => {
+    seen = { browser, principal, authority: new TextDecoder().decode(authority), request };
   });
 
   const browserSeed = seedFor(1);
@@ -153,6 +153,12 @@ test("end to end", async () => {
   assert.deepEqual(seen.browser, getPublicKey(browserSeed));
   assert.deepEqual(seen.principal, getPublicKey(personSeed));
   assert.equal(seen.authority, '{"grants":["read:projects"]}', "the authority reached the law altered");
+  // The law evaluates what the proof bound (#61): the request id, and the scope and validity the
+  // person approved — not a scope it would have to look up or assume.
+  assert.deepEqual(
+    { id: toHex(seen.request.id), scope: [...seen.request.scope], validFor: seen.request.validFor },
+    { id, scope: ["read:projects", "read:campaigns"], validFor: 28800 },
+  );
 
   const collect = toHex(proveCollect(browserSeed, AUDIENCE, req));
   const collected = await handler.handle(request("GET", `/${id}/answer`, undefined, { [COLLECT_HEADER]: collect }));

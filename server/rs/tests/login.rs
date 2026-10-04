@@ -15,9 +15,10 @@ use archon_server::{Config, Handler, Request, Response, COLLECT_HEADER};
 
 const AUDIENCE: &str = "https://dawn.example/api";
 
-/// What an `AdmitAuthority` was handed: the browser key, the principal key, and the authority
-/// payload, recorded so a test can assert the law saw exactly what the CLI sent.
-type Admitted = Arc<Mutex<Option<(Vec<u8>, Vec<u8>, Vec<u8>)>>>;
+/// What an `AdmitAuthority` was handed: the browser key, the principal key, the authority
+/// payload and the request, recorded so a test can assert the law saw exactly what the CLI sent
+/// and exactly the request the proof covers.
+type Seen = Arc<Mutex<Option<(Vec<u8>, Vec<u8>, Vec<u8>, archon_server::Admitted)>>>;
 
 fn seed_for(b: u8) -> [u8; 32] {
     let mut seed = [0u8; 32];
@@ -185,10 +186,15 @@ fn begin(
 // THE WHOLE PROTOCOL, browser and CLI played against the handler with the real sdk.
 #[test]
 fn end_to_end() {
-    let seen: Admitted = Arc::new(Mutex::new(None));
+    let seen: Seen = Arc::new(Mutex::new(None));
     let s = seen.clone();
-    let (h, _clock) = handler(Some(Box::new(move |browser, principal, authority| {
-        *s.lock().unwrap() = Some((browser.to_vec(), principal.to_vec(), authority.to_vec()));
+    let (h, _clock) = handler(Some(Box::new(move |browser, principal, authority, req| {
+        *s.lock().unwrap() = Some((
+            browser.to_vec(),
+            principal.to_vec(),
+            authority.to_vec(),
+            req.clone(),
+        ));
         Ok(())
     })));
 
@@ -225,8 +231,18 @@ fn end_to_end() {
         String::from_utf8_lossy(&r.body)
     );
 
-    let (browser_seen, principal_seen, authority_seen) =
+    let (browser_seen, principal_seen, authority_seen, request_seen) =
         seen.lock().unwrap().clone().expect("admit called");
+    // The law evaluates what the proof bound (#61): the request id, and the scope and validity
+    // the person approved — not a scope it would have to look up or assume.
+    assert_eq!(
+        request_seen,
+        archon_server::Admitted {
+            id: request.id.clone(),
+            scope: vec!["read:projects".to_string(), "read:campaigns".to_string()],
+            valid_for: 28800,
+        }
+    );
     assert_eq!(
         browser_seen,
         crypto::public_key_from_seed(&browser_seed).to_vec()
@@ -375,7 +391,9 @@ fn a_proof_over_a_wider_scope_is_refused() {
 
 #[test]
 fn the_law_can_refuse_and_then_nothing_is_stored() {
-    let (h, _clock) = handler(Some(Box::new(|_, _, _| Err("the law says no".to_string()))));
+    let (h, _clock) = handler(Some(Box::new(|_, _, _, _| {
+        Err("the law says no".to_string())
+    })));
     let (browser_seed, person_seed) = (seed_for(6), seed_for(60));
     let (id, request) = begin(&h, &browser_seed, &["read:projects"], 3600);
     let proof = login::prove(&person_seed, AUDIENCE, &request).expect("prove");
@@ -660,7 +678,7 @@ fn a_blocking_admitter_does_not_block_the_handler() {
             Config::new(AUDIENCE)
                 .clock(Box::new(|| 1_789_034_640))
                 .entropy(counting_entropy())
-                .admit(Box::new(move |_, _, _| {
+                .admit(Box::new(move |_, _, _, _| {
                     // Only the FIRST admitter waits: taking the sender out of the Option
                     // says "first" without depending on who has drained what.
                     //
@@ -952,7 +970,7 @@ fn every_pinned_error_code_is_emitted() {
     );
 
     // A service whose law refuses.
-    let (h2, _c2) = handler(Some(Box::new(|_, _, _| Err("no".to_string()))));
+    let (h2, _c2) = handler(Some(Box::new(|_, _, _, _| Err("no".to_string()))));
     let (id2, request2) = begin(&h2, &seed_for(21), &["read:projects"], 3600);
     let proof2 = login::prove(&person_seed, AUDIENCE, &request2).expect("prove");
     got.insert(
@@ -1200,7 +1218,7 @@ fn race_two_answers(
                     1_789_034_640
                 }))
                 .entropy(counting_entropy())
-                .admit(Box::new(move |_, _, _| {
+                .admit(Box::new(move |_, _, _, _| {
                     if law_calls.fetch_add(1, Ordering::SeqCst) == 0 {
                         law_in.store(true, Ordering::SeqCst);
                         let _ = entered_tx.lock().unwrap().send(());
@@ -1418,7 +1436,7 @@ fn the_authority_crosses_this_lane_as_bytes() {
 
     let seen: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let s = seen.clone();
-    let (h, _clock) = handler(Some(Box::new(move |_, _, authority| {
+    let (h, _clock) = handler(Some(Box::new(move |_, _, authority, _| {
         *s.lock().unwrap() = Some(String::from_utf8_lossy(authority).into_owned());
         Ok(())
     })));

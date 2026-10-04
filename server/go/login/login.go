@@ -24,12 +24,14 @@
 package login
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -72,8 +74,10 @@ const (
 
 // AdmitAuthority is the ONLY place an authority payload is interpreted, and archon ships no
 // implementation of it. It is handed the browser key the delegation is for, the principal
-// that signed the proof, and the opaque payload; returning a non-nil error refuses the
-// answer with `403 invalid_grant` and stores nothing.
+// that signed the proof, the opaque payload, and the request the proof is for — its id and
+// the scope and validity the person approved, exactly as the proof bound them, so the law
+// evaluates what was signed rather than what it assumes (#61); returning a non-nil error
+// refuses the answer with `403 invalid_grant` and stores nothing.
 //
 // A nil AdmitAuthority means the proof alone suffices — correct for a service whose law
 // needs nothing beyond "this key holder was here and approved this scope".
@@ -82,9 +86,16 @@ const (
 // after another was stored (see Handler.answer). That is not an exactly-once boundary: a
 // refused answer's law did run, and a process can stop after the law returns and before the
 // answer is stored. So it must only validate, or make its effects idempotent (keyed by the
-// browser key it is handed, which names the delegation), or leave them until the browser has
-// collected.
-type AdmitAuthority func(browser, principal []byte, authority json.RawMessage) error
+// request id it is handed), or leave them until the browser has collected.
+type AdmitAuthority func(browser, principal []byte, authority json.RawMessage, req Admitted) error
+
+// Admitted is the request a verified answer is for, as its proof bound it. The law gets
+// copies: nothing it does to them reaches the stored request.
+type Admitted struct {
+	ID       []byte   // the server's request id, unique per login — the key for idempotent effects
+	Scope    []string // the entries the person was shown and approved, in order
+	ValidFor uint32   // the delegation's approved lifetime in seconds
+}
 
 // Clock and Entropy are CONSTRUCTOR ARGUMENTS rather than package-level calls, which is the
 // sdk's rule and the reason this package is testable without sleeping or flaking: a test
@@ -654,7 +665,8 @@ func (h *Handler) answer(w http.ResponseWriter, r *http.Request, idHex string) {
 		return
 	}
 	if h.admit != nil {
-		if err := h.admit(rec.browser, principal, body.Authority); err != nil {
+		req := Admitted{ID: bytes.Clone(rec.id), Scope: slices.Clone(rec.scope), ValidFor: rec.validFor}
+		if err := h.admit(rec.browser, principal, body.Authority, req); err != nil {
 			writeError(w, http.StatusForbidden, errInvalidGrant)
 			return
 		}

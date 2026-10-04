@@ -15,7 +15,7 @@ use crate::json::{
     check_code, check_scope_entry, error_body, from_hex, malformed, parse_body, to_hex,
 };
 use crate::{
-    Answer, Handler, Offer, OfferRefusal, Record, COLLECT_HEADER, ERR_EXPIRED_TOKEN,
+    Admitted, Answer, Handler, Offer, OfferRefusal, Record, COLLECT_HEADER, ERR_EXPIRED_TOKEN,
     ERR_INVALID_GRANT, ERR_INVALID_REQUEST, ERR_PENDING, ERR_SLOW_DOWN, MIN_ENTROPY,
 };
 
@@ -512,7 +512,12 @@ impl Handler {
         let authority_raw = body.authority.as_ref().map(|raw| raw.get().to_string());
         if let Some(admit) = &self.admit {
             let payload = authority_raw.as_deref().unwrap_or("").as_bytes();
-            if admit(&browser, &principal, payload).is_err() {
+            let admitted = Admitted {
+                id: request.id.clone(),
+                scope: request.scope.clone(),
+                valid_for: request.valid_for,
+            };
+            if admit(&browser, &principal, payload, &admitted).is_err() {
                 return Response::error(403, ERR_INVALID_GRANT);
             }
         }
