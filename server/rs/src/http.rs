@@ -127,8 +127,8 @@ pub fn write_response(resp: &Response) -> Vec<u8> {
     out
 }
 
-/// Only the statuses §4 uses. A phrase is decoration — the status is the thing — so an
-/// unknown one gets a blank rather than a guess.
+/// Only the statuses §4 and the request verifier use. A phrase is decoration — the status is
+/// the thing — so an unknown one gets a blank rather than a guess.
 fn reason_phrase(status: u16) -> &'static str {
     match status {
         200 => "OK",
@@ -136,12 +136,15 @@ fn reason_phrase(status: u16) -> &'static str {
         202 => "Accepted",
         204 => "No Content",
         400 => "Bad Request",
+        401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
         409 => "Conflict",
+        413 => "Content Too Large",
         429 => "Too Many Requests",
         500 => "Internal Server Error",
+        503 => "Service Unavailable",
         _ => "",
     }
 }

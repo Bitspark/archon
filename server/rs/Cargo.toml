@@ -11,15 +11,15 @@ version = "0.9.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/Bitspark/archon"
-description = "archon login: the service-side handler — four routes, law-free, store-minimal."
+description = "archon's service side: the login handler (four routes, law-free, store-minimal) and the request profile's verifier with its replay store."
 
 [lib]
 name = "archon_server"
 path = "src/lib.rs"
 
 [dependencies]
-# The floor and the layer above it. `login` is the only part of the sdk this crate touches:
-# the binding, the proofs and the audience grammar, consumed and never reimplemented.
+# The floor and the layer above it. `login` and `request` are the parts of the sdk this crate
+# touches: the bindings, the proofs and the audience grammar, consumed and never reimplemented.
 bitspark-archon-core = { path = "../../core/rs", version = "0.9.0" }
 bitspark-archon-sdk = { path = "../../sdk/rs", version = "0.9.0" }
 # The transport codec. The login SCHEME is bytes, not JSON, so nothing security-bearing

@@ -15,6 +15,10 @@
 //! - **Not a store.** One in-memory record per pending login, dropped at expiry or on
 //!   collection; nothing persisted, nothing surviving the process.
 //!
+//! [`request`] carries the server's half of request authentication (`docs/request.md` §7,
+//! provisional) under the same three constraints: a verifier in front of a replay store the
+//! service supplies, with an in-memory reference store for one process.
+//!
 //! # The audience is configured, never read from the wire
 //!
 //! Every binding is recomputed from the string the service configured. That is the WebAuthn
@@ -37,6 +41,7 @@ use archon_sdk::login;
 
 pub mod http;
 mod json;
+pub mod request;
 mod routes;
 
 pub use routes::{Request, Response};
