@@ -110,7 +110,7 @@ func TestTheAuthorityCrossesThisLaneAsBytes(t *testing.T) {
 	}
 
 	var seen string
-	h, _ := newTestHandler(t, func(browser, principal []byte, authority json.RawMessage) error {
+	h, _ := newTestHandler(t, func(browser, principal []byte, authority json.RawMessage, _ Admitted) error {
 		seen = string(authority)
 		return nil
 	})

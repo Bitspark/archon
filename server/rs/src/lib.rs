@@ -74,9 +74,13 @@ pub(crate) const MIN_CODE_HEX: usize = 2 * MIN_ENTROPY;
 pub(crate) const MAX_BODY_BYTES: usize = 64 * 1024;
 
 /// Interprets the authority payload — the ONLY place one is interpreted, and archon ships no
-/// implementation. Returning `Err` refuses the answer with `403 invalid_grant` and stores
-/// nothing. `None` means the proof alone suffices, which is right for a service whose law
-/// needs nothing beyond "this key holder was here and approved this scope".
+/// implementation. It is handed the browser key the delegation is for, the principal that
+/// signed the proof, the opaque payload, and the request the proof is for ([`Admitted`]: its id
+/// and the scope and validity the person approved, exactly as the proof bound them), so the law
+/// evaluates what was signed rather than what it assumes (#61). Returning `Err` refuses the
+/// answer with `403 invalid_grant` and stores nothing. `None` means the proof alone suffices,
+/// which is right for a service whose law needs nothing beyond "this key holder was here and
+/// approved this scope".
 ///
 /// It runs OUTSIDE the store's lock: it is the service's code and may block on a database or
 /// a network, and a law that held the lock would decide the throughput of every login in the
@@ -85,10 +89,22 @@ pub(crate) const MAX_BODY_BYTES: usize = 64 * 1024;
 /// It is called AT MOST ONCE AT A TIME PER REQUEST, and never for an answer that arrives after
 /// another was stored (see the answer route). That is not an exactly-once boundary: a refused
 /// answer's law did run, and a process can stop after the law returns and before the answer is
-/// stored. So it must only validate, or make its effects idempotent (keyed by the browser key
-/// it is handed, which names the delegation), or leave them until the browser has collected.
+/// stored. So it must only validate, or make its effects idempotent (keyed by the request id it
+/// is handed), or leave them until the browser has collected.
 pub type AdmitAuthority =
-    Box<dyn Fn(&[u8], &[u8], &[u8]) -> Result<(), String> + Send + Sync + 'static>;
+    Box<dyn Fn(&[u8], &[u8], &[u8], &Admitted) -> Result<(), String> + Send + Sync + 'static>;
+
+/// The request a verified answer is for, as its proof bound it. The law gets its own copy:
+/// nothing it does to it reaches the stored request.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Admitted {
+    /// The server's request id, unique per login — the key for idempotent effects.
+    pub id: Vec<u8>,
+    /// The entries the person was shown and approved, in order.
+    pub scope: Vec<String>,
+    /// The delegation's approved lifetime in seconds.
+    pub valid_for: u32,
+}
 
 /// Seconds since the Unix epoch. A constructor argument rather than a call to the system
 /// clock, which is the sdk's rule and the reason the suite never sleeps: a test steps it by
