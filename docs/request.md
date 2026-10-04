@@ -160,6 +160,10 @@ completion request names the transaction and carries the proof, nothing more. AD
 the rules around it: same session or a reserved bootstrap credential at completion, completion as
 the service's atomic operation, no adapter in which possession alone suffices.
 
+**What an enrollment shows** is that an account and a key are associated, and nothing more. It does
+not show that the key is non-exportable, lives on one device, or is used by only one process
+(ADR 0010 §7).
+
 **The server's half.** `server/go/enroll`, `server/ts`'s `Enroller` and `archon_server::enroll` are
 one design in three lanes:
 
