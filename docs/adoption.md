@@ -3,7 +3,7 @@
 Which part of archon does which job, what it deliberately leaves to you, and what it will not
 interoperate with. Language coverage and the exact published versions are in
 [languages.md](languages.md) and are not repeated here; this page names the tier, and that
-page says which languages carry it. The current release is **0.8.1**.
+page says which languages carry it. The current release is **0.8.2**.
 
 ## Which part does which job
 
