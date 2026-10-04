@@ -145,6 +145,12 @@ graph already put it.
 > waited on the operator's Q5, which ⛔ **closed 2026-08-22 (answered in thesmos ADR 0023, `No`);
 > archon's scope is the KEY layer.** The block on promotion is now the switch decision, a
 > different and still-open question.
+>
+> ✅ **PROMOTED, 2026-10-04, by [0011](0011-transport-integrations-stay-above-archon.md).** The
+> switch landed on 2026-08-27, and the operator promoted this invariant on the 0004
+> consultation's advice, with a clarification: the owning layer owns the contract's conformance
+> tests, and using a lower layer's proof does not move the enclosing protocol into that layer.
+> 0011 §1 is the normative wording.
 
 A module may be extracted into archon's primitives tier **only if both clauses hold**:
 

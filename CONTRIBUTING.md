@@ -5,13 +5,24 @@ of that. Read this page before opening a pull request.
 
 ## The one rule that declines the most changes
 
-**archon owns what can be said without the law.** A module belongs here only if it can be
-stated entirely in RFC 8032, RFC 5280 and RFC 5958 vocabulary — a seed, a public key, a
-signature, an opaque message, a key text, a PEM. If explaining a change needs the words
-*admission*, *grant*, *fact*, *receipt*, *epoch* or *root*, it belongs above this layer,
-not in it. [ADR 0001](docs/architecture/decisions/0001-archon-scope.md) states the
-criterion and works an example where archon argued for taking something and was correctly
-refused.
+**archon owns a security contract only if it can state the whole of it.** A contract belongs
+to the lowest layer that can state its complete success claim and validity conditions without
+interpreting higher-layer concepts, and that layer owns its conformance tests
+([ADR 0011](docs/architecture/decisions/0011-transport-integrations-stay-above-archon.md) §1).
+
+- **The core** holds what RFC 8032, RFC 5280 and RFC 5958 vocabulary states: a seed, a public
+  key, a signature, an opaque message, a key text, a PEM.
+- **Above it**, archon owns a few named protocols whose whole claim it can state: the login
+  scheme (ADR 0007), the signing boundary (ADR 0009), and the request and enrollment profiles
+  (ADR 0010).
+- **Everything else is above this layer.** If explaining a change needs the words *admission*,
+  *grant*, *fact*, *receipt*, *epoch* or *root*, it belongs higher. The same goes for a
+  transport's own semantics (repositories, refs, SSH sessions, a service's credentials).
+
+Using archon's proofs does not make the protocol around them archon's. That is why ADR 0011
+places Git transport authentication with the product that hosts Git.
+[ADR 0001](docs/architecture/decisions/0001-archon-scope.md) works an example where archon
+argued for taking something and was correctly refused.
 
 archon also declares **no dependency on any other Bitspark repository**, and a change that
 would add one should be suspected of belonging somewhere else. Its runtime dependencies,
