@@ -117,7 +117,9 @@ itself, and a fresh pair succeeding — diagnose with a read-only request before
 If a run fails after some registry accepted an upload: keep the tag, keep the artifacts,
 inspect the registry before doing anything, and re-dispatch with **`verify_only=true`** —
 every publish step is skipped, every outside consumer runs against what the registries
-serve, and the GitHub release is created. That is the recovery for a good release with a
+serve, and the GitHub release is created if it does not exist. `verify_only=true` overrides
+`rehearse`. Before #88 it did not: with `rehearse` at its default, a verify run skipped every
+consumer except Central's. That is the recovery for a good release with a
 slow registry, which has now happened twice (0.6.2: npm served 0.6.2 more than five
 minutes after accepting it; 0.7.0: Central was still `PUBLISHING` ten minutes after
 validating the bundle). Every publish step now skips a version its registry already serves —

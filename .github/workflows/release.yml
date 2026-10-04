@@ -50,7 +50,7 @@ on:
         description: "The version to publish or rehearse, e.g. v0.6.0."
         required: true
       rehearse:
-        description: "true = build, check and pack, but publish NOTHING and create no release."
+        description: "true = build, check and pack, but publish NOTHING and create no release. Ignored when verify_only=true."
         required: false
         default: "true"
       verify_only:
@@ -73,7 +73,13 @@ jobs:
     timeout-minutes: 45
     env:
       TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
-      REHEARSE: ${{ github.event_name == 'workflow_dispatch' && inputs.rehearse || 'false' }}
+      # verify_only=true OVERRIDES rehearse. Both publish nothing, and every outside consumer
+      # except Central's is `if: env.REHEARSE != 'true'`. So with rehearse at its default
+      # (true), a verify_only run used to skip the npm, crates.io, Go and Python consumers and
+      # run only Central's. That is what the 0.8.2 and 0.9.0 verify runs did, and following
+      # RELEASING.md's "re-dispatch with verify_only=true" reproduced it. A contradictory
+      # combination now has one meaning: verify_only runs every check.
+      REHEARSE: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_only != 'true' && inputs.rehearse || 'false' }}
       # verify_only: every publish step is skipped and every verification runs. This is how a
       # release that PUBLISHED and then went red on a slow registry is finished — 0.6.2 (npm,
       # five minutes) and 0.7.0 (Central, ten) both did — instead of by hand, and without
