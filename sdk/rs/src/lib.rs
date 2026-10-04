@@ -28,3 +28,4 @@
 pub mod envelope;
 pub mod login;
 pub mod possession;
+pub mod signer;

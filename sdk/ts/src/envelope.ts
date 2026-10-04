@@ -23,6 +23,8 @@ import {
   SIGNATURE_SIZE,
 } from "@bitspark/archon";
 
+import { checkSignature, signWith, validateSigningRequest, type Signer, type SigningRequest } from "./signer.js";
+
 /** The first four bytes of every envelope. */
 export const ENVELOPE_MAGIC = new Uint8Array([0x61, 0x72, 0x63, 0x6e]); // "arcn"
 /** The envelope format version. */
@@ -45,7 +47,50 @@ export interface Opened {
  */
 export function seal(seed: Uint8Array, domain: string, payload: Uint8Array): Uint8Array {
   const signature = signInDomain(seed, domain, envelopeMessageBytes(payload));
-  const pubkey = getPublicKey(seed);
+  return pack(domain, getPublicKey(seed), signature, payload);
+}
+
+/**
+ * The signing request sealing `payload` in `domain` needs, for a signer whose key is
+ * `publicKey` (ADR 0009 §4). Pure; throws on an invalid domain. The message is
+ * `envelopeMessageBytes(payload)`, so an envelope made through it is the same bytes.
+ */
+export function prepareSeal(publicKey: Uint8Array, domain: string, payload: Uint8Array): SigningRequest {
+  const request: SigningRequest = {
+    expectedPublicKey: publicKey,
+    scheme: { kind: "ed25519ph-context", domain },
+    message: envelopeMessageBytes(payload),
+  };
+  validateSigningRequest(request);
+  return request;
+}
+
+/**
+ * The envelope, from a signature over a prepared seal request: the signature is checked
+ * against the request, then the envelope is assembled from the request's own key, domain and
+ * payload. Pure.
+ */
+export function completeSeal(request: SigningRequest, signature: Uint8Array): Uint8Array {
+  if (request.scheme.kind !== "ed25519ph-context" || request.message[0] !== ENVELOPE_SCHEME_TAG) {
+    throw new Error("not a seal request");
+  }
+  checkSignature(request, signature);
+  return pack(request.scheme.domain, request.expectedPublicKey, signature, request.message.subarray(1));
+}
+
+/** `seal` through a signer instead of a seed. */
+export async function sealWith(
+  signer: Signer,
+  domain: string,
+  payload: Uint8Array,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  const request = prepareSeal(signer.publicKey, domain, payload);
+  return completeSeal(request, await signWith(signer, request, signal));
+}
+
+/** The container layout, from parts already checked: the domain fits a u8 (≤ 255 bytes). */
+function pack(domain: string, pubkey: Uint8Array, signature: Uint8Array, payload: Uint8Array): Uint8Array {
   const d = new TextEncoder().encode(domain);
   const out = new Uint8Array(4 + 1 + 1 + d.length + PUBLIC_KEY_SIZE + SIGNATURE_SIZE + payload.length);
   let at = 0;

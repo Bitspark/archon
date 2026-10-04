@@ -21,6 +21,7 @@ package login
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/Bitspark/archon/core/go/crypto"
 	"github.com/Bitspark/archon/sdk/go/possession"
+	"github.com/Bitspark/archon/sdk/go/signer"
 )
 
 // Domain is the RFC 8032 context every login-scheme proof is made in.
@@ -160,6 +162,61 @@ func ProveCollect(seed []byte, audience string, req *Request) ([]byte, error) {
 		return nil, err
 	}
 	return possession.Prove(seed, Domain, req.Nonce, binding)
+}
+
+// Prepare is the signing request the person's login proof needs, for a signer whose key is
+// pubkey (ADR 0009 §4). Pure; it errors for what Prove errors on about the request. Complete
+// it with possession.Complete: a login proof is a possession proof.
+func Prepare(pubkey []byte, audience string, req *Request) (signer.Request, error) {
+	if req == nil {
+		return signer.Request{}, errors.New("login: nil request")
+	}
+	binding, err := Binding(RoleLogin, audience, req)
+	if err != nil {
+		return signer.Request{}, err
+	}
+	return possession.Prepare(pubkey, Domain, req.Nonce, binding)
+}
+
+// ProveWith is Prove through a signer instead of a seed.
+func ProveWith(ctx context.Context, s signer.Signer, audience string, req *Request) ([]byte, error) {
+	r, err := Prepare(s.PublicKey(), audience, req)
+	if err != nil {
+		return nil, err
+	}
+	signature, err := signer.SignWith(ctx, s, r)
+	if err != nil {
+		return nil, err
+	}
+	return possession.Complete(r, signature)
+}
+
+// PrepareCollect is the signing request the browser's collect proof needs. Pure. The
+// expected key is the browser key req names, so only that key's signer can complete it —
+// ProveCollect's refusal of any other seed, carried into the request itself.
+func PrepareCollect(audience string, req *Request) (signer.Request, error) {
+	if req == nil {
+		return signer.Request{}, errors.New("login: nil request")
+	}
+	binding, err := Binding(RoleCollect, audience, req)
+	if err != nil {
+		return signer.Request{}, err
+	}
+	return possession.Prepare(req.Browser, Domain, req.Nonce, binding)
+}
+
+// ProveCollectWith is ProveCollect through a signer instead of a seed. A signer for any
+// other key is refused.
+func ProveCollectWith(ctx context.Context, s signer.Signer, audience string, req *Request) ([]byte, error) {
+	r, err := PrepareCollect(audience, req)
+	if err != nil {
+		return nil, err
+	}
+	signature, err := signer.SignWith(ctx, s, r)
+	if err != nil {
+		return nil, err
+	}
+	return possession.Complete(r, signature)
 }
 
 // VerifyCollect reports whether signature is the collect proof by req.Browser for req at

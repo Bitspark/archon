@@ -18,7 +18,14 @@
 // who saw the request id cannot consume the login.
 import { getPublicKey, PUBLIC_KEY_SIZE, SEED_SIZE } from "@bitspark/archon";
 
-import { MAX_FIELD_SIZE as POSSESSION_MAX_FIELD_SIZE, provePossession, verifyPossession } from "./possession.js";
+import {
+  completePossession,
+  MAX_FIELD_SIZE as POSSESSION_MAX_FIELD_SIZE,
+  preparePossession,
+  provePossession,
+  verifyPossession,
+} from "./possession.js";
+import { signWith, type Signer, type SigningRequest } from "./signer.js";
 
 /** The RFC 8032 context every login-scheme proof is made in. */
 export const LOGIN_DOMAIN = "archon-login/1";
@@ -145,6 +152,46 @@ export function proveCollect(seed: Uint8Array, audience: string, req: LoginReque
     throw new Error("login: seed is not the browser key the request names");
   }
   return provePossession(seed, LOGIN_DOMAIN, req.nonce, loginBinding(LOGIN_ROLE_COLLECT, audience, req));
+}
+
+/**
+ * The signing request the person's login proof needs, for a signer whose key is `publicKey`
+ * (ADR 0009 §4). Pure; throws for what `proveLogin` throws about the request. Complete it
+ * with `completePossession`: a login proof is a possession proof.
+ */
+export function prepareLogin(publicKey: Uint8Array, audience: string, req: LoginRequest): SigningRequest {
+  return preparePossession(publicKey, LOGIN_DOMAIN, req.nonce, loginBinding(LOGIN_ROLE_LOGIN, audience, req));
+}
+
+/** `proveLogin` through a signer instead of a seed. */
+export async function proveLoginWith(
+  signer: Signer,
+  audience: string,
+  req: LoginRequest,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  const request = prepareLogin(signer.publicKey, audience, req);
+  return completePossession(request, await signWith(signer, request, signal));
+}
+
+/**
+ * The signing request the browser's collect proof needs. Pure. The expected key is the
+ * browser key `req` names, so only that key's signer can complete it — `proveCollect`'s
+ * refusal of any other seed, carried into the request itself.
+ */
+export function prepareCollect(audience: string, req: LoginRequest): SigningRequest {
+  return preparePossession(req.browser, LOGIN_DOMAIN, req.nonce, loginBinding(LOGIN_ROLE_COLLECT, audience, req));
+}
+
+/** `proveCollect` through a signer instead of a seed. A signer for any other key is refused. */
+export async function proveCollectWith(
+  signer: Signer,
+  audience: string,
+  req: LoginRequest,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  const request = prepareCollect(audience, req);
+  return completePossession(request, await signWith(signer, request, signal));
 }
 
 /** Whether `signature` is the collect proof by `req.browser` for `req` at `audience`. Total. */
