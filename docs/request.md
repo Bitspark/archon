@@ -158,6 +158,38 @@ completion request names the transaction and carries the proof, nothing more. AD
 the rules around it: same session or a reserved bootstrap credential at completion, completion as
 the service's atomic operation, no adapter in which possession alone suffices.
 
+**The server's half.** `server/go/enroll`, `server/ts`'s `Enroller` and `archon_server::enroll` are
+one design in three lanes:
+
+- **Prepare** builds the record. Its transaction id and nonce are 16 fresh bytes each, its expiry is
+  five minutes unless configured, and the intent digest is SHA-256 of the intent bytes the service
+  passes. It applies the binding's rules, so a bad purpose or key is refused here. It also refuses
+  an empty authorization or account. The service persists the record in its own transaction and
+  sends the client the challenge: the transaction id, nonce, purpose, audience, intent digest and
+  expiry.
+  - `authorization` identifies what authorized the enrollment: the session's id, or the bootstrap
+    credential reserved to the record. It is never a secret, because the record is stored.
+- **Complete** takes the transaction id, the proof, and the authorization the service extracted
+  from the completion request. It refuses at the first failure:
+  1. a malformed transaction id (400);
+  2. no record (404), or a load that cannot answer (503);
+  3. a record for a different transaction (503, an integration fault);
+  4. an expired record (404);
+  5. an empty or different authorization (403), checked in constant time and before the proof;
+  6. a proof that does not verify under the record's new key, over the binding rebuilt from the
+     record and the configured audience (401);
+  7. the integration's own completion answering not-pending (409) or unavailable (503).
+- **The integration** is the service's, and the constructor requires it: Go and TypeScript refuse
+  to build without one, and in Rust it is a required argument. It has two operations:
+  - `load(transaction)`;
+  - `complete(record)`, the service's **atomic** business operation. In one persistence
+    transaction it checks the record is still pending and its authorization still acceptable,
+    records the key against the account, and consumes the record and any reserved bootstrap
+    credential. Concurrent calls for one record succeed at most once.
+
+archon defines no enrollment route. The service mounts completion behind its own session and CSRF
+protection, and each lane's tests do so through that lane's HTTP stack.
+
 ## 7. The order a verifier checks, and the gate before this is frozen
 
 A request verifier checks, refusing at the first failure. Steps 1–7 are the sdk's pure verification

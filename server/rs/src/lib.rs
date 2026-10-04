@@ -17,7 +17,10 @@
 //!
 //! [`request`] carries the server's half of request authentication (`docs/request.md` §7,
 //! provisional) under the same three constraints: a verifier in front of a replay store the
-//! service supplies, with an in-memory reference store for one process.
+//! service supplies, with an in-memory reference store for one process. [`enroll`] carries the
+//! server's half of key enrollment (`docs/request.md` §6, provisional): an enroller that cannot be
+//! built without the service's authorizing integration, whose completion is the service's own
+//! atomic operation.
 //!
 //! # The audience is configured, never read from the wire
 //!
@@ -39,6 +42,7 @@ use std::sync::{Arc, Mutex};
 use archon_core::keytext;
 use archon_sdk::login;
 
+pub mod enroll;
 pub mod http;
 mod json;
 pub mod request;

@@ -9,7 +9,10 @@
 // chosen its stack.
 //
 // It also carries the server's half of request authentication (docs/request.md §7, provisional):
-// a `RequestVerifier` in front of a replay store, under the same constraints.
+// a `RequestVerifier` in front of a replay store, under the same constraints. And the server's
+// half of key enrollment (docs/request.md §6, provisional): an `Enroller` that cannot be built
+// without the service's authorizing integration.
 export * from "./login.js";
 export * from "./request.js";
+export * from "./enroll.js";
 export { fromHex, MAX_BODY_BYTES, rfc3339, scanTopLevel, stripMount, toHex } from "./json.js";
