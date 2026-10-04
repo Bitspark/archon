@@ -197,6 +197,17 @@ the gate's failure tests through that stack:
   and `Middleware(http.Handler)`; `FromContext` gives the handler its `Authenticated`; `Memory` is
   the reference store. The request-target is `RequestURI`, the request line as received. A body
   over 1 MiB is refused (413), never truncated; a content coding or trailer is refused (400).
+- **TypeScript:** `@bitspark/archon-server` — `RequestVerifier({policy, store, clock})`, with two
+  ways in, because a fetch `Request` has already lost the request line:
+  - `authenticateRaw(raw)` takes the request as received; `readNodeRequest(req)` builds one from
+    node:http's raw `url`, `rawHeaders` and `rawTrailers`. This is the Go lane's behaviour.
+  - `authenticate(request)` and the middleware `guard(next)` take a fetch `Request`, and verify
+    its URL's pathname and search. The WHATWG URL parser has already rewritten those (dot segments
+    resolved, `\` read as `/`), and `Headers` has joined repeated fields with `, `. That rewritten
+    request is the only one a fetch application sees and routes on, so it is the one verified, and
+    a proof over any other spelling is refused.
+
+  `MemoryReplayStore` is the reference store. The body and transport rules are the Go lane's.
 
 **The gate (ADR 0010 §8).** These constants and layouts are frozen — and this status line changed —
 only when vectors pin the signature bases, signatures (derived outside the cores) and the
