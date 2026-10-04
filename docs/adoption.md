@@ -3,7 +3,7 @@
 Which part of archon does which job, what it deliberately leaves to you, and what it will not
 interoperate with. Language coverage and the exact published versions are in
 [languages.md](languages.md) and are not repeated here; this page names the tier, and that
-page says which languages carry it. The current release is **0.8.2**.
+page says which languages carry it. The current release is **0.9.0**.
 
 ## Which part does which job
 
@@ -56,29 +56,40 @@ its error codes. **It is not an OAuth or OpenID Connect provider, not SAML, and 
 single sign-on integration**, and it issues no bearer token. Whether the person behind the key
 may do anything is the authority layer's question, answered in your `AdmitAuthority`.
 
-## Decided, not yet released
+## Signing with a stored key (from 0.9.0)
 
-These are decided ([ADR 0009](architecture/decisions/0009-the-signing-boundary-and-the-signer-contract.md),
-[#47](https://github.com/Bitspark/archon/issues/47)) but not yet in a published release. Do not
-pin to them until a release names them:
+Decided in [ADR 0009](architecture/decisions/0009-the-signing-boundary-and-the-signer-contract.md)
+([#47](https://github.com/Bitspark/archon/issues/47)) and released in 0.9.0:
 
-- `archon sign --key <name> --domain <d> --expect <principal>`: a tool that is not archon gets
-  a person's stored key to sign its bytes without receiving the seed. It signs in a domain only,
-  and the tool runs it from a path its integrator pinned
-  ([`cli/README.md`](../cli/README.md#sign---key-signing-for-another-tool)). This is on `main`
-  for the release after 0.8.2;
+- `archon sign --key <name> --domain <d> --expect <principal> [--json]`: a tool that is not
+  archon gets a person's stored key to sign its bytes without receiving the seed. It signs in a
+  domain only, and the tool runs it from a path its integrator pinned
+  ([`cli/README.md`](../cli/README.md#sign---key-signing-for-another-tool)). In every command,
+  the password is read from the controlling terminal, never from stdin;
 - a signer interface in the sdk, so the protocol helpers can sign through something other than
-  a seed (ADR 0009 §4). It is on `main` for TypeScript, Go and Rust (#66) for the release after
-  0.8.2; Python and Java follow.
+  a seed (ADR 0009 §4): prepare, sign with a signer, complete. It is additive, in TypeScript, Go
+  and Rust, and in Python and Java for possession and the envelope.
 
-## Not available — proposed only
+**Changed in 0.9.0 for Go and Rust servers:** `AdmitAuthority` takes a fourth argument,
+`Admitted{id, scope, validFor}`, the request the proof covers. Every Go and Rust law gains the
+parameter. A TypeScript law written for three arguments keeps working.
 
-These are open proposals with no decision. Do not build on them as if they existed:
+## Decided, not yet usable
 
-- request-authentication and key-enrollment profiles for authenticating ordinary API requests
-  ([#48](https://github.com/Bitspark/archon/issues/48)). A direction is decided internally (a
-  narrow RFC 9421 application profile, and a separate enrollment statement), but no wire format
-  is: the ADRs come after the signing boundary.
+- Request-authentication and key-enrollment profiles for authenticating ordinary API requests
+  ([#48](https://github.com/Bitspark/archon/issues/48)). The design is decided in
+  [ADR 0010](architecture/decisions/0010-request-authentication-and-key-enrollment-profiles.md)
+  (a narrow RFC 9421 application profile, and a separate enrollment statement), and parts are on
+  `main` marked provisional. **No wire format is frozen** until ADR 0010's failure tests exist, so
+  do not build on it yet.
+
+## Not in archon
+
+- Git transport authentication: a Git credential helper, the credentials a Git service issues,
+  SSH-key association and a Git command gate. These belong to the product that hosts Git
+  ([ADR 0011](architecture/decisions/0011-transport-integrations-stay-above-archon.md),
+  [#64](https://github.com/Bitspark/archon/issues/64), [#65](https://github.com/Bitspark/archon/issues/65)).
+  archon's request profile authenticates the exchange that issues such credentials.
 
 ## Getting started
 

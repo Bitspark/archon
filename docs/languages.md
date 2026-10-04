@@ -33,36 +33,40 @@ TypeScript carry every sdk oracle; an sdk marked *possession + envelope* conform
 and does not implement the login scheme at all — which is a different claim from
 implementing it badly.
 
-## Current state — 0.8.2
+## Current state — 0.9.0
 
 | Language | core | sdk | cli | server | Coordinates | Conforming | Published |
 |---|---|---|---|---|---|---|---|
-| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ proxy + checksum db — **0.8.2**, and automatically (see below) |
-| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.8.2** |
-| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.8.2**, all four; `-server` carries its code for the first time in 0.8.2 — every version through 0.8.1 was published without it ([#55](https://github.com/Bitspark/archon/issues/55)) |
-| **Python** | ✅ | ✅ possession + envelope | — | — | `bitspark-archon-{core,sdk}` (import `archon_{core,sdk}`) | 105/105; sdk 38/38 | ✅ PyPI — core and sdk **0.8.2**, wheel + sdist |
-| **Java** | ✅ | ✅ possession + envelope | — | — | `dev.bitspark:archon-{core,sdk}` | 105/105; sdk 38/38 | ✅ Maven Central — core and sdk **0.8.2**, signed |
-| **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | ✅ consumed from the tag — **v0.8.2**, `verify-source` green (see below) |
-| **Swift** | ✅ | — | — | — | SwiftPM product `ArchonCore` (git URL + tag) | 105/105 | ✅ consumed from the tag — **v0.8.2**, `verify-source` green |
-| **Haskell** | ✅ | — | — | — | `bitspark-archon-core` (module `Archon.Core`), Cabal via Git | 105/105 | ✅ consumed from the tag — **v0.8.2**, `verify-source` green |
+| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ proxy + checksum db — **0.9.0**, and automatically (see below) |
+| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.9.0** |
+| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.9.0**, all four (`-server` carries its code from 0.8.2 on; every version through 0.8.1 was published without it, [#55](https://github.com/Bitspark/archon/issues/55)) |
+| **Python** | ✅ | ✅ possession + envelope | — | — | `bitspark-archon-{core,sdk}` (import `archon_{core,sdk}`) | 105/105; sdk 38/38 | ✅ PyPI — core and sdk **0.9.0**, wheel + sdist |
+| **Java** | ✅ | ✅ possession + envelope | — | — | `dev.bitspark:archon-{core,sdk}` | 105/105; sdk 38/38 | ✅ Maven Central — core and sdk **0.9.0**, signed |
+| **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | ✅ consumed from the tag — **v0.9.0**, `verify-source` green (see below) |
+| **Swift** | ✅ | — | — | — | SwiftPM product `ArchonCore` (git URL + tag) | 105/105 | ✅ consumed from the tag — **v0.9.0**, `verify-source` green |
+| **Haskell** | ✅ | — | — | — | `bitspark-archon-core` (module `Archon.Core`), Cabal via Git | 105/105 | ✅ consumed from the tag — **v0.9.0**, `verify-source` green |
 
 A published version is a version that was published — which is not the same as a version that
-was tagged. **Snapshot taken 2026-10-04 00:58Z**, and dated because an earlier version of
+was tagged. **Snapshot taken 2026-10-04 14:27Z**, and dated because an earlier version of
 this table went stale within the hour: it is a fact about the world, not about this
 repository, so re-measure rather than trust it.
 
-**0.8.2 is on every armed registry**, each verified by an outside consumer that installed it
+**0.9.0 is on every armed registry**, each verified by an outside consumer that installed it
 from the public registry with no source tree reachable: all but Central in
-[release run 37166236711](https://github.com/Bitspark/archon/actions/runs/37166236711), and
+[release run 37206166467](https://github.com/Bitspark/archon/actions/runs/37206166467), and
 Central in its second act:
 
 | registry | has | proof |
 |---|---|---|
-| Go proxy + `sum.golang.org` | **v0.8.2** (`@latest`), all four modules at `f02de05` | the Go consumer, including `go install …/cli/go/cmd/archon@v0.8.2` under `-mod=readonly`, which printed `archon 0.8.2` |
-| npm | **0.8.2** (`latest`), all four packages, each with a provenance attestation: 16, 16, 34 and 10 files | the npm consumer. The sdk names its floor as `^0.8.2`, and a whole login through the published `@bitspark/archon-server` printed `begin 201, fetch 200, answer 204, collect 200; login verified=true`. `npm install -g @bitspark/archon-cli@0.8.2` printed `archon 0.8.2` |
-| crates.io | **0.8.2**, all four crates | the crates.io consumer, and `cargo install bitspark-archon-cli@0.8.2`, which printed `archon 0.8.2` |
-| PyPI | **0.8.2**, core and sdk, wheel + sdist | the Python round trips. The sdk resolved its floor through `bitspark-archon-core~=0.8.2` |
-| Maven Central | **0.8.2**, core and sdk, signed | the Central consumers, in the second act Central's asynchronous serving requires (below): [`verify_only` run 37166842158](https://github.com/Bitspark/archon/actions/runs/37166842158), each resolved jar byte-identical to what Central serves (core `d0f107d7…`, sdk `6fdf5e9e…`) |
+| Go proxy + `sum.golang.org` | **v0.9.0** (`@latest`), all four modules at `6f907e4` | the Go consumer, including `go install …/cli/go/cmd/archon@v0.9.0` under `-mod=readonly`, which printed `archon 0.9.0` |
+| npm | **0.9.0** (`latest`), all four packages, each with a provenance attestation: 16, 19, 34 and 10 files (the sdk grew by its signer interface) | the npm consumer. The sdk names its floor as `^0.9.0`, and a whole login through the published `@bitspark/archon-server` printed `begin 201, fetch 200, answer 204, collect 200; login verified=true`. `npm install -g @bitspark/archon-cli@0.9.0` printed `archon 0.9.0` |
+| crates.io | **0.9.0**, all four crates | the crates.io consumer, and `cargo install bitspark-archon-cli@0.9.0`, which printed `archon 0.9.0` |
+| PyPI | **0.9.0**, core and sdk, wheel + sdist | the Python round trips. The sdk resolved its floor through `bitspark-archon-core~=0.9.0` |
+| Maven Central | **0.9.0**, core and sdk, signed | the Central consumers, in the second act Central's asynchronous serving requires (below): [`verify_only` run 37209387278](https://github.com/Bitspark/archon/actions/runs/37209387278), each resolved jar byte-identical to what Central serves (core `0d84f1d0…`, sdk `840205e8…`) |
+
+**0.9.0 adds signing with a stored key.**
+- `archon sign --key` and the sdk's signer interface ([ADR 0009](architecture/decisions/0009-the-signing-boundary-and-the-signer-contract.md)).
+- `Admitted`, the request a login proof covers, as `AdmitAuthority`'s fourth argument. This breaks Go and Rust laws; TypeScript laws written for three arguments keep working.
 
 **0.8.2 exists for the TypeScript server.** Every `@bitspark/archon-server` on npm from 0.6.1
 through 0.8.1 is a `package.json` and nothing else ([#55](https://github.com/Bitspark/archon/issues/55)).
@@ -89,7 +93,7 @@ To re-measure, ask each registry rather than reading the tag list:
 curl -s https://registry.npmjs.org/@bitspark/archon | jq '.["dist-tags"], (.versions|keys)'
 curl -s https://crates.io/api/v1/crates/bitspark-archon-core/versions | jq '[.versions[].num]'
 curl -s https://proxy.golang.org/github.com/!bitspark/archon/core/go/@latest
-curl -so /dev/null -w '%{http_code}\n' https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/0.8.2/archon-core-0.8.2.pom
+curl -so /dev/null -w '%{http_code}\n' https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/0.9.0/archon-core-0.9.0.pom
 ```
 
 **Go is the asymmetry to keep in mind:** nobody publishes it, and nothing gates it. Pushing a
@@ -115,13 +119,15 @@ against the installed `archon::core`, SwiftPM resolving `archon 0.8.1` by URL (t
 commit, asserted from `Package.resolved`), and Cabal through a `source-repository-package`
 pinned to that commit. `v0.8.2` was verified the same way:
 [run 37162376524](https://github.com/Bitspark/archon/actions/runs/37162376524), green for all
-three against `f02de05`.
+three against `f02de05`, and `v0.9.0` by
+[run 37171647706](https://github.com/Bitspark/archon/actions/runs/37171647706) against `6f907e4`.
 
 **Maven Central is the other one.** It accepts and validates in seconds and serves much
 later — **44 minutes** for archon-core 0.7.0, validated 15:15:38Z and served 15:59:40Z, past
 the ~37 minutes a publish job could ever wait. For 0.8.1 it was about 12 minutes (the run
 reported both deployments `PUBLISHING` by 17:48:43Z, and repo1 served both by 17:59:35Z), and
-for 0.8.2 about 7 (`PUBLISHING` at 00:56:05Z, both poms and jars served by 01:03:01Z). So
+for 0.8.2 about 7 (`PUBLISHING` at 00:56:05Z, both poms and jars served by 01:03:01Z), and
+for 0.9.0 about 10 (`PUBLISHING` at 14:18:01Z, both poms served by 14:28:15Z). So
 the delay is not a constant to wait out. A green publish run proves the upload, not the
 availability. Java counts as published when a consumer resolves it from the public
 repository — which happens in a **later** run, not the one that published it. Either a
