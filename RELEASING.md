@@ -74,7 +74,8 @@ reads `pom.xml`; the next language's does likewise.
    so `sdk`, `cli` and `server` fail to resolve it, and that one failure — in either of the
    two ways cargo spells it — is tolerated in a rehearsal and nowhere else.
 4. **Release.** The same dispatch with `rehearse=false`. It waits at the environment gate
-   again — the reviewer's approval is the publish decision — then publishes in dependency
+   again — the approval carries out the publish decision, which is the operator's go on the
+   version; an agent may give it under the standing authorization in `CLAUDE.md` — then publishes in dependency
    order, waits for each registry to *serve* what it accepted, runs the **outside
    consumers** ([`conformance/consumers/`](conformance/consumers/): the sdk and the floor
    installed from npmjs, crates.io and the Go proxy into empty directories with empty
