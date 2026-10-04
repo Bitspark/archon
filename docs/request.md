@@ -179,6 +179,25 @@ server adapter's, which owns the clock, the replay store and what reaches the ap
 9. The application receives an `AuthenticatedRequest`: the principal and the verified descriptor
    (method, target, covered headers, content digest).
 
+**The server adapters.** Each server lane carries steps 8–9 over its own HTTP stack, and is held to
+the gate's failure tests through that stack:
+
+- **The replay store** answers one operation:
+  `InsertIfAbsent(key, from, until) → inserted | alreadyPresent | unavailable`.
+  - `key` is (profile, audience, principal, nonce); `from` is `created − δ`, the earliest moment a
+    verifier could accept the proof; `until` is `expires + δ`, after which none can.
+  - Concurrent inserts of one key answer `inserted` at most once, across every verifier in the
+    acceptance scope. A store that cannot guarantee that, or cannot answer, says `unavailable`, and
+    the request **fails closed** (503).
+- **The in-memory reference store** is correct for one process. It refuses any entry whose `from`
+  is earlier than the moment its process started, because an earlier incarnation might have
+  accepted that proof and its memory is gone. A deployment with several verifiers supplies a shared
+  store with the same contract.
+- **Go:** `server/go/request` — `Verifier{Policy, Store, Clock}` with `Authenticate(*http.Request)`
+  and `Middleware(http.Handler)`; `FromContext` gives the handler its `Authenticated`; `Memory` is
+  the reference store. The request-target is `RequestURI`, the request line as received. A body
+  over 1 MiB is refused (413), never truncated; a content coding or trailer is refused (400).
+
 **The gate (ADR 0010 §8).** These constants and layouts are frozen — and this status line changed —
 only when vectors pin the signature bases, signatures (derived outside the cores) and the
 enrollment binding, **and** each lane passes, through its real HTTP framework: wrong-key and
