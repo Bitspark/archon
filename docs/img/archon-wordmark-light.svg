@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  archon lockup — a key held upright, crowning the wordmark (light). The mark:
+  a ring bow with the held seed at its centre — the one sanctioned axiom fill,
+  the private key only the bearer holds — and the shaft and two bits below it,
+  hairline: the canonical public spelling cut from that seed. Who you provably
+  are is the key you can turn. thesmos is the door (a lintel on two jambs);
+  archon is the key that bears the office through it. Drawn to the
+  Bitspark/design wordmark spec (brand/wordmark.md). Colours are literal
+  @bitspark/design light-theme token values:
+    #18181b = color-fg ; #e4e4e7 = color-border ; #52525b = color-fg-muted.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 264" width="280" role="img" aria-label="archon — the officeholder, the one who bears the office">
+  <g fill="none" stroke="#18181b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="240" cy="36" r="16"/>
+    <line x1="240" y1="52" x2="240" y2="102"/>
+    <line x1="240" y1="102" x2="260" y2="102"/>
+    <line x1="240" y1="89" x2="254" y2="89"/>
+    <circle cx="240" cy="36" r="7" fill="#18181b" stroke="none"/>
+  </g>
+  <text x="240" y="190" text-anchor="middle"
+        font-family="system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="84" font-weight="700" fill="#18181b" letter-spacing="-0.02em">archon</text>
+  <line x1="196" y1="212" x2="284" y2="212" stroke="#e4e4e7" stroke-width="1"/>
+  <text x="240" y="234" text-anchor="middle"
+        font-family="system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="11" font-weight="600" fill="#52525b" letter-spacing="0.16em">ἄρχων · IDENTITY · WHO YOU ARE</text>
+</svg>
