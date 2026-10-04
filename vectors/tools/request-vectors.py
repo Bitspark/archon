@@ -8,8 +8,8 @@ context-string:<domain>`), never by a core. A vector copied out of a core pins t
 a vector derived from the standard lets all three cores be wrong together and be caught
 (vectors/README.md, "Authoring").
 
-The profiles are PROVISIONAL (ADR 0010 §8): these vectors pin the provisional bytes so the three
-lanes agree on them while the failure tests are built, and they change if the wire does.
+The profiles are FIXED (ADR 0010, status note of 4 October 2026, when §8's gate was met): these
+vectors pin the v1 bytes, and a change to any of them is a new wire version, never an edit.
 
 Run from the repo root: `python vectors/tools/request-vectors.py > vectors/request.json`.
 """
@@ -197,7 +197,7 @@ def request_families() -> dict:
         return case
 
     request_sign = [
-        sign_case("basic", 'the client (docs/request.md §3–§4): inputs {seed, method, audience, request_target, body (hex), content_type (string or null), declared [[name, value]] in the product\'s order, created, expires, nonce (hex)}; expected {"ok": {base, headers}} — the RFC 9421 signature base as text, and the four headers archon adds, named in lowercase — or {"error": true}. Every signature is Ed25519ph in context archon-request/1 over the base, derived with OpenSSL 3.2.4 outside the cores. PROVISIONAL (ADR 0010 §8).'),
+        sign_case("basic", 'the client (docs/request.md §3–§4): inputs {seed, method, audience, request_target, body (hex), content_type (string or null), declared [[name, value]] in the product\'s order, created, expires, nonce (hex)}; expected {"ok": {base, headers}} — the RFC 9421 signature base as text, and the four headers archon adds, named in lowercase — or {"error": true}. Every signature is Ed25519ph in context archon-request/1 over the base, derived with OpenSSL 3.2.4 outside the cores. Fixed (ADR 0010, status note of 4 October 2026).'),
         sign_case("empty-body-get", "a GET with no body and no Content-Type: the digest is the empty string's, and content-type is not covered.", method="GET", tgt="/api/v1/things", b=b"", ct=None),
         sign_case("declared-headers", "product-declared headers are covered in the product's order, after content-type.", declared=[idem, ("x-tenant", "acme")]),
         sign_case("target-kept-verbatim", "the request-target is covered exactly as sent: an escape is not decoded, query order and duplicates are kept.", tgt="/api/a%2Fb?b=2&a=1&a=1"),
@@ -280,7 +280,7 @@ def request_families() -> dict:
     sig_bytes = base64.b64decode(sig_value[len("archon=:"):-1])
     nonce_text = b64url(nonce)
     request_verify = [
-        v("basic", 'the verifier (docs/request.md §3.1, §5, §7 steps 1–7; replay is the server\'s): inputs {policy {audience, declared, max_lifetime, skew}, now, request {method, request_target, headers [[name, value]] as received, body (hex)}}; expected {"ok": {principal, created, expires, nonce (hex), target_uri}} or {"error": true}. Each refusal below breaks exactly one rule; where the case can be signed correctly it is, so the refusal comes from that rule and not from a bad signature. PROVISIONAL (ADR 0010 §8).',
+        v("basic", 'the verifier (docs/request.md §3.1, §5, §7 steps 1–7; replay is the server\'s): inputs {policy {audience, declared, max_lifetime, skew}, now, request {method, request_target, headers [[name, value]] as received, body (hex)}}; expected {"ok": {principal, created, expires, nonce (hex), target_uri}} or {"error": true}. Each refusal below breaks exactly one rule; where the case can be signed correctly it is, so the refusal comes from that rule and not from a bad signature. Fixed (ADR 0010, status note of 4 October 2026).',
           received(H), result={"ok": ok}),
         v("header-names-any-case", "header names are matched without regard to case.", received(H, names_case=str.upper), result={"ok": ok}),
         v("names-fold-ascii-only", "a header named with U+212A KELVIN SIGN is not idempotency-key: names fold ASCII case only, so this is an unrelated header and not a second covered field.",
@@ -404,7 +404,7 @@ def main() -> None:
     p255 = b"p" * 255
     t255 = bytes(range(255))
     enroll_binding_cases = [
-        {"note": "the pinned layout: version 0x01 ‖ u16 len ‖ purpose ‖ u16 len ‖ audience ‖ u16 len ‖ transaction ‖ new_key[32] ‖ intent_digest[32] (docs/request.md §6, PROVISIONAL). Inputs {audience (utf-8 string), request{nonce, transaction, purpose (hex), new_key, intent_digest}}; expected {\"ok\": hex} or {\"error\": true}. The nonce is not part of the binding. Oversize audience refusals (a binding over the possession scheme's u16 field) are per-lane unit tests, not 64 KB vectors.",
+        {"note": "the pinned layout: version 0x01 ‖ u16 len ‖ purpose ‖ u16 len ‖ audience ‖ u16 len ‖ transaction ‖ new_key[32] ‖ intent_digest[32] (docs/request.md §6; fixed, ADR 0010's status note of 4 October 2026). Inputs {audience (utf-8 string), request{nonce, transaction, purpose (hex), new_key, intent_digest}}; expected {\"ok\": hex} or {\"error\": true}. The nonce is not part of the binding. Oversize audience refusals (a binding over the possession scheme's u16 field) are per-lane unit tests, not 64 KB vectors.",
          "name": "basic", "audience": AUDIENCE, "request": base_req, "result": {"ok": bound().hex()}},
         {"note": "the purpose is UTF-8 bytes, bound as given (no normalisation).",
          "name": "unicode-purpose", "audience": AUDIENCE, "request": rj(p=unicode_purpose), "result": {"ok": bound(p=unicode_purpose).hex()}},
@@ -448,6 +448,7 @@ def main() -> None:
     sig_ph_no_ctx = sign(SEED_N, possession_message(nonce, bound()), None, prehash=True)
     sig_bare_nonce = sign(SEED_N, nonce, ENROLL_DOMAIN)
     sig_binding_only = sign(SEED_N, bound(), ENROLL_DOMAIN)
+    sig_version_other = sign(SEED_N, possession_message(nonce, bytes([0x02]) + bound()[1:]), ENROLL_DOMAIN)
 
     def v(name, note, a=AUDIENCE, req=None, s=None, valid=False):
         return {"note": note, "name": name, "audience": a, "request": req or base_req, "sig": (s or sig).hex(), "valid": valid}
@@ -466,6 +467,7 @@ def main() -> None:
         v("ph-without-context", "Ed25519ph without the context is not a proof.", s=sig_ph_no_ctx),
         v("bare-nonce", "a signature over the nonce alone is not a proof.", s=sig_bare_nonce),
         v("binding-without-possession-layout", "a signature over the binding without the possession layout is not a proof.", s=sig_binding_only),
+        v("version-other", "the new key's proof over a version-2 binding (0x02, every other byte the same) is not a version-1 proof: a verifier accepts only the version it implements (ADR 0010 §8).", s=sig_version_other),
         v("sig-truncated", "63 bytes.", s=sig[:63]),
         v("sig-flipped", "one bit flipped.", s=bytes([sig[0] ^ 0x01]) + sig[1:]),
         v("nonce-short", "a 15-byte nonce is false, not an error.", req=rj(n=nonce[:15])),
@@ -475,7 +477,7 @@ def main() -> None:
 
     doc = {
         "version": 1,
-        "note": "archon request-authentication and key-enrollment conformance vectors (docs/request.md), PROVISIONAL until ADR 0010 §8's gate is met. It carries the request profile (§3–§5, §7 steps 1–7: the client's signature base, headers and signature, and every acceptance and refusal of the verifier short of replay, which is the server's) and key enrollment (§6: the binding, the new key's proof, and its verification in the SDK's possession scheme, domain archon-enroll/1). Purposes are given as hex so that a non-UTF-8 purpose can be a case; a lane decodes them before calling the scheme. Audience is a UTF-8 string. Entropy (nonce, transaction id, keys) is a case INPUT — the scheme never sources it. Signatures derived with OpenSSL 3.2.4, outside all three cores (vectors/tools/request-vectors.py).",
+        "note": "archon request-authentication and key-enrollment conformance vectors (docs/request.md), version 1, fixed by ADR 0010's status note of 4 October 2026 when §8's gate was met: a change to any byte here is a new wire version. It carries the request profile (§3–§5, §7 steps 1–7: the client's signature base, headers and signature, and every acceptance and refusal of the verifier short of replay, which is the server's) and key enrollment (§6: the binding, the new key's proof, and its verification in the SDK's possession scheme, domain archon-enroll/1). Purposes are given as hex so that a non-UTF-8 purpose can be a case; a lane decodes them before calling the scheme. Audience is a UTF-8 string. Entropy (nonce, transaction id, keys) is a case INPUT — the scheme never sources it. Signatures derived with OpenSSL 3.2.4, outside all three cores (vectors/tools/request-vectors.py).",
         "enroll_binding": enroll_binding_cases,
         "enroll_prove": enroll_prove,
         "enroll_verify": enroll_verify,

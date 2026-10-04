@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "note": "archon request-authentication and key-enrollment conformance vectors (docs/request.md), PROVISIONAL until ADR 0010 §8's gate is met. It carries the request profile (§3–§5, §7 steps 1–7: the client's signature base, headers and signature, and every acceptance and refusal of the verifier short of replay, which is the server's) and key enrollment (§6: the binding, the new key's proof, and its verification in the SDK's possession scheme, domain archon-enroll/1). Purposes are given as hex so that a non-UTF-8 purpose can be a case; a lane decodes them before calling the scheme. Audience is a UTF-8 string. Entropy (nonce, transaction id, keys) is a case INPUT — the scheme never sources it. Signatures derived with OpenSSL 3.2.4, outside all three cores (vectors/tools/request-vectors.py).",
+  "note": "archon request-authentication and key-enrollment conformance vectors (docs/request.md), version 1, fixed by ADR 0010's status note of 4 October 2026 when §8's gate was met: a change to any byte here is a new wire version. It carries the request profile (§3–§5, §7 steps 1–7: the client's signature base, headers and signature, and every acceptance and refusal of the verifier short of replay, which is the server's) and key enrollment (§6: the binding, the new key's proof, and its verification in the SDK's possession scheme, domain archon-enroll/1). Purposes are given as hex so that a non-UTF-8 purpose can be a case; a lane decodes them before calling the scheme. Audience is a UTF-8 string. Entropy (nonce, transaction id, keys) is a case INPUT — the scheme never sources it. Signatures derived with OpenSSL 3.2.4, outside all three cores (vectors/tools/request-vectors.py).",
   "enroll_binding": [
     {
-      "note": "the pinned layout: version 0x01 ‖ u16 len ‖ purpose ‖ u16 len ‖ audience ‖ u16 len ‖ transaction ‖ new_key[32] ‖ intent_digest[32] (docs/request.md §6, PROVISIONAL). Inputs {audience (utf-8 string), request{nonce, transaction, purpose (hex), new_key, intent_digest}}; expected {\"ok\": hex} or {\"error\": true}. The nonce is not part of the binding. Oversize audience refusals (a binding over the possession scheme's u16 field) are per-lane unit tests, not 64 KB vectors.",
+      "note": "the pinned layout: version 0x01 ‖ u16 len ‖ purpose ‖ u16 len ‖ audience ‖ u16 len ‖ transaction ‖ new_key[32] ‖ intent_digest[32] (docs/request.md §6; fixed, ADR 0010's status note of 4 October 2026). Inputs {audience (utf-8 string), request{nonce, transaction, purpose (hex), new_key, intent_digest}}; expected {\"ok\": hex} or {\"error\": true}. The nonce is not part of the binding. Oversize audience refusals (a binding over the possession scheme's u16 field) are per-lane unit tests, not 64 KB vectors.",
       "name": "basic",
       "audience": "https://dawn.example/api",
       "request": {
@@ -555,6 +555,20 @@
       "valid": false
     },
     {
+      "note": "the new key's proof over a version-2 binding (0x02, every other byte the same) is not a version-1 proof: a verifier accepts only the version it implements (ADR 0010 §8).",
+      "name": "version-other",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "b236ff08055688bf1654c4251dd3a755abe755640d3c2e38d0a5fb820e0b12cd5f890cee76597987e871cfe31543b5d27feacb5e6c01d51c7c8220ed0e9b8601",
+      "valid": false
+    },
+    {
       "note": "63 bytes.",
       "name": "sig-truncated",
       "audience": "https://dawn.example/api",
@@ -627,7 +641,7 @@
   ],
   "request_sign": [
     {
-      "note": "the client (docs/request.md §3–§4): inputs {seed, method, audience, request_target, body (hex), content_type (string or null), declared [[name, value]] in the product's order, created, expires, nonce (hex)}; expected {\"ok\": {base, headers}} — the RFC 9421 signature base as text, and the four headers archon adds, named in lowercase — or {\"error\": true}. Every signature is Ed25519ph in context archon-request/1 over the base, derived with OpenSSL 3.2.4 outside the cores. PROVISIONAL (ADR 0010 §8).",
+      "note": "the client (docs/request.md §3–§4): inputs {seed, method, audience, request_target, body (hex), content_type (string or null), declared [[name, value]] in the product's order, created, expires, nonce (hex)}; expected {\"ok\": {base, headers}} — the RFC 9421 signature base as text, and the four headers archon adds, named in lowercase — or {\"error\": true}. Every signature is Ed25519ph in context archon-request/1 over the base, derived with OpenSSL 3.2.4 outside the cores. Fixed (ADR 0010, status note of 4 October 2026).",
       "name": "basic",
       "seed": "4444444444444444444444444444444444444444444444444444444444444444",
       "method": "POST",
@@ -1349,7 +1363,7 @@
   ],
   "request_verify": [
     {
-      "note": "the verifier (docs/request.md §3.1, §5, §7 steps 1–7; replay is the server's): inputs {policy {audience, declared, max_lifetime, skew}, now, request {method, request_target, headers [[name, value]] as received, body (hex)}}; expected {\"ok\": {principal, created, expires, nonce (hex), target_uri}} or {\"error\": true}. Each refusal below breaks exactly one rule; where the case can be signed correctly it is, so the refusal comes from that rule and not from a bad signature. PROVISIONAL (ADR 0010 §8).",
+      "note": "the verifier (docs/request.md §3.1, §5, §7 steps 1–7; replay is the server's): inputs {policy {audience, declared, max_lifetime, skew}, now, request {method, request_target, headers [[name, value]] as received, body (hex)}}; expected {\"ok\": {principal, created, expires, nonce (hex), target_uri}} or {\"error\": true}. Each refusal below breaks exactly one rule; where the case can be signed correctly it is, so the refusal comes from that rule and not from a bad signature. Fixed (ADR 0010, status note of 4 October 2026).",
       "name": "basic",
       "policy": {
         "audience": "https://dawn.example/api",
