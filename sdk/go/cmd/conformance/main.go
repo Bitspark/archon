@@ -22,6 +22,10 @@
 //	enroll_binding : in {name, audience, request}       out {"name","result":{"ok":"<hex>"}|{"error":true}}
 //	enroll_prove   : in {name, seed, audience, request} out {"name","result":{"ok":"<128-hex>"}|{"error":true}}
 //	enroll_verify  : in {name, audience, request, sig}  out {"name","valid":<bool>}
+//	request_sign   : in {name, seed, method, audience, request_target, body, content_type, declared, created, expires, nonce}
+//	                 out {"name","result":{"ok":{"base","headers"}}|{"error":true}}
+//	request_verify : in {name, policy, now, request{method, request_target, headers, body}}
+//	                 out {"name","result":{"ok":{"principal","created","expires","nonce","target_uri"}}|{"error":true}}
 package main
 
 import (
@@ -35,6 +39,7 @@ import (
 	"github.com/Bitspark/archon/sdk/go/envelope"
 	"github.com/Bitspark/archon/sdk/go/login"
 	"github.com/Bitspark/archon/sdk/go/possession"
+	"github.com/Bitspark/archon/sdk/go/request"
 )
 
 type kase struct {
@@ -51,7 +56,22 @@ type kase struct {
 	Role     *int            `json:"role"`
 	URL      string          `json:"url"`
 	Audience string          `json:"audience"`
-	Request  json.RawMessage `json:"request"` // a login request or an enrollment request, by family
+	Request  json.RawMessage `json:"request"` // a login, enrollment or received HTTP request, by family
+	// vectors/request.json, the request profile
+	Method        string      `json:"method"`
+	RequestTarget string      `json:"request_target"`
+	Body          string      `json:"body"`
+	ContentType   *string     `json:"content_type"`
+	Declared      [][2]string `json:"declared"`
+	Created       int64       `json:"created"`
+	Expires       int64       `json:"expires"`
+	Now           int64       `json:"now"`
+	Policy        *struct {
+		Audience    string   `json:"audience"`
+		Declared    []string `json:"declared"`
+		MaxLifetime int64    `json:"max_lifetime"`
+		Skew        int64    `json:"skew"`
+	} `json:"policy"`
 }
 
 // loginRequest is the oracle's spelling of login.Request: bytes as hex, scope entries as hex
@@ -181,6 +201,32 @@ func main() {
 			out["result"] = resultOf(hex.EncodeToString(sig), err)
 		case "enroll_verify":
 			out["valid"] = enroll.Verify(c.Audience, c.enroll(), mustHex(c.Sig))
+		case "request_sign":
+			base, h, err := request.Sign(mustHex(c.Seed), request.ToSign{
+				Method: c.Method, Audience: c.Audience, RequestTarget: c.RequestTarget, Body: mustHex(c.Body),
+				ContentType: c.ContentType, Declared: c.Declared, Created: c.Created, Expires: c.Expires, Nonce: mustHex(c.Nonce),
+			})
+			out["result"] = resultOf(map[string]any{"base": base, "headers": map[string]string{
+				"archon-audience": h.ArchonAudience, "content-digest": h.ContentDigest,
+				"signature-input": h.SignatureInput, "signature": h.Signature,
+			}}, err)
+		case "request_verify":
+			var r struct {
+				Method        string      `json:"method"`
+				RequestTarget string      `json:"request_target"`
+				Headers       [][2]string `json:"headers"`
+				Body          string      `json:"body"`
+			}
+			if err := json.Unmarshal(c.Request, &r); err != nil {
+				panic(err)
+			}
+			v, err := request.Verify(request.Policy{
+				Audience: c.Policy.Audience, Declared: c.Policy.Declared, MaxLifetime: c.Policy.MaxLifetime, Skew: c.Policy.Skew,
+			}, c.Now, request.Received{Method: r.Method, RequestTarget: r.RequestTarget, Headers: r.Headers, Body: mustHex(r.Body)})
+			out["result"] = resultOf(map[string]any{
+				"principal": v.KeyText, "created": v.Created, "expires": v.Expires,
+				"nonce": hex.EncodeToString(v.Nonce), "target_uri": v.TargetURI,
+			}, err)
 		default:
 			panic("unknown family: " + family)
 		}

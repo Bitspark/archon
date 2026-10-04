@@ -24,7 +24,7 @@ and is portable everywhere, while `server` presumes an HTTP story and `cli` ship
 | tier | what it adds |
 |---|---|
 | `core` | key bytes, the canonical key text, SPKI/PKCS-8, raw and domain-separated signing |
-| `sdk` | signed envelopes, proof of possession ([`vectors/sdk.json`](../vectors/sdk.json)), the login scheme's proofs and audience binding ([`vectors/login.json`](../vectors/login.json)), and key enrollment, provisional ([`vectors/request.json`](../vectors/request.json)) |
+| `sdk` | signed envelopes, proof of possession ([`vectors/sdk.json`](../vectors/sdk.json)), the login scheme's proofs and audience binding ([`vectors/login.json`](../vectors/login.json)), and request authentication and key enrollment, provisional ([`vectors/request.json`](../vectors/request.json)) |
 | `cli` | the `archon` command |
 | `server` | the login endpoint |
 

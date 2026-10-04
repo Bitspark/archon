@@ -124,6 +124,11 @@ const REQUEST_FAMILIES = [
   { name: "enroll_prove", want: (c) => c.result, got: (l) => l.result },
   // Every bound field binds; no other signature shape is a proof; total on bad shapes.
   { name: "enroll_verify", want: (c) => c.valid, got: (l) => l.valid },
+  // The client: the RFC 9421 signature base, the four headers archon adds, and the signature,
+  // and every value §3.1 refuses (docs/request.md §3–§4).
+  { name: "request_sign", want: (c) => c.result, got: (l) => l.result },
+  // The verifier short of replay: every acceptance and refusal of §3.1, §5 and §7 steps 1–7.
+  { name: "request_verify", want: (c) => c.result, got: (l) => l.result },
 ];
 
 // The command's own layer (vectors/keystore.json, ADR 0007 §A). Custody is the
