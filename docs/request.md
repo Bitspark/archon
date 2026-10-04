@@ -212,10 +212,13 @@ server adapter's, which owns the clock, the replay store and what reaches the ap
 6. Freshness: `0 < expires − created ≤ W` and `created − δ ≤ now < expires + δ`, integers, with
    the deployment's `W` and `δ`.
 7. The signature verifies under the principal in the request domain over the base §4 builds.
-8. Replay: `insertIfAbsent(("archon-request/1", audience, principal, nonce), expires + δ)` returns
-   `inserted`; `alreadyPresent` is a replay, `unavailable` fails closed.
+8. Replay: `insertIfAbsent(("archon-request/1", audience, principal, nonce), created − δ,
+   expires + δ)` returns `inserted`; `alreadyPresent` is a replay, `unavailable` fails closed.
 9. The application receives an `AuthenticatedRequest`: the principal and the verified descriptor
-   (method, target, covered headers, content digest).
+   (method, target, covered headers, content digest). Each lane names it as the sdk names the
+   verified request: `AuthenticatedRequest` in TypeScript (beside `VerifiedRequest`), and
+   `request.Authenticated` in Go and `request::Authenticated` in Rust (beside `request.Verified`),
+   where the module supplies the noun.
 
 **The server adapters.** Each server lane carries steps 8–9 over its own HTTP stack, and is held to
 the gate's failure tests through that stack:
@@ -235,8 +238,9 @@ the gate's failure tests through that stack:
   and `Middleware(http.Handler)`; `FromContext` gives the handler its `Authenticated`; `Memory` is
   the reference store. The request-target is `RequestURI`, the request line as received. A body
   over 1 MiB is refused (413), never truncated; a content coding or trailer is refused (400).
-- **TypeScript:** `@bitspark/archon-server` — `RequestVerifier({policy, store, clock})`, with two
-  ways in, because a fetch `Request` has already lost the request line:
+- **TypeScript:** `@bitspark/archon-server` — `RequestVerifier({policy, store, clock})`, returning
+  an `AuthenticatedRequest`, with two ways in, because a fetch `Request` has already lost the
+  request line:
   - `authenticateRaw(raw)` takes the request as received; `readNodeRequest(req)` builds one from
     node:http's raw `url`, `rawHeaders` and `rawTrailers`. This is the Go lane's behaviour.
   - `authenticate(request)` and the middleware `guard(next)` take a fetch `Request`, and verify

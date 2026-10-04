@@ -8,7 +8,7 @@
 //
 //   insertIfAbsent({key: (profile, audience, principal, nonce), from, until}) → inserted | alreadyPresent | unavailable
 //
-// A request reaches the application only as an Authenticated, and only after a proof verified
+// A request reaches the application only as an AuthenticatedRequest, and only after a proof verified
 // AND its identifier was inserted. `alreadyPresent` is a replay; `unavailable` FAILS CLOSED — a
 // store that cannot answer, or throws, is never permission to skip the check.
 //
@@ -104,9 +104,11 @@ export class MemoryReplayStore implements ReplayStore {
   }
 }
 
-/** A request that verified and was admitted by the replay store: the principal, and the request
- *  descriptor authentication verified. Authorization evaluates this, not a re-parse (ADR 0010 §6). */
-export type Authenticated = VerifiedRequest;
+/** ADR 0010 §6's `AuthenticatedRequest`: a request that verified and was admitted by the replay
+ *  store — the principal, and the request descriptor authentication verified. Authorization
+ *  evaluates this, not a re-parse. (Go and Rust name it `request.Authenticated`, as the sdk names
+ *  `VerifiedRequest` `request.Verified` there: the module supplies the noun.) */
+export type AuthenticatedRequest = VerifiedRequest;
 
 /** Why a request was not authenticated, with the HTTP status to answer: 400 for a request the
  *  profile does not accept as transported, 401 for one that does not authenticate, 413 for an
@@ -225,7 +227,7 @@ export class RequestVerifier {
   }
 
   /** Authenticate a request as received. Throws a RequestRefusal. */
-  async authenticateRaw(raw: RawRequest): Promise<Authenticated> {
+  async authenticateRaw(raw: RawRequest): Promise<AuthenticatedRequest> {
     if (raw.body.length > REQUEST_MAX_BODY_BYTES) throw tooLarge();
     // v1 accepts no content coding and no trailers (ADR 0010 §4): the digest is over the content
     // as received, and a coded body would make "as received" ambiguous.
@@ -267,7 +269,7 @@ export class RequestVerifier {
 
   /** Authenticate a fetch Request — the normalised request a fetch application routes on — and
    *  return the body it read alongside. Throws a RequestRefusal. */
-  async authenticate(request: Request): Promise<{ auth: Authenticated; body: Uint8Array<ArrayBuffer> }> {
+  async authenticate(request: Request): Promise<{ auth: AuthenticatedRequest; body: Uint8Array<ArrayBuffer> }> {
     const body = await readBounded(request.body);
     const url = new URL(request.url);
     const auth = await this.authenticateRaw({
@@ -282,9 +284,9 @@ export class RequestVerifier {
   /** The fetch-style middleware: authenticate every request before `next` sees it. A refused
    *  request never reaches `next`; it is answered with the refusal's status and a one-line reason.
    *  `next` gets a fresh Request carrying the body that was verified. */
-  guard(next: (request: Request, auth: Authenticated) => Response | Promise<Response>): (request: Request) => Promise<Response> {
+  guard(next: (request: Request, auth: AuthenticatedRequest) => Response | Promise<Response>): (request: Request) => Promise<Response> {
     return async (request) => {
-      let verified: { auth: Authenticated; body: Uint8Array<ArrayBuffer> };
+      let verified: { auth: AuthenticatedRequest; body: Uint8Array<ArrayBuffer> };
       try {
         verified = await this.authenticate(request);
       } catch (e) {
