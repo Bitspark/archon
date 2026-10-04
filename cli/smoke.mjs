@@ -572,8 +572,9 @@ for (const lane of lanes) {
       "        os.write(fd, password.encode() + bytes([13]))",
       "        sent = True",
       "_, status = os.waitpid(pid, 0)",
-      "sys.stdout.write(str(os.waitstatus_to_exitcode(status)) + chr(10))",
-      "sys.stdout.buffer.write(seen)",
+      // One stream, binary, so the exit code cannot be overtaken by the transcript: text
+      // written to sys.stdout sits in its buffer while sys.stdout.buffer writes go straight by.
+      "sys.stdout.buffer.write(str(os.waitstatus_to_exitcode(status)).encode() + bytes([10]) + seen)",
     ].join("\n");
     const message = readFileSync(msgPath);
     const shown = `signing ${message.length} bytes (sha256 ${createHash("sha256").update(message).digest("hex")}) ` +

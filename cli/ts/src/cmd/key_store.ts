@@ -175,30 +175,36 @@ export interface ControllingTerminal {
  * which turns `CONIN$` into a file name.
  */
 export function openControllingTerminal(): ControllingTerminal {
-  let inFd: number;
+  const windows = process.platform === "win32";
+  const input = windows ? "\\\\.\\CONIN$" : "/dev/tty";
+  const opened: number[] = [];
+  const open = (path: string, flags: string): number => {
+    const fd = openSync(path, flags);
+    opened.push(fd);
+    return fd;
+  };
+  let readFd: number;
+  let modeFd: number;
   let outFd: number;
   try {
-    if (process.platform === "win32") {
-      inFd = openSync("\\\\.\\CONIN$", "r+");
-      try {
-        outFd = openSync("\\\\.\\CONOUT$", "w");
-      } catch (e) {
-        closeSync(inFd);
-        throw e;
-      }
-    } else {
-      inFd = openSync("/dev/tty", "r+");
-      outFd = inFd;
-    }
+    // TWO descriptors on the same terminal. Node's ReadStream exists here only to switch raw
+    // mode, and building one puts ITS descriptor in non-blocking mode (libuv's tty init), where
+    // a synchronous read gets EAGAIN at once and the prompt would read an empty password. The
+    // mode belongs to the terminal, not the descriptor, so it is set through one and the bytes
+    // are read, blocking, through the other.
+    readFd = open(input, "r+");
+    modeFd = open(input, "r+");
+    outFd = windows ? open("\\\\.\\CONOUT$", "w") : readFd;
   } catch {
+    for (const fd of opened) closeSync(fd);
     throw new Error(NO_TERMINAL);
   }
-  // A ReadStream only for raw mode: every byte is read synchronously from the descriptor, so
-  // the stream never runs on the event loop. Destroying it closes inFd.
-  const stream = new ReadStream(inFd);
+  // The stream never runs on the event loop: every byte is read synchronously from readFd.
+  // Destroying it closes modeFd.
+  const stream = new ReadStream(modeFd);
   return {
     io: terminalIo(
-      (into) => readSync(inFd, into, 0, 1, null),
+      (into) => readSync(readFd, into, 0, 1, null),
       (raw) => {
         stream.setRawMode(raw);
       },
@@ -208,7 +214,8 @@ export function openControllingTerminal(): ControllingTerminal {
     ),
     close: () => {
       stream.destroy();
-      if (outFd !== inFd) closeSync(outFd);
+      closeSync(readFd);
+      if (outFd !== readFd) closeSync(outFd);
     },
   };
 }
