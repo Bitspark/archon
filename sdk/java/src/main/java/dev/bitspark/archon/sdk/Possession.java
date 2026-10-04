@@ -68,6 +68,31 @@ public final class Possession {
     return Crypto.verifyInDomain(pubkey, domain, message, signature);
   }
 
+  /**
+   * The signing request a possession proof needs, for a signer whose key is {@code publicKey}
+   * (ADR 0009 §4). Pure, and throws what {@link #prove} throws. The message is {@link
+   * #messageBytes}{@code (nonce, binding)}, so a proof made through it is the same bytes.
+   */
+  public static Signing.Request prepare(
+      byte[] publicKey, String domain, byte[] nonce, byte[] binding) {
+    Signing.Request request =
+        new Signing.Request(publicKey, new Signing.PhContext(domain), messageBytes(nonce, binding));
+    Signing.validate(request);
+    return request;
+  }
+
+  /** The proof, from a signature over a prepared request: checked, then returned. Pure. */
+  public static byte[] complete(Signing.Request request, byte[] signature) {
+    return Signing.checkSignature(request, signature);
+  }
+
+  /** {@link #prove} through a signer instead of a seed. */
+  public static byte[] proveWith(
+      Signing.Signer signer, String domain, byte[] nonce, byte[] binding) {
+    Signing.Request request = prepare(signer.publicKey(), domain, nonce, binding);
+    return complete(request, Signing.signWith(signer, request));
+  }
+
   /** The pinned layout of what gets signed. Public so a consumer can pin it too. */
   public static byte[] messageBytes(byte[] nonce, byte[] binding) {
     if (nonce == null || binding == null) {

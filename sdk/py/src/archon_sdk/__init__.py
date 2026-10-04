@@ -16,11 +16,15 @@ questions every protocol asks next, without knowing the protocol:
 This package never sources them, so every byte it emits is a deterministic function of its
 inputs and is pinned by `vectors/sdk.json` — the same oracle the Go, Rust and TypeScript sdks
 are held to. The login scheme, which the other three also carry, is not here yet.
+
+Each signing helper takes a seed, or — through its `prepare` / `complete` pair and its
+`…_with` form — a `signer.Signer` (ADR 0009 §4): signing capability rather than the key, for
+keys that do not live in this process.
 """
 
-from . import envelope, possession
+from . import envelope, possession, signer
 from .envelope import Opened
 
 __version__ = "0.8.2"
 
-__all__ = ["envelope", "possession", "Opened", "__version__"]
+__all__ = ["envelope", "possession", "signer", "Opened", "__version__"]

@@ -36,8 +36,9 @@ Envelope.open(sealed, "example/env/other");  // IllegalArgumentException: claims
 
 | | |
 |---|---|
-| `Possession` | `prove`, `verify`, `messageBytes` — *can they sign, right now, for this channel?* |
-| `Envelope` | `seal`, `open`, `messageBytes`, `Opened` — *these bytes, signed by this key, in this domain* |
+| `Possession` | `prove`, `verify`, `messageBytes` — *can they sign, right now, for this channel?* — and `prepare`, `complete`, `proveWith` |
+| `Envelope` | `seal`, `open`, `messageBytes`, `Opened` — *these bytes, signed by this key, in this domain* — and `prepareSeal`, `completeSeal`, `sealWith` |
+| `Signing` | `Signer`, `Request`, `Raw`, `PhContext`, `Capabilities`, `seedSigner`, `signWith`, `checkSignature` — sign through a signer instead of a seed ([ADR 0009](../../docs/architecture/decisions/0009-the-signing-boundary-and-the-signer-contract.md) §4): the request is validated and the signer's capabilities checked before it is called, and every signature it returns is verified against what was asked for |
 
 Both sign in the **caller's** domain through `Crypto.signInDomain`, and each prefixes its
 layout with a one-byte scheme tag so a possession proof and an envelope payload in the same
