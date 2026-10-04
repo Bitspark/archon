@@ -5,7 +5,10 @@ A release is one commit on `main`, one version in every manifest, five tags, one
 conformance and publication separately, because a tag does not claim an upload to every
 registry, and a registry step that did not run is not a registry that published.
 
-The current release is **0.8.1**. `v0.8.0` is tagged, so the Go proxy serves it, but it went to
+The current release is **0.8.2**: the first in which `@bitspark/archon-server` on npm carries
+its code. Every version of it through 0.8.1 was published as a `package.json` alone
+([#55](https://github.com/Bitspark/archon/issues/55)), and a version cannot be replaced, so the
+correction is the next version. `v0.8.0` is tagged, so the Go proxy serves it, but it went to
 no other registry: its Go and TypeScript CLIs reported `archon version` as 0.5.0, and 0.8.1 is
 the correction. Published versions and tags are immutable: a version burned
 on a registry stays burned, a tag is never moved (`release-tags-immutable` refuses it), and a
