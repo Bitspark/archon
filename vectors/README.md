@@ -10,6 +10,13 @@ the layouts assembled by hand from the spec, every signature from OpenSSL 3.2.4 
 `python vectors/tools/login-vectors.py > vectors/login.json` from the repo root. Scope entries are
 hex so a non-UTF-8 entry can be a case; a lane decodes them before calling the scheme.
 
+`request.json` — 42 cases in 3 families (`enroll_binding` · `enroll_prove` · `enroll_verify`),
+key enrollment ([docs/request.md](../docs/request.md) §6), for the same `sdk/{rs,go,ts}` CLIs.
+**PROVISIONAL** until [ADR 0010](../docs/architecture/decisions/0010-request-authentication-and-key-enrollment-profiles.md)
+§8's gate is met; the request-profile families follow. Derived by
+[`tools/request-vectors.py`](tools/request-vectors.py), every signature from OpenSSL 3.2.4 —
+regenerate with `python vectors/tools/request-vectors.py > vectors/request.json`.
+
 `identity.json` — 105 cases in 7 families, the byte-level contract every archon core must
 satisfy. Driven by [`../conformance/`](../conformance/).
 

@@ -16,6 +16,12 @@
 //	login_verify         : in {name, pubkey, audience, request, sig} out {"name","valid":<bool>}
 //	login_collect_prove  : in {name, seed, audience, request}        out {"name","result":{"ok":"<128-hex>"}|{"error":true}}
 //	login_collect_verify : in {name, audience, request, sig}         out {"name","valid":<bool>}
+//
+// vectors/request.json (same protocol; `request` is {nonce, transaction, purpose[hex], new_key, intent_digest}):
+//
+//	enroll_binding : in {name, audience, request}       out {"name","result":{"ok":"<hex>"}|{"error":true}}
+//	enroll_prove   : in {name, seed, audience, request} out {"name","result":{"ok":"<128-hex>"}|{"error":true}}
+//	enroll_verify  : in {name, audience, request, sig}  out {"name","valid":<bool>}
 package main
 
 import (
@@ -25,6 +31,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/Bitspark/archon/sdk/go/enroll"
 	"github.com/Bitspark/archon/sdk/go/envelope"
 	"github.com/Bitspark/archon/sdk/go/login"
 	"github.com/Bitspark/archon/sdk/go/possession"
@@ -41,10 +48,10 @@ type kase struct {
 	Payload  string `json:"payload"`
 	Envelope string `json:"envelope"`
 	// vectors/login.json
-	Role     *int          `json:"role"`
-	URL      string        `json:"url"`
-	Audience string        `json:"audience"`
-	Request  *loginRequest `json:"request"`
+	Role     *int            `json:"role"`
+	URL      string          `json:"url"`
+	Audience string          `json:"audience"`
+	Request  json.RawMessage `json:"request"` // a login request or an enrollment request, by family
 }
 
 // loginRequest is the oracle's spelling of login.Request: bytes as hex, scope entries as hex
@@ -55,6 +62,35 @@ type loginRequest struct {
 	Browser  string   `json:"browser"`
 	Scope    []string `json:"scope"`
 	ValidFor uint32   `json:"valid_for"`
+}
+
+func (c kase) login() *login.Request {
+	var r loginRequest
+	if err := json.Unmarshal(c.Request, &r); err != nil {
+		panic(err)
+	}
+	return r.request()
+}
+
+// enrollRequest is the oracle's spelling of enroll.Request: bytes as hex, the purpose as hex
+// (so a non-UTF-8 purpose can be a case).
+type enrollRequest struct {
+	Nonce        string `json:"nonce"`
+	Transaction  string `json:"transaction"`
+	Purpose      string `json:"purpose"`
+	NewKey       string `json:"new_key"`
+	IntentDigest string `json:"intent_digest"`
+}
+
+func (c kase) enroll() *enroll.Request {
+	var r enrollRequest
+	if err := json.Unmarshal(c.Request, &r); err != nil {
+		panic(err)
+	}
+	return &enroll.Request{
+		Nonce: mustHex(r.Nonce), Transaction: mustHex(r.Transaction), Purpose: string(mustHex(r.Purpose)),
+		NewKey: mustHex(r.NewKey), IntentDigest: mustHex(r.IntentDigest),
+	}
 }
 
 func (r *loginRequest) request() *login.Request {
@@ -125,18 +161,26 @@ func main() {
 			aud, id, err := login.DeriveAudience(c.URL)
 			out["result"] = resultOf(map[string]any{"audience": aud, "id": hex.EncodeToString(id)}, err)
 		case "login_binding":
-			b, err := login.Binding(byte(*c.Role), c.Audience, c.Request.request())
+			b, err := login.Binding(byte(*c.Role), c.Audience, c.login())
 			out["result"] = resultOf(hex.EncodeToString(b), err)
 		case "login_prove":
-			sig, err := login.Prove(mustHex(c.Seed), c.Audience, c.Request.request())
+			sig, err := login.Prove(mustHex(c.Seed), c.Audience, c.login())
 			out["result"] = resultOf(hex.EncodeToString(sig), err)
 		case "login_verify":
-			out["valid"] = login.Verify(mustHex(c.Pubkey), c.Audience, c.Request.request(), mustHex(c.Sig))
+			out["valid"] = login.Verify(mustHex(c.Pubkey), c.Audience, c.login(), mustHex(c.Sig))
 		case "login_collect_prove":
-			sig, err := login.ProveCollect(mustHex(c.Seed), c.Audience, c.Request.request())
+			sig, err := login.ProveCollect(mustHex(c.Seed), c.Audience, c.login())
 			out["result"] = resultOf(hex.EncodeToString(sig), err)
 		case "login_collect_verify":
-			out["valid"] = login.VerifyCollect(c.Audience, c.Request.request(), mustHex(c.Sig))
+			out["valid"] = login.VerifyCollect(c.Audience, c.login(), mustHex(c.Sig))
+		case "enroll_binding":
+			b, err := enroll.Binding(c.Audience, c.enroll())
+			out["result"] = resultOf(hex.EncodeToString(b), err)
+		case "enroll_prove":
+			sig, err := enroll.Prove(mustHex(c.Seed), c.Audience, c.enroll())
+			out["result"] = resultOf(hex.EncodeToString(sig), err)
+		case "enroll_verify":
+			out["valid"] = enroll.Verify(c.Audience, c.enroll(), mustHex(c.Sig))
 		default:
 			panic("unknown family: " + family)
 		}

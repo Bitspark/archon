@@ -1,0 +1,628 @@
+{
+  "version": 1,
+  "note": "archon request-authentication and key-enrollment conformance vectors (docs/request.md), PROVISIONAL until ADR 0010 §8's gate is met. This first cut carries key enrollment (§6): the binding, the new key's proof, and its verification — in the SDK's possession scheme, domain archon-enroll/1. The request-profile families follow. Purposes are given as hex so that a non-UTF-8 purpose can be a case; a lane decodes them before calling the scheme. Audience is a UTF-8 string. Entropy (nonce, transaction id, keys) is a case INPUT — the scheme never sources it. Signatures derived with OpenSSL 3.2.4, outside all three cores (vectors/tools/request-vectors.py).",
+  "enroll_binding": [
+    {
+      "note": "the pinned layout: version 0x01 ‖ u16 len ‖ purpose ‖ u16 len ‖ audience ‖ u16 len ‖ transaction ‖ new_key[32] ‖ intent_digest[32] (docs/request.md §6, PROVISIONAL). Inputs {audience (utf-8 string), request{nonce, transaction, purpose (hex), new_key, intent_digest}}; expected {\"ok\": hex} or {\"error\": true}. The nonce is not part of the binding. Oversize audience refusals (a binding over the possession scheme's u16 field) are per-lane unit tests, not 64 KB vectors.",
+      "name": "basic",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "ok": "0100076164642d6b6579001868747470733a2f2f6461776e2e6578616d706c652f61706900107a1b2c3d4e5f60718293a4b5c6d7e8f9d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c485f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      }
+    },
+    {
+      "note": "the purpose is UTF-8 bytes, bound as given (no normalisation).",
+      "name": "unicode-purpose",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "7363686cc3bc7373656c2d68696e7a7566c3bc67656e",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "ok": "0100167363686cc3bc7373656c2d68696e7a7566c3bc67656e001868747470733a2f2f6461776e2e6578616d706c652f61706900107a1b2c3d4e5f60718293a4b5c6d7e8f9d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c485f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      }
+    },
+    {
+      "note": "255 bytes is the purpose's maximum.",
+      "name": "purpose-255",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "ok": "0100ff707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070001868747470733a2f2f6461776e2e6578616d706c652f61706900107a1b2c3d4e5f60718293a4b5c6d7e8f9d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c485f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      }
+    },
+    {
+      "note": "a one-byte transaction id is the minimum; it is opaque bytes.",
+      "name": "transaction-min",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "00",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "ok": "0100076164642d6b6579001868747470733a2f2f6461776e2e6578616d706c652f617069000100d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c485f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      }
+    },
+    {
+      "note": "255 bytes is the transaction id's maximum.",
+      "name": "transaction-255",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfe",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "ok": "0100076164642d6b6579001868747470733a2f2f6461776e2e6578616d706c652f61706900ff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfed759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c485f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      }
+    },
+    {
+      "note": "a 256-byte purpose is refused.",
+      "name": "purpose-256-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "70707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an empty purpose is refused: the purpose is what separates an addition from a rotation or a recovery.",
+      "name": "purpose-empty-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a control character (U+0007) in the purpose is refused.",
+      "name": "purpose-control-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "616464076b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "U+007F in the purpose is refused.",
+      "name": "purpose-del-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164647f6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a purpose that is not valid UTF-8 (0xff) is refused.",
+      "name": "purpose-not-utf8-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "616464ff6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a 256-byte transaction id is refused.",
+      "name": "transaction-256-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an empty transaction id is refused: completion names a pending record.",
+      "name": "transaction-empty-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an empty audience is refused.",
+      "name": "audience-empty-rejected",
+      "audience": "",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a control character in the audience is refused.",
+      "name": "audience-control-rejected",
+      "audience": "https://dawn.example/api\n",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the new key must be exactly 32 bytes.",
+      "name": "new-key-short-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the new key must be exactly 32 bytes.",
+      "name": "new-key-long-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c4800",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the intent digest must be exactly 32 bytes.",
+      "name": "intent-digest-short-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa998877665544332211"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the intent digest must be exactly 32 bytes.",
+      "name": "intent-digest-long-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa9988776655443322110000"
+      },
+      "result": {
+        "error": true
+      }
+    }
+  ],
+  "enroll_prove": [
+    {
+      "note": "the enrollment proof: possession by the NEW key in domain archon-enroll/1 over the server's nonce and the enrollment binding — Ed25519ph, context-string archon-enroll/1, over 0x01 ‖ u16 len ‖ nonce ‖ u16 len ‖ binding. Inputs {seed, audience, request}; expected {\"ok\": 128 hex} or {\"error\": true}. Signatures derived with OpenSSL 3.2.4 — an implementation outside all three cores.",
+      "name": "basic",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "ok": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805"
+      }
+    },
+    {
+      "note": "another purpose is another statement, and another signature.",
+      "name": "rotate-purpose",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "726f74617465",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "ok": "7c069f01ac08d50891a0029775096e2c81a67592ebea3faf365b9fde7b72b54ecf2a36ca5876576c9f5a6f26b1ea43c6e85e5c5baac365def43f0de85869e309"
+      }
+    },
+    {
+      "note": "a seed whose public key is not the request's new key is refused: only the key being enrolled proves.",
+      "name": "not-the-new-key-rejected",
+      "seed": "1111111111111111111111111111111111111111111111111111111111111111",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a 15-byte nonce is refused by the possession scheme.",
+      "name": "nonce-short-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "every binding refusal is a prove refusal: an empty audience.",
+      "name": "audience-empty-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "audience": "",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a 31-byte seed is refused.",
+      "name": "seed-short-rejected",
+      "seed": "44444444444444444444444444444444444444444444444444444444444444",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "result": {
+        "error": true
+      }
+    }
+  ],
+  "enroll_verify": [
+    {
+      "note": "verify the enrollment proof under the request's own new key: inputs {audience, request, sig}; expected {valid: bool}. Total: every shape failure is false. The substitutions are the content — each bound field must bind, and no signature of another shape is a proof.",
+      "name": "basic",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
+      "valid": true
+    },
+    {
+      "note": "the same proof at another audience is not a proof there.",
+      "name": "wrong-audience",
+      "audience": "https://evil.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
+      "valid": false
+    },
+    {
+      "note": "the audience is bound byte for byte.",
+      "name": "audience-trailing-slash",
+      "audience": "https://dawn.example/api/",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
+      "valid": false
+    },
+    {
+      "note": "an addition's proof is not a rotation's.",
+      "name": "wrong-purpose",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "726f74617465",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
+      "valid": false
+    },
+    {
+      "note": "another pending transaction.",
+      "name": "wrong-transaction",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "00000000000000000000000000000000",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
+      "valid": false
+    },
+    {
+      "note": "another server nonce.",
+      "name": "wrong-nonce",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
+      "valid": false
+    },
+    {
+      "note": "another intent.",
+      "name": "wrong-intent-digest",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
+      "valid": false
+    },
+    {
+      "note": "the request names another new key, so the proof is checked under that key and fails.",
+      "name": "other-new-key",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "c6822637c7d310ec57627be00ba259d253749f4aaf644470cffbe53a35f73242",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
+      "valid": false
+    },
+    {
+      "note": "the same bytes proved in archon-login/1 are not an enrollment proof.",
+      "name": "login-domain",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "57381ef766973c81e67689d744dc807c4d5008d1c72a7822e2babb4d2c5c242567360d52a671e733e471feb7aae76ee55b2c3997d48f9d423ad0b2cee702e903",
+      "valid": false
+    },
+    {
+      "note": "a plain Ed25519 signature over the possession message is not a proof.",
+      "name": "raw-signature",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "c8d981c69b2483c35d3b0070e7d1d7f12fd898a4305f6c447736351adbe31b6494e38d3f5429a1611584dba226ce1947451502c2ceec82ef733a93c8211f1e03",
+      "valid": false
+    },
+    {
+      "note": "Ed25519ph without the context is not a proof.",
+      "name": "ph-without-context",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "eb8fe03d884480308ed56060e0d6d8fe1cbb6d8f71791e4ca7ea8835aec1a3694c79861fab9d9277dbdd25516488ba4a52ad60fd32ba6ae80a17e2a0894e420e",
+      "valid": false
+    },
+    {
+      "note": "a signature over the nonce alone is not a proof.",
+      "name": "bare-nonce",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "8b8a0ac962adf83d6ed03c82856958f8fbd07d295e9b6b5740f614684e5194c582a7c7fe17808f690bb887a308f74ef9c8d9a3e886cee22b3641bd0b1f57d30e",
+      "valid": false
+    },
+    {
+      "note": "a signature over the binding without the possession layout is not a proof.",
+      "name": "binding-without-possession-layout",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "39969dc3e36cb7d150920a654543c095fb2900be6c23fa798d2813a59883851f7183e7115902ff87b96aef82378cead441a0b9e54086bc051f94040bf2a5690d",
+      "valid": false
+    },
+    {
+      "note": "63 bytes.",
+      "name": "sig-truncated",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac8",
+      "valid": false
+    },
+    {
+      "note": "one bit flipped.",
+      "name": "sig-flipped",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "07fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
+      "valid": false
+    },
+    {
+      "note": "a 15-byte nonce is false, not an error.",
+      "name": "nonce-short",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
+      "valid": false
+    },
+    {
+      "note": "a control character in the request is false, not an error.",
+      "name": "purpose-control",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "616464076b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
+      "valid": false
+    },
+    {
+      "note": "a 31-byte new key is false, not an error.",
+      "name": "new-key-short",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "nonce": "cccccccccccccccccccccccccccccccc",
+        "transaction": "7a1b2c3d4e5f60718293a4b5c6d7e8f9",
+        "purpose": "6164642d6b6579",
+        "new_key": "d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c",
+        "intent_digest": "5f2e1d0c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      },
+      "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
+      "valid": false
+    }
+  ]
+}

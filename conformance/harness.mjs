@@ -113,6 +113,19 @@ const LOGIN_FAMILIES = [
   { name: "login_collect_verify", want: (c) => c.valid, got: (l) => l.valid },
 ];
 
+// Request authentication and key enrollment (vectors/request.json, docs/request.md, ADR 0010),
+// driven by the same three sdk CLIs. PROVISIONAL until ADR 0010 §8's gate is met: the vectors pin
+// the provisional bytes so the lanes agree while the failure tests are built.
+const REQUEST_FAMILIES = [
+  // The enrollment binding: version ‖ purpose ‖ audience ‖ transaction ‖ new key ‖ intent
+  // digest, length-prefixed, and every construction refusal (docs/request.md §6).
+  { name: "enroll_binding", want: (c) => c.result, got: (l) => l.result },
+  // The new key's own proof: possession in archon-enroll/1, only from the key being enrolled.
+  { name: "enroll_prove", want: (c) => c.result, got: (l) => l.result },
+  // Every bound field binds; no other signature shape is a proof; total on bad shapes.
+  { name: "enroll_verify", want: (c) => c.valid, got: (l) => l.valid },
+];
+
 // The command's own layer (vectors/keystore.json, ADR 0007 §A). Custody is the
 // CLI tier's, so this oracle is driven by the cli/* lanes rather than core/* or sdk/*.
 // Salt, nonce, password and parameters are case INPUTS - the randomness is the command's,
@@ -130,6 +143,7 @@ const TABLES = {
   "identity.json": FAMILIES,
   "sdk.json": SDK_FAMILIES,
   "login.json": LOGIN_FAMILIES,
+  "request.json": REQUEST_FAMILIES,
   "keystore.json": KEYSTORE_FAMILIES,
 };
 const families = TABLES[oracleName];

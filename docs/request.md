@@ -114,6 +114,23 @@ new key         32 bytes               the public key being enrolled
 intent digest   32 bytes               SHA-256 of the service's immutable intent bytes
 ```
 
+**The rules, refused at construction and false at verification:**
+
+- the purpose is 1..=255 bytes of well-formed UTF-8 with no control character (U+0000–U+001F,
+  U+007F);
+- the audience is non-empty, well-formed UTF-8, with no control character;
+- the transaction id is 1..=255 opaque bytes;
+- the new key and the intent digest are exactly 32 bytes each;
+- the whole binding fits the possession scheme's u16 field (65535 bytes);
+- the nonce is at least 16 bytes, which is the possession scheme's own rule.
+
+**The new key proves itself.** A prover whose key is not the binding's new key is refused, and a
+verifier checks the proof under the new key the record names. The bytes are pinned by
+`vectors/request.json` (`enroll_binding`, `enroll_prove`, `enroll_verify`), every signature
+derived with OpenSSL outside the three cores; the sdk API is `enroll` in Go and Rust and
+`enrollBinding` / `proveEnroll` / `verifyEnroll` in TypeScript, each with a signer form
+(ADR 0009 §4).
+
 The service creates the pending transaction (authorizing context, intended account, purpose, new
 key, nonce, intent digest, expiry) only after validating the session or bootstrap credential, and
 the verifier rebuilds the binding **from that record and its configured audience** — the
