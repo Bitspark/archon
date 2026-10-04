@@ -208,6 +208,16 @@ the gate's failure tests through that stack:
     a proof over any other spelling is refused.
 
   `MemoryReplayStore` is the reference store. The body and transport rules are the Go lane's.
+- **Rust:** `archon_server::request`, over the crate's own `http` adapter, because the crate has no
+  framework (ADR 0007 §B).
+  - `body_length(&head)` decides, before any byte is read, how much body to read. The crate frames
+    a body by `Content-Length` only, so a transfer coding (and with it every trailer) is refused
+    (400), as is a second or malformed `Content-Length`. A length over 1 MiB is refused (413).
+  - `Verifier::new(policy, store, clock)` then runs `authenticate(&head, &body)` against
+    `head.target`, the request line as received.
+
+  It returns an `Authenticated`, which only `authenticate` can construct; a refusal comes back as a
+  `Refusal` with its status and `response()`. `MemoryReplayStore` is the reference store.
 
 **The gate (ADR 0010 §8).** These constants and layouts are frozen — and this status line changed —
 only when vectors pin the signature bases, signatures (derived outside the cores) and the
