@@ -7,8 +7,14 @@
 //!   possession_verify : in `{name, pubkey, domain, nonce, binding, sig}`   out `{"name","valid":<bool>}`
 //!   envelope_seal     : in `{name, seed, domain, payload}`                 out `{"name","result":{"ok":"<hex>"}|{"error":true}}`
 //!   envelope_open     : in `{name, envelope, domain}`                      out `{"name","result":{"ok":{"pubkey":"<hex>","payload":"<hex>"}}|{"error":true}}`
+//!
+//! vectors/request.json (`request` is `{nonce, transaction, purpose[hex], new_key, intent_digest}`):
+//!
+//!   enroll_binding : in `{name, audience, request}`       out `{"name","result":{"ok":"<hex>"}|{"error":true}}`
+//!   enroll_prove   : in `{name, seed, audience, request}` out `{"name","result":{"ok":"<128-hex>"}|{"error":true}}`
+//!   enroll_verify  : in `{name, audience, request, sig}`  out `{"name","valid":<bool>}`
 
-use archon_sdk::{envelope, login, possession};
+use archon_sdk::{enroll, envelope, login, possession};
 use serde_json::{json, Value};
 use std::io::Read;
 
@@ -46,6 +52,21 @@ fn login_request(c: &Value) -> Result<login::Request, String> {
         browser: hex_decode(s("browser")),
         scope,
         valid_for: r["valid_for"].as_u64().unwrap_or(0) as u32,
+    })
+}
+
+/// The oracle's spelling of an enrollment request (bytes as hex, the purpose as hex so a
+/// non-UTF-8 purpose can be a case — refused here, which is the scheme's own refusal).
+fn enroll_request(c: &Value) -> Result<enroll::Request, String> {
+    let r = &c["request"];
+    let s = |k: &str| r[k].as_str().unwrap_or("");
+    Ok(enroll::Request {
+        nonce: hex_decode(s("nonce")),
+        transaction: hex_decode(s("transaction")),
+        purpose: String::from_utf8(hex_decode(s("purpose")))
+            .map_err(|e| format!("purpose is not UTF-8: {e}"))?,
+        new_key: hex_decode(s("new_key")),
+        intent_digest: hex_decode(s("intent_digest")),
     })
 }
 
@@ -152,6 +173,28 @@ fn main() {
             "login_collect_verify" => {
                 let valid = login_request(c)
                     .map(|req| login::verify_collect(s("audience"), &req, &hex_decode(s("sig"))))
+                    .unwrap_or(false);
+                json!({ "name": name, "valid": valid })
+            }
+            // vectors/request.json — `request` is {nonce, transaction, purpose[hex], new_key,
+            // intent_digest}.
+            "enroll_binding" => {
+                let r = enroll_request(c)
+                    .and_then(|req| enroll::binding(s("audience"), &req))
+                    .map(|b| Value::from(hex_encode(&b)));
+                json!({ "name": name, "result": result_json(r) })
+            }
+            "enroll_prove" => {
+                let r = seed32_checked(c)
+                    .and_then(|seed| {
+                        enroll_request(c).and_then(|req| enroll::prove(&seed, s("audience"), &req))
+                    })
+                    .map(|sig| Value::from(hex_encode(&sig)));
+                json!({ "name": name, "result": result_json(r) })
+            }
+            "enroll_verify" => {
+                let valid = enroll_request(c)
+                    .map(|req| enroll::verify(s("audience"), &req, &hex_decode(s("sig"))))
                     .unwrap_or(false);
                 json!({ "name": name, "valid": valid })
             }

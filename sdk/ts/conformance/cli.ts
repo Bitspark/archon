@@ -7,10 +7,16 @@
 //   possession_verify : in {name, pubkey, domain, nonce, binding, sig} out {"name","valid":<bool>}
 //   envelope_seal     : in {name, seed, domain, payload}               out {"name","result":{"ok":"<hex>"}|{"error":true}}
 //   envelope_open     : in {name, envelope, domain}                    out {"name","result":{"ok":{"pubkey","payload"}}|{"error":true}}
+//
+// vectors/request.json (`request` is {nonce, transaction, purpose[hex], new_key, intent_digest}):
+//
+//   enroll_binding : in {name, audience, request}       out {"name","result":{"ok":"<hex>"}|{"error":true}}
+//   enroll_prove   : in {name, seed, audience, request} out {"name","result":{"ok":"<128-hex>"}|{"error":true}}
+//   enroll_verify  : in {name, audience, request, sig}  out {"name","valid":<bool>}
 
 import { readFileSync } from "node:fs";
-import { provePossession, verifyPossession, seal, open, loginBinding, proveLogin, verifyLogin, proveCollect, verifyCollect, deriveAudience } from "../src/index.js";
-import type { LoginRequest } from "../src/index.js";
+import { provePossession, verifyPossession, seal, open, loginBinding, proveLogin, verifyLogin, proveCollect, verifyCollect, deriveAudience, enrollBinding, proveEnroll, verifyEnroll } from "../src/index.js";
+import type { EnrollRequest, LoginRequest } from "../src/index.js";
 
 function fromHex(s: string): Uint8Array {
   if (s.length % 2 !== 0 || /[^0-9a-fA-F]/.test(s)) throw new Error(`case input is not valid hex: ${s}`);
@@ -44,6 +50,18 @@ function loginRequest(c: Record<string, unknown>): LoginRequest {
     browser: fromHex(r.browser),
     scope: r.scope.map((entry) => utf8Strict.decode(fromHex(entry))),
     validFor: r.valid_for,
+  };
+}
+// The oracle's spelling of an enrollment request: bytes as hex, the purpose as hex so that a
+// non-UTF-8 purpose can be a case (a failed decode is the same refusal the scheme would make).
+function enrollRequest(c: Record<string, unknown>): EnrollRequest {
+  const r = c["request"] as { nonce: string; transaction: string; purpose: string; new_key: string; intent_digest: string };
+  return {
+    nonce: fromHex(r.nonce),
+    transaction: fromHex(r.transaction),
+    purpose: utf8Strict.decode(fromHex(r.purpose)),
+    newKey: fromHex(r.new_key),
+    intentDigest: fromHex(r.intent_digest),
   };
 }
 function totally(f: () => boolean): boolean {
@@ -108,6 +126,15 @@ for (const c of cases as Array<Record<string, string>>) {
       break;
     case "login_collect_verify":
       out = { name, valid: totally(() => verifyCollect(c["audience"]!, loginRequest(c), fromHex(c["sig"]!))) };
+      break;
+    case "enroll_binding":
+      out = { name, result: attempt(() => toHex(enrollBinding(c["audience"]!, enrollRequest(c)))) };
+      break;
+    case "enroll_prove":
+      out = { name, result: attempt(() => toHex(proveEnroll(fromHex(c["seed"]!), c["audience"]!, enrollRequest(c)))) };
+      break;
+    case "enroll_verify":
+      out = { name, valid: totally(() => verifyEnroll(c["audience"]!, enrollRequest(c), fromHex(c["sig"]!))) };
       break;
     default:
       throw new Error(`unknown family: ${family}`);

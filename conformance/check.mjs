@@ -144,6 +144,14 @@ const login = spawnSync(process.execPath,
   { stdio: "inherit" });
 if ((login.status ?? 1) !== 0) process.exit(login.status ?? 1);
 console.log();
+// Request authentication and key enrollment (docs/request.md, ADR 0010): the same three sdk
+// CLIs over vectors/request.json. PROVISIONAL bytes, pinned so the lanes agree while ADR 0010
+// §8's failure tests are built.
+const request = spawnSync(process.execPath,
+  [harness, join(root, "vectors", "request.json"), sdkGoBin, sdkRsBin, `node ${sdkTsEntry}`],
+  { stdio: "inherit" });
+if ((request.status ?? 1) !== 0) process.exit(request.status ?? 1);
+console.log();
 // The command's own layer: the key store (vectors/keystore.json, ADR 0007 §A),
 // driven by the cli/* lanes because custody is the CLI tier's.
 const keystore = spawnSync(process.execPath,

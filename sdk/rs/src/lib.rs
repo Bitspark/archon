@@ -25,6 +25,7 @@
 //!
 //! [archon-core]: https://github.com/Bitspark/archon
 
+pub mod enroll;
 pub mod envelope;
 pub mod login;
 pub mod possession;
