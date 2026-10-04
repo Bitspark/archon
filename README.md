@@ -148,8 +148,14 @@ and checked ahead of the library rather than inherited from it.
 
 ## Scope
 
-archon owns what can be stated **without a law** — in RFC 8032, RFC 5280 and RFC 5958
-vocabulary alone: a seed, a public key, a signature, an opaque message, a key text, a PEM.
+archon owns a security contract only where it can state the **whole** of it, with no
+authorization or transport vocabulary
+([ADR 0011](docs/architecture/decisions/0011-transport-integrations-stay-above-archon.md)).
+
+- **The core** is RFC 8032, RFC 5280 and RFC 5958 vocabulary alone: a seed, a public key, a
+  signature, an opaque message, a key text, a PEM.
+- **Above it**, archon owns only named protocols whose whole claim it can state: the login
+  scheme, the signing boundary, and the request and enrollment profiles.
 
 It deliberately does **not** own:
 
@@ -167,12 +173,16 @@ It deliberately does **not** own:
   expire).
 - **Succession.** There is no re-key path. A key dies with itself; loss or compromise means
   generating a new one.
+- **Transports.** archon authenticates a request; it does not host one. A Git credential
+  helper, the credentials a service issues, an SSH-key association and a Git command gate
+  belong to the product that hosts Git. archon's request profile authenticates the exchange
+  that issues such credentials (ADR 0011).
 
-[ADR 0001](docs/architecture/decisions/0001-archon-scope.md) states the criterion, and works
-an example in which archon argued to take something and was — correctly — refused. That
-example is the useful part: the value of one canonical spelling is real but it is **not
-universal**, and a project that already has a canonical byte-to-text spelling would be
-*adding* a second by adopting this one.
+[ADR 0001](docs/architecture/decisions/0001-archon-scope.md) works an example in which archon
+argued to take something and was — correctly — refused: a Merkle-inclusion format that
+thesmos defines for its own verification. archon had measured that thesmos's code depends on
+the format, and took that to mean archon should own it. In the ADR's words, *"a dependency
+graph says what a module touches; it does not say what a module is."*
 
 ## Documentation
 
