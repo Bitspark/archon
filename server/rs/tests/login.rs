@@ -2268,3 +2268,76 @@ fn fixture() -> serde_json::Value {
         .expect("could not read the shared wire fixture");
     serde_json::from_str(&raw).expect("the shared wire fixture is not JSON")
 }
+
+// A FIXTURE LAW that uses everything `AdmitAuthority` is handed, the way a real one would
+// (archon-internal #49): it refuses a delegation longer than it allows — a check only the
+// verified request (`Admitted`, #61) makes possible — and an authority addressed to any key but
+// the browser key the delegation is for. The authority shape is this test's own; archon reads
+// none of it.
+const FIXTURE_MAX_VALID_FOR: u32 = 8 * 60 * 60;
+
+fn fixture_law() -> archon_server::AdmitAuthority {
+    Box::new(|browser, _, authority, req| {
+        if req.valid_for > FIXTURE_MAX_VALID_FOR {
+            return Err("the law allows at most eight hours".to_string());
+        }
+        let a: serde_json::Value = serde_json::from_slice(authority).map_err(|e| e.to_string())?;
+        if a["recipient"].as_str() != Some(keytext::encode_key(browser).as_str()) {
+            return Err("the authority names another recipient".to_string());
+        }
+        Ok(())
+    })
+}
+
+#[test]
+fn a_fixture_law_refuses_an_excessive_validity_and_a_wrong_recipient() {
+    let (browser_seed, person_seed) = (seed_for(60), seed_for(160));
+    let browser = keytext::encode_key(&crypto::public_key_from_seed(&browser_seed));
+    let other = keytext::encode_key(&crypto::public_key_from_seed(&seed_for(61)));
+    for (label, valid_for, recipient, want) in [
+        (
+            "within the limit, addressed to the browser key",
+            3600,
+            browser.as_str(),
+            204,
+        ),
+        (
+            "longer than the law allows",
+            FIXTURE_MAX_VALID_FOR + 1,
+            browser.as_str(),
+            403,
+        ),
+        ("addressed to another key", 3600, other.as_str(), 403),
+    ] {
+        let (h, _clock) = handler(Some(fixture_law()));
+        let (id, request) = begin(&h, &browser_seed, &["read:projects"], valid_for);
+        let proof = login::prove(&person_seed, AUDIENCE, &request).expect("prove");
+        let body = format!(
+            "{{\"principal\":\"{}\",\"possession\":\"{}\",\"authority\":{{\"recipient\":\"{recipient}\"}}}}",
+            keytext::encode_key(&crypto::public_key_from_seed(&person_seed)),
+            to_hex(&proof)
+        );
+        let r = h.handle(&req("POST", &format!("/{id}/answer"), &body, &[]));
+        assert_eq!(
+            r.status,
+            want,
+            "{label}: {}",
+            String::from_utf8_lossy(&r.body)
+        );
+        // A refusal stores nothing: the browser still finds the login pending.
+        let collect = to_hex(
+            &login::prove_collect(&browser_seed, AUDIENCE, &request).expect("prove_collect"),
+        );
+        let c = h.handle(&req(
+            "GET",
+            &format!("/{id}/answer"),
+            "",
+            &[(COLLECT_HEADER, collect.as_str())],
+        ));
+        assert_eq!(
+            c.status,
+            if want == 204 { 200 } else { 202 },
+            "{label}: collect"
+        );
+    }
+}

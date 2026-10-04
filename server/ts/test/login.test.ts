@@ -1269,3 +1269,40 @@ test("a code is lowercase hex of even length and at least sixteen bytes", () => 
   assert.throws(() => checkCode(`zz${good.slice(2)}`), /lowercase/, "not hex");
   assert.throws(() => checkCode(""), /at least/, "empty");
 });
+
+// A FIXTURE LAW that uses everything `AdmitAuthority` is handed, the way a real one would
+// (archon-internal #49): it refuses a delegation longer than it allows — a check only the
+// verified request (`Admitted`, #61) makes possible — and an authority addressed to any key but
+// the browser key the delegation is for. The authority shape is this test's own; archon reads
+// none of it.
+const FIXTURE_MAX_VALID_FOR = 8 * 60 * 60;
+
+const fixtureLaw: AdmitAuthority = (browser, _principal, authority, request) => {
+  if (request.validFor > FIXTURE_MAX_VALID_FOR) throw new Error("the law allows at most eight hours");
+  const parsed = JSON.parse(new TextDecoder().decode(authority)) as { recipient?: unknown };
+  if (parsed.recipient !== encodeKey(browser)) throw new Error("the authority names another recipient");
+};
+
+test("a fixture law refuses an excessive validity and a wrong recipient", async () => {
+  const browserSeed = seedFor(60);
+  const personSeed = seedFor(160);
+  const browser = encodeKey(getPublicKey(browserSeed));
+  const other = encodeKey(getPublicKey(seedFor(61)));
+  const cases: [string, number, string, number][] = [
+    ["within the limit, addressed to the browser key", 3600, browser, 204],
+    ["longer than the law allows", FIXTURE_MAX_VALID_FOR + 1, browser, 403],
+    ["addressed to another key", 3600, other, 403],
+  ];
+  for (const [label, validFor, recipient, want] of cases) {
+    const { handler } = makeHandler(fixtureLaw);
+    const { id, req } = await begin(handler, browserSeed, ["read:projects"], validFor);
+    const answered = await handler.handle(
+      request("POST", `/${id}/answer`, answerBody(personSeed, proveLogin(personSeed, AUDIENCE, req), { recipient })),
+    );
+    assert.equal(answered.status, want, label);
+    // A refusal stores nothing: the browser still finds the login pending.
+    const collect = toHex(proveCollect(browserSeed, AUDIENCE, req));
+    const collected = await handler.handle(request("GET", `/${id}/answer`, undefined, { [COLLECT_HEADER]: collect }));
+    assert.equal(collected.status, want === 204 ? 200 : 202, `${label}: collect`);
+  }
+});
