@@ -72,6 +72,11 @@ commands source it: a prompt, `ARCHON_KEY_PASSWORD`, or `--password-fd <n>` — 
 `--seed`, `--key-file` and `--seed-file` stay beside the store for agents and CI, which have
 no password to give.
 
+`--authority-file <f>` carries a payload archon never reads: the file's bytes, sent as a
+lowercase-hex JSON string in the answer's `authority` member (the empty string when no file
+is named). A service's `AdmitAuthority` receives the exact bytes of that JSON value, quotes
+included, and decodes it itself. [`examples/login`](../examples/login/) shows both ends.
+
 ### The offers form — `archon login` with no URL
 
 The page-started form above needs you to carry a URL from the page to the terminal. With

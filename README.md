@@ -179,6 +179,7 @@ universal**, and a project that already has a canonical byte-to-text spelling wo
 - [Architecture decisions](docs/architecture/decisions/) — why the boundaries are where they are
 - [The login scheme](docs/login.md) — proof of possession, audience binding, delegation
 - [Adopting archon](docs/adoption.md) — which tier does which job, the two signature schemes, and what is not available
+- [Login, end to end](examples/login/) — a service, a key-less client and a person, on the published packages, run in CI
 - [The key store](docs/keystore.md) — what `archon key` does and does not do
 - [Conformance](conformance/) and [the oracle](vectors/) — how agreement is established
 - [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)

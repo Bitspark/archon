@@ -5,7 +5,8 @@
 #
 # A gomod or npm entry covers the module in ONE directory and does not descend into nested
 # ones, so every module is named here individually. archon has twelve: four language tiers
-# (core, sdk, cli, server) in three languages. A tier added without a line here gets no
+# (core, sdk, cli, server) in three languages — and the login example, which pins archon's
+own published packages. A tier added without a line here gets no
 # updates and nothing reds — the silence is the failure mode, so check this list when a
 # tier is added.
 version: 2
@@ -75,6 +76,15 @@ updates:
     schedule: { interval: monthly }
     groups:
       ts: { patterns: ["*"] }
+
+  # --- The login example: archon's own PUBLISHED packages, pinned exactly ---------------
+  # Weekly, not monthly: a release reaches the example as a pull request that moves the pins,
+  # and the example's CI job then runs against that release as published (#49).
+  - package-ecosystem: npm
+    directory: /examples/login
+    schedule: { interval: weekly }
+    groups:
+      example: { patterns: ["*"] }
 
   # --- The workflows themselves --------------------------------------------------------
   - package-ecosystem: github-actions

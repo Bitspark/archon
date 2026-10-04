@@ -699,3 +699,27 @@ jobs:
         run: npm ci
       - name: three binaries, one command
         run: node cli/smoke.mjs
+
+  # The login example (examples/login, #49) installs archon from registry.npmjs.org at the
+  # versions its package.json pins, never from this checkout. Every other job here builds the
+  # tiers against each other through file: links, which says nothing about whether the
+  # PUBLISHED packages work together; this one does. It is how #55 was found: every
+  # @bitspark/archon-server through 0.8.1 is a package.json and nothing else.
+  example-login:
+    name: login example (published packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: install from npmjs, at the pinned versions
+        working-directory: examples/login
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npm ls --all
+      - name: two logins, every step checked
+        working-directory: examples/login
+        run: node run.mjs
