@@ -81,7 +81,11 @@ reads `pom.xml`; the next language's does likewise.
    installed from npmjs, crates.io and the Go proxy into empty directories with empty
    caches, no link, path, replace or workspace reachable, then run — a domain signature
    verifies only in its domain, possession goes through the floor, the identity key is
-   refused), and creates the GitHub release with `--verify-tag`.
+   refused). The **server tier** is consumed the same way in all three languages: npm (since
+   #56), crates.io and the Go proxy (`consumers/rs-server`, `consumers/go-server`, from the
+   first tag with `Admitted`). Each runs a whole login in-process: begin, read, answer with
+   the sdk's proof, collect, and verify, with a law that checks what it is handed. Then the run
+   creates the GitHub release with `--verify-tag`.
 5. **Read the run, not the exit code.** Each publish step skips what its registry already
    has, so a run that failed after uploading is re-run with the same dispatch and finishes
    the rest. "The publish steps SUCCEEDED — check the registry before assuming the release
@@ -113,7 +117,9 @@ itself, and a fresh pair succeeding — diagnose with a read-only request before
 If a run fails after some registry accepted an upload: keep the tag, keep the artifacts,
 inspect the registry before doing anything, and re-dispatch with **`verify_only=true`** —
 every publish step is skipped, every outside consumer runs against what the registries
-serve, and the GitHub release is created. That is the recovery for a good release with a
+serve, and the GitHub release is created if it does not exist. `verify_only=true` overrides
+`rehearse`. Before #88 it did not: with `rehearse` at its default, a verify run skipped every
+consumer except Central's. That is the recovery for a good release with a
 slow registry, which has now happened twice (0.6.2: npm served 0.6.2 more than five
 minutes after accepting it; 0.7.0: Central was still `PUBLISHING` ten minutes after
 validating the bundle). Every publish step now skips a version its registry already serves —

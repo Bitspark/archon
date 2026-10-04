@@ -50,7 +50,7 @@ on:
         description: "The version to publish or rehearse, e.g. v0.6.0."
         required: true
       rehearse:
-        description: "true = build, check and pack, but publish NOTHING and create no release."
+        description: "true = build, check and pack, but publish NOTHING and create no release. Ignored when verify_only=true."
         required: false
         default: "true"
       verify_only:
@@ -73,7 +73,13 @@ jobs:
     timeout-minutes: 45
     env:
       TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
-      REHEARSE: ${{ github.event_name == 'workflow_dispatch' && inputs.rehearse || 'false' }}
+      # verify_only=true OVERRIDES rehearse. Both publish nothing, and every outside consumer
+      # except Central's is `if: env.REHEARSE != 'true'`. So with rehearse at its default
+      # (true), a verify_only run used to skip the npm, crates.io, Go and Python consumers and
+      # run only Central's. That is what the 0.8.2 and 0.9.0 verify runs did, and following
+      # RELEASING.md's "re-dispatch with verify_only=true" reproduced it. A contradictory
+      # combination now has one meaning: verify_only runs every check.
+      REHEARSE: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_only != 'true' && inputs.rehearse || 'false' }}
       # verify_only: every publish step is skipped and every verification runs. This is how a
       # release that PUBLISHED and then went red on a slow registry is finished — 0.6.2 (npm,
       # five minutes) and 0.7.0 (Central, ten) both did — instead of by hand, and without
@@ -977,6 +983,31 @@ jobs:
           grep -A2 'name = "bitspark-archon-' Cargo.lock | grep -q 'registry+https://github.com/rust-lang/crates.io-index' || { echo "::error::the crates did not resolve from crates.io" >&2; exit 1; }
           cargo run --quiet
 
+          # The server tier too: a whole login through the PUBLISHED bitspark-archon-server,
+          # in-process, with a law that checks the Admitted it is handed. Every npm server
+          # through 0.8.1 shipped empty because nothing imported it (#55), and no step depended
+          # on the Rust server crate either. From the first tag whose server has Admitted
+          # (0.9.0, #69); a re-dispatch of an older tag checks the libraries only and says so.
+          if grep -q 'pub struct Admitted' "$GITHUB_WORKSPACE/server/rs/src/lib.rs" 2>/dev/null; then
+            s=$(mktemp -d); cp -r "$GITHUB_WORKSPACE/tooling/conformance/consumers/rs-server/." "$s"
+            ( cd "$s"
+              sed -i "s/ARCHON_VERSION/$VER/g" Cargo.toml
+              ok=0; err=""
+              for i in $(seq 1 30); do
+                if err=$(cargo fetch 2>&1); then ok=1; break; fi
+                echo "crates.io not resolving bitspark-archon-server =$VER yet (try $i/30) — waiting"; sleep 10
+              done
+              if [ "$ok" -ne 1 ]; then
+                echo "last attempt said:"; echo "$err" | tail -n 20
+                echo "::error::bitspark-archon-server =$VER did not become resolvable within 5 minutes. The publish steps SUCCEEDED — check crates.io before assuming the release failed." >&2
+                exit 1
+              fi
+              grep -A2 'name = "bitspark-archon-server"' Cargo.lock | grep -q 'registry+https://github.com/rust-lang/crates.io-index' || { echo "::error::bitspark-archon-server did not resolve from crates.io" >&2; exit 1; }
+              cargo run --quiet )
+          else
+            echo "::notice::$TAG's server/rs predates Admitted (#69): the Rust server tier is not consumed"
+          fi
+
           # The CLI as the README installs it — `cargo install bitspark-archon-cli`, pinned to
           # this version, into a fresh root — and what it SAYS. The consumer above builds
           # against the libraries only, so no release step ever built the published CLI
@@ -1019,6 +1050,33 @@ jobs:
           go mod tidy
           grep -q 'github.com/Bitspark/archon/core/go' go.sum && grep -q 'github.com/Bitspark/archon/sdk/go' go.sum
           go run .
+
+          # The server tier too: a whole login through the PUBLISHED server/go, in-process, with
+          # a law that checks the Admitted it is handed. Every npm server through 0.8.1 shipped
+          # empty because nothing imported it (#55), and no step depended on server/go either.
+          # From the first tag whose server has Admitted (0.9.0, #69); a re-dispatch of an older
+          # tag checks the libraries only and says so. Its own module, so the main consumer's
+          # go.mod stays exactly what it was.
+          if grep -q 'type Admitted struct' "$GITHUB_WORKSPACE/server/go/login/login.go" 2>/dev/null; then
+            s=$(mktemp -d); cp "$GITHUB_WORKSPACE/tooling/conformance/consumers/go-server/main.go" "$s"
+            ( cd "$s"
+              go mod init consumer-server >/dev/null 2>&1
+              ok=0; err=""
+              for i in $(seq 1 30); do
+                if err=$(go get "github.com/Bitspark/archon/server/go@v$VER" "github.com/Bitspark/archon/sdk/go@v$VER" "github.com/Bitspark/archon/core/go@v$VER" 2>&1); then ok=1; break; fi
+                echo "proxy.golang.org not serving server/go@v$VER yet (try $i/30) — waiting"; sleep 10
+              done
+              if [ "$ok" -ne 1 ]; then
+                echo "last attempt said:"; echo "$err" | tail -n 20
+                echo "::error::server/go@v$VER did not become resolvable from the proxy within 5 minutes — check that server/go/v$VER is public." >&2
+                exit 1
+              fi
+              go mod tidy
+              grep -q 'github.com/Bitspark/archon/server/go' go.sum
+              go run . )
+          else
+            echo "::notice::$TAG's server/go predates Admitted (#69): the Go server tier is not consumed"
+          fi
 
           # The CLI as the README installs it: `go install` of the command at this tag, into
           # the same empty module cache, from the public proxy — and what it SAYS. Every Go
