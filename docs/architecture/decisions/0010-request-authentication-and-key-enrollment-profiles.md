@@ -1,13 +1,42 @@
 # 0010 — request authentication and key enrollment profiles
 
-**Status:** **ACCEPTED** (2026-10-04) · **Type:** contract / tier. The design is decided; the
-**wire constants are provisional** until §8's gate is met.
+**Status:** **ACCEPTED** (2026-10-04) · **Type:** contract / tier. The design is decided, and
+since §8's gate was met the **wire is fixed as version 1** (the status note below).
 **Rules the row [0007](0007-custody-in-the-command-and-the-login-server-tier.md) left open**
 ("RFC 9421 / 9530 helpers — a separate ADR, not ruled"), and narrows 0007 §B's "in-memory, single
 process" to the login handler. The operator ruled this on 2026-10-04, on the external advice taken
 in the 0003 consultation (`research-docs/0003-*`, internal): "a narrow RFC 9421 request profile"
 and "E2 enrollment". It answers [archon#48](https://github.com/Bitspark/archon/issues/48), and
 builds on [0009](0009-the-signing-boundary-and-the-signer-contract.md)'s signer contract.
+
+> **Status note, 2026-10-04 — the wire is fixed: §8's gate is met.** The vectors and every §8
+> failure test now exist in all three lanes, through each lane's own HTTP stack, so §8's four
+> provisional values are fixed as **version 1**:
+>
+> - the request domain and profile tag: both `archon-request/1`;
+> - the echo header: `Archon-Audience`;
+> - the covered components, in this order: `@method`, `@target-uri`, `archon-audience`,
+>   `content-digest`, then `content-type` if the request carries one, then each product-declared
+>   header it carries, in the product's declared order. The signature parameters are `created`,
+>   `expires`, `nonce` (16..=64 bytes), `keyid` and `tag`, in that order, under the label
+>   `archon` (`docs/request.md` §3–§5);
+> - the enrollment binding, in `archon-enroll/1`: `0x01 ‖ u16 purpose ‖ u16 audience ‖ u16
+>   transaction ‖ new key[32] ‖ intent digest[32]` (`docs/request.md` §6).
+>
+> **The evidence:**
+>
+> - `vectors/request.json`: 139 cases, with every signature derived with OpenSSL outside the
+>   cores;
+> - the request profile's failure tests in `server/{go,ts,rs}` ([#81](https://github.com/Bitspark/archon/pull/81),
+>   [#82](https://github.com/Bitspark/archon/pull/82), [#84](https://github.com/Bitspark/archon/pull/84));
+> - enrollment's substitution and replay tests ([#85](https://github.com/Bitspark/archon/pull/85)).
+>
+> Each failure test was proven to fire by perturbing the source it guards. A change to any value
+> above is a new wire version, never an edit (`docs/request.md` §8). One lane-specific reading is
+> recorded where it applies: TypeScript's fetch entry point verifies the request a fetch
+> application routes on, because a fetch `Request` no longer carries the raw request line
+> (`docs/request.md` §7), as this ADR's §4 requires: "The verifier authenticates the request the
+> application processes."
 
 ## Context
 

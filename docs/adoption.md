@@ -79,9 +79,10 @@ parameter. A TypeScript law written for three arguments keeps working.
 - Request-authentication and key-enrollment profiles for authenticating ordinary API requests
   ([#48](https://github.com/Bitspark/archon/issues/48)). The design is decided in
   [ADR 0010](architecture/decisions/0010-request-authentication-and-key-enrollment-profiles.md)
-  (a narrow RFC 9421 application profile, and a separate enrollment statement), and parts are on
-  `main` marked provisional. **No wire format is frozen** until ADR 0010's failure tests exist, so
-  do not build on it yet.
+  (a narrow RFC 9421 application profile, and a separate enrollment statement). Since 4 October
+  2026 **the wire is fixed as version 1** ([docs/request.md](request.md)). The sdk halves and the
+  server halves (replay store, verifier, enroller) are on `main` in all three lanes. They reach the
+  published packages with the next release.
 
 ## Not in archon
 

@@ -10,13 +10,14 @@ the layouts assembled by hand from the spec, every signature from OpenSSL 3.2.4 
 `python vectors/tools/login-vectors.py > vectors/login.json` from the repo root. Scope entries are
 hex so a non-UTF-8 entry can be a case; a lane decodes them before calling the scheme.
 
-`request.json` — 138 cases in 5 families, request authentication and key enrollment
+`request.json` — 139 cases in 5 families, request authentication and key enrollment
 ([docs/request.md](../docs/request.md)), for the same `sdk/{rs,go,ts}` CLIs: `request_sign` (35, the
 client's signature base, headers and signature, and every value §3.1 refuses), `request_verify` (61,
 every acceptance and refusal of §5 and §7 steps 1–7; replay is the server's), `enroll_binding` ·
-`enroll_prove` · `enroll_verify` (42, §6). **PROVISIONAL** until
-[ADR 0010](../docs/architecture/decisions/0010-request-authentication-and-key-enrollment-profiles.md)
-§8's gate is met. Derived by [`tools/request-vectors.py`](tools/request-vectors.py), a naive fourth
+`enroll_prove` · `enroll_verify` (43, §6). **Version 1, fixed** by
+[ADR 0010](../docs/architecture/decisions/0010-request-authentication-and-key-enrollment-profiles.md)'s
+status note of 4 October 2026: a change to any byte here is a new wire version, never an edit.
+Derived by [`tools/request-vectors.py`](tools/request-vectors.py), a naive fourth
 client and every signature from OpenSSL 3.2.4 — regenerate with
 `python vectors/tools/request-vectors.py > vectors/request.json`. Each verify refusal breaks exactly one
 rule and is otherwise signed correctly, so it can only be refused for that rule.

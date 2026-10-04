@@ -1,5 +1,5 @@
 // Package enroll is key enrollment — THIS NEW KEY BELONGS TO THIS ACCOUNT (ADR 0010 §7;
-// docs/request.md §6, PROVISIONAL until ADR 0010 §8's gate is met).
+// docs/request.md §6, version 1, fixed by ADR 0010's status note of 4 October 2026).
 //
 // Login has a person approve a browser key. Enrollment is a different statement: a NEW key
 // proves its own possession, while a separate authority — a session, or a bootstrap credential

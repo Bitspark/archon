@@ -114,8 +114,8 @@ const LOGIN_FAMILIES = [
 ];
 
 // Request authentication and key enrollment (vectors/request.json, docs/request.md, ADR 0010),
-// driven by the same three sdk CLIs. PROVISIONAL until ADR 0010 §8's gate is met: the vectors pin
-// the provisional bytes so the lanes agree while the failure tests are built.
+// driven by the same three sdk CLIs. Version 1, fixed by ADR 0010's status note of 4 October
+// 2026: the vectors pin the bytes every lane must produce and accept.
 const REQUEST_FAMILIES = [
   // The enrollment binding: version ‖ purpose ‖ audience ‖ transaction ‖ new key ‖ intent
   // digest, length-prefixed, and every construction refusal (docs/request.md §6).

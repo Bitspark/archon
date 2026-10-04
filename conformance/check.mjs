@@ -145,8 +145,7 @@ const login = spawnSync(process.execPath,
 if ((login.status ?? 1) !== 0) process.exit(login.status ?? 1);
 console.log();
 // Request authentication and key enrollment (docs/request.md, ADR 0010): the same three sdk
-// CLIs over vectors/request.json. PROVISIONAL bytes, pinned so the lanes agree while ADR 0010
-// §8's failure tests are built.
+// CLIs over vectors/request.json, version 1, fixed by ADR 0010's status note of 4 October 2026.
 const request = spawnSync(process.execPath,
   [harness, join(root, "vectors", "request.json"), sdkGoBin, sdkRsBin, `node ${sdkTsEntry}`],
   { stdio: "inherit" });

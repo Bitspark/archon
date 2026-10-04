@@ -1,5 +1,5 @@
 // Package request is the server's half of request authentication (ADR 0010 §5–§6;
-// docs/request.md §7 steps 8–9, PROVISIONAL until ADR 0010 §8's gate is met).
+// docs/request.md §7 steps 8–9, version 1, fixed by ADR 0010's status note of 4 October 2026).
 //
 // The sdk's request.Verify checks a proof: one spelling, the coverage, the audience echo, the
 // digest, freshness and the signature. It does not remember. This package adds what only a

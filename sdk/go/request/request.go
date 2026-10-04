@@ -1,5 +1,5 @@
 // Package request is request authentication — THIS KEY MADE THIS HTTP REQUEST (ADR 0010 §2–§6;
-// docs/request.md §3–§5 and §7, PROVISIONAL until ADR 0010 §8's gate is met).
+// docs/request.md §3–§5 and §7, version 1, fixed by ADR 0010's status note of 4 October 2026).
 //
 // archon's RFC 9421 application profile: the client signs the RFC 9421 signature base directly,
 // in Domain, with archon's construction (Ed25519ph with the domain as the RFC 8032 context), and

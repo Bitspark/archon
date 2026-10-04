@@ -16,9 +16,9 @@
 //!   collection; nothing persisted, nothing surviving the process.
 //!
 //! [`request`] carries the server's half of request authentication (`docs/request.md` §7,
-//! provisional) under the same three constraints: a verifier in front of a replay store the
+//! version 1) under the same three constraints: a verifier in front of a replay store the
 //! service supplies, with an in-memory reference store for one process. [`enroll`] carries the
-//! server's half of key enrollment (`docs/request.md` §6, provisional): an enroller that cannot be
+//! server's half of key enrollment (`docs/request.md` §6, version 1): an enroller that cannot be
 //! built without the service's authorizing integration, whose completion is the service's own
 //! atomic operation.
 //!

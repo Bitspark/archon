@@ -1,9 +1,10 @@
 # archon request authentication and key enrollment — the profiles
 
-**Status:** provisional draft for [archon#48](https://github.com/Bitspark/archon/issues/48). The
-design is ADR [0010](architecture/decisions/0010-request-authentication-and-key-enrollment-profiles.md).
-**Every constant and byte layout here is PROVISIONAL** until vectors and the failure tests of §7
-exist; until then nothing may pin to it. · **Layer:** `sdk/` (transcripts, parsing, pure
+**Status:** **version 1, fixed** on 4 October 2026, when the gate in §7 was met
+([archon#48](https://github.com/Bitspark/archon/issues/48)). The design is ADR
+[0010](architecture/decisions/0010-request-authentication-and-key-enrollment-profiles.md), whose
+status note records the fixed values. A change to any constant or byte layout here is a new wire
+version (§8), never an edit. · **Layer:** `sdk/` (transcripts, parsing, pure
 verification) and `server/` (extraction, clock, replay), three lanes (ADR 0005, 0007 §B).
 
 This document defines **only what nothing else defines**: which HTTP components a request proof
@@ -12,7 +13,7 @@ it checks, and the enrollment binding. The HTTP signature model is RFC 9421's, t
 RFC 9530's, the field syntax is a strict subset of RFC 8941's, and the signature construction is
 archon's (ADR 0008): Ed25519ph with the domain as the RFC 8032 context.
 
-## 1. Provisional constants
+## 1. Constants
 
 | name | value | meaning |
 |---|---|---|
@@ -21,6 +22,7 @@ archon's (ADR 0008): Ed25519ph with the domain as the RFC 8032 context.
 | signature label | `archon` | the one dictionary member in `Signature-Input` and `Signature` |
 | audience echo | `Archon-Audience` | the header carrying the client's configured audience, checked, never trusted |
 | enrollment domain | `archon-enroll/1` | the context of an enrollment proof (§6) |
+| enrollment binding version | `0x01` | the first byte of the enrollment binding (§6, §8) |
 | identifier size | 16..=64 bytes | the `nonce`'s entropy: at least 128 bits, and a bound |
 
 ## 2. The audience
@@ -190,7 +192,7 @@ one design in three lanes:
 archon defines no enrollment route. The service mounts completion behind its own session and CSRF
 protection, and each lane's tests do so through that lane's HTTP stack.
 
-## 7. The order a verifier checks, and the gate before this is frozen
+## 7. The order a verifier checks, and the gate that fixed it
 
 A request verifier checks, refusing at the first failure. Steps 1–7 are the sdk's pure verification
 (`request.Verify` in Go, `request::verify` in Rust, `verifyRequest` in TypeScript); steps 8–9 are the
@@ -251,9 +253,42 @@ the gate's failure tests through that stack:
   It returns an `Authenticated`, which only `authenticate` can construct; a refusal comes back as a
   `Refusal` with its status and `response()`. `MemoryReplayStore` is the reference store.
 
-**The gate (ADR 0010 §8).** These constants and layouts are frozen — and this status line changed —
-only when vectors pin the signature bases, signatures (derived outside the cores) and the
-enrollment binding, **and** each lane passes, through its real HTTP framework: wrong-key and
-dropped-context signers; query and path ambiguity; empty and modified bodies; missing and
-duplicated covered fields; expiry bounds; concurrent duplicates; replay-store outage and failover;
-restart; enrollment substitution and replay.
+**The gate (ADR 0010 §8), met on 4 October 2026.** The constants and layouts were fixed when two
+things were true:
+
+- vectors pin the signature bases, the signatures (derived outside the cores) and the enrollment
+  binding;
+- each lane passes the failure tests through its own HTTP stack: Go over net/http, TypeScript over
+  node:http (both entry points), and Rust over its `http.rs` on a `TcpListener`.
+
+The failure tests:
+
+- **request authentication:** wrong-key and dropped-context signers; query and path ambiguity;
+  empty and modified bodies; missing and duplicated covered fields; expiry bounds; concurrent
+  duplicates; replay-store outage and failover; restart. They live in
+  `server/go/request/request_test.go`, `server/ts/test/request.test.ts` and
+  `server/rs/tests/request.rs`.
+- **enrollment:** substitution and replay, in `server/go/enroll/enroll_test.go`,
+  `server/ts/test/enroll.test.ts` and `server/rs/tests/enroll.rs`.
+
+Each test was proven to fire by perturbing the source it guards.
+
+## 8. Versions
+
+This document is version 1 of both profiles: the request profile `archon-request/1`, and the
+enrollment binding version `0x01` in `archon-enroll/1`. Wire versions are independent of package
+versions, because lockstep releases (ADR 0005) are not atomic deployments.
+
+- **What a verifier supports:** version 1 only, named by the tag, the two domains and the
+  binding's version byte.
+- **How it rejects others:**
+  - A request whose `tag` is anything but `archon-request/1` is refused at §7 step 2
+    (`vectors/request.json`, `request_verify` case `tag-other`).
+  - An enrollment proof over another binding version does not verify, because the verifier
+    rebuilds the binding with `0x01` (`enroll_verify` case `version-other`).
+  - Neither falls back to anything.
+- **How a later version arrives:** as a new tag and domain (`archon-request/2`, `archon-enroll/2`)
+  or a new binding version, specified beside this document and never by editing it. Only a
+  deployment that enables the new version accepts it. A deployment migrates by accepting both for
+  a stated window and then retiring the old one, and a client sends one version per request, so
+  nothing downgrades silently.

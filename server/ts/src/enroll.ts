@@ -1,5 +1,5 @@
-// The server's half of key enrollment (ADR 0010 §7; docs/request.md §6, PROVISIONAL until
-// ADR 0010 §8's gate is met).
+// The server's half of key enrollment (ADR 0010 §7; docs/request.md §6, version 1, fixed by
+// ADR 0010's status note of 4 October 2026).
 //
 // An enrollment has a new key prove its own possession while a separate authority — the
 // service's session, or a bootstrap credential — says whose key it is. The sdk holds the binding
