@@ -7,5 +7,9 @@
 // them. It opens no socket, starts no timer, persists nothing, and interprets no authority:
 // that is ADR 0007 §B, and it is what makes the tier adoptable by a service that has already
 // chosen its stack.
+//
+// It also carries the server's half of request authentication (docs/request.md §7, provisional):
+// a `RequestVerifier` in front of a replay store, under the same constraints.
 export * from "./login.js";
+export * from "./request.js";
 export { fromHex, MAX_BODY_BYTES, rfc3339, scanTopLevel, stripMount, toHex } from "./json.js";
