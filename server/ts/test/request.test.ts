@@ -22,7 +22,7 @@ import {
   REQUEST_MAX_BODY_BYTES,
   RequestRefusal,
   RequestVerifier,
-  type Authenticated,
+  type AuthenticatedRequest,
   type ReplayStore,
 } from "../src/request.js";
 
@@ -36,7 +36,7 @@ type Mode = "raw" | "fetch";
 const MODES: readonly Mode[] = ["raw", "fetch"];
 
 interface Seen {
-  auth: Authenticated;
+  auth: AuthenticatedRequest;
   body: Uint8Array;
   target: string;
 }
