@@ -1,0 +1,11 @@
+name: substrate
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  substrate:
+    name: substrate
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "impostor: claims success without checking anything"
