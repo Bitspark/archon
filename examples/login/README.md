@@ -36,6 +36,12 @@ Here the law is a toy: a map of which person is in which team, and the authority
 names the team. In a real service it is your account store, or a grant layer such as
 thesmos.
 
+This `admit` only validates (and logs), which is the first of the three things
+[login.md §4](../../docs/login.md#4-transport) asks of a law. The hook is not exactly-once: a
+refused answer's law did run, and a process can stop after the law returns but before the
+answer is stored. So a law with effects must either key them by the browser key it is
+handed, or leave them until the client has collected.
+
 **What `admit` receives as `authority`:** the exact bytes of the JSON value the person's
 command sent. `archon login --authority-file <file>` sends the file's bytes as a
 lowercase-hex JSON string, so a file holding `projects` arrives as
