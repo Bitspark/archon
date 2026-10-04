@@ -1,0 +1,5 @@
+{
+  "name": "gate-probe",
+  "private": true,
+  "dependencies": { "@bitspark/ontos-core": "^0.9.0" }
+}
