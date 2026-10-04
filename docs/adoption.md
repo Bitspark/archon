@@ -68,7 +68,8 @@ pin to them until a release names them:
   ([`cli/README.md`](../cli/README.md#sign---key-signing-for-another-tool)). This is on `main`
   for the release after 0.8.2;
 - a signer interface in the sdk, so the protocol helpers can sign through something other than
-  a seed (ADR 0009 §4). Implementation is in progress.
+  a seed (ADR 0009 §4). It is on `main` for TypeScript, Go and Rust (#66) for the release after
+  0.8.2; Python and Java follow.
 
 ## Not available — proposed only
 
