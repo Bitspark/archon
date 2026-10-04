@@ -52,10 +52,10 @@ decodes it. With no `--authority-file`, it is the empty string, `""`.
 
 | package | version |
 |---|---|
-| `@bitspark/archon` | 0.8.1 |
-| `@bitspark/archon-sdk` | 0.8.1 |
-| `@bitspark/archon-server` | 0.8.1 |
-| `@bitspark/archon-cli` | 0.8.1 |
+| `@bitspark/archon` | 0.8.2 |
+| `@bitspark/archon-sdk` | 0.8.2 |
+| `@bitspark/archon-server` | 0.8.2 |
+| `@bitspark/archon-cli` | 0.8.2 |
 
 The versions are pinned exactly in [`package.json`](package.json), and everything else is
 pinned by [`package-lock.json`](package-lock.json). Which languages carry which tier, and
