@@ -7,11 +7,16 @@
 //   binding is what makes it a proof, so an empty one is refused.
 // - envelope — these bytes, signed by this key, in this domain. JWS, never JWT.
 //
+// Each signing helper takes a seed, or — through its prepare / complete pair and its `…With`
+// form — a Signer (ADR 0009 §4): signing capability rather than the key, for keys that do not
+// live in this process.
+//
 // The rule that keeps this layer honest: entropy, time and channel binding are
 // ARGUMENTS. This package never sources them. That is what lets every byte it emits be a
 // deterministic function of its inputs and be pinned by vectors/sdk.json across three
 // languages — the same way the floor is pinned. Connection setup is not here and never
 // will be: that is the transport's (ADR 0004).
+export * from "./signer.js";
 export * from "./possession.js";
 export * from "./envelope.js";
 export * from "./login.js";

@@ -18,6 +18,8 @@
 // same bytes.
 import { signInDomain, verifyInDomain } from "@bitspark/archon";
 
+import { checkSignature, signWith, validateSigningRequest, type Signer, type SigningRequest } from "./signer.js";
+
 /** The first byte of every possession message. Distinct from the envelope's `SCHEME_TAG`. */
 export const POSSESSION_SCHEME_TAG = 0x01;
 /** The shortest nonce accepted, in bytes. Below this a proof is guessable, so it is refused. */
@@ -58,6 +60,44 @@ export function verifyPossession(
     return false;
   }
   return verifyInDomain(pub, domain, message, signature);
+}
+
+/**
+ * The signing request a possession proof needs, for a signer whose key is `publicKey`
+ * (ADR 0009 §4). Pure, and throws for what `provePossession` throws. The message is
+ * `possessionMessageBytes(nonce, binding)`, so a proof made through it is the same bytes.
+ */
+export function preparePossession(
+  publicKey: Uint8Array,
+  domain: string,
+  nonce: Uint8Array,
+  binding: Uint8Array,
+): SigningRequest {
+  const request: SigningRequest = {
+    expectedPublicKey: publicKey,
+    scheme: { kind: "ed25519ph-context", domain },
+    message: possessionMessageBytes(nonce, binding),
+  };
+  validateSigningRequest(request);
+  return request;
+}
+
+/** The proof, from a signature over a prepared request: checked, then returned. Pure. */
+export function completePossession(request: SigningRequest, signature: Uint8Array): Uint8Array {
+  checkSignature(request, signature);
+  return new Uint8Array(signature);
+}
+
+/** `provePossession` through a signer instead of a seed. */
+export async function provePossessionWith(
+  signer: Signer,
+  domain: string,
+  nonce: Uint8Array,
+  binding: Uint8Array,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  const request = preparePossession(signer.publicKey, domain, nonce, binding);
+  return completePossession(request, await signWith(signer, request, signal));
 }
 
 /** The pinned layout of what gets signed. Exported so a consumer can pin it too. */

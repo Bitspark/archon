@@ -21,6 +21,8 @@ use archon_core::crypto::{
     sign_in_domain, verify_in_domain, MAX_DOMAIN_SIZE, PUBLIC_KEY_SIZE, SEED_SIZE, SIGNATURE_SIZE,
 };
 
+use crate::signer::{check_signature, sign_with, validate, Scheme, Signer, SigningRequest};
+
 /// The first four bytes of every envelope.
 pub const MAGIC: &[u8; 4] = b"arcn";
 /// The envelope format version.
@@ -44,6 +46,60 @@ pub struct Opened {
 pub fn seal(seed: &[u8; SEED_SIZE], domain: &str, payload: &[u8]) -> Result<Vec<u8>, String> {
     let signature = sign_in_domain(seed, domain, &message_bytes(payload))?;
     let pubkey = archon_core::crypto::public_key_from_seed(seed);
+    Ok(pack(domain, &pubkey, &signature, payload))
+}
+
+/// The signing request sealing `payload` in `domain` needs, for a signer whose key is
+/// `public_key` (ADR 0009 §4). Pure; errors on an invalid domain. The message is
+/// [`message_bytes`]`(payload)`, so an envelope made through it is the same bytes.
+pub fn prepare_seal(
+    public_key: &[u8; PUBLIC_KEY_SIZE],
+    domain: &str,
+    payload: &[u8],
+) -> Result<SigningRequest, String> {
+    let request = SigningRequest {
+        expected_public_key: *public_key,
+        scheme: Scheme::PhContext {
+            domain: domain.to_string(),
+        },
+        message: message_bytes(payload),
+    };
+    validate(&request)?;
+    Ok(request)
+}
+
+/// The envelope, from a signature over a prepared seal request: the signature is checked
+/// against the request, then the envelope is assembled from the request's own key, domain
+/// and payload. Pure.
+pub fn complete_seal(request: &SigningRequest, signature: &[u8]) -> Result<Vec<u8>, String> {
+    let Scheme::PhContext { domain } = &request.scheme else {
+        return Err("envelope: not a seal request".to_string());
+    };
+    if request.message.first() != Some(&SCHEME_TAG) {
+        return Err("envelope: not a seal request".to_string());
+    }
+    let signature = check_signature(request, signature)?;
+    Ok(pack(
+        domain,
+        &request.expected_public_key,
+        &signature,
+        &request.message[1..],
+    ))
+}
+
+/// [`seal`] through a signer instead of a seed.
+pub async fn seal_with<S: Signer>(
+    signer: &S,
+    domain: &str,
+    payload: &[u8],
+) -> Result<Vec<u8>, String> {
+    let request = prepare_seal(&signer.public_key(), domain, payload)?;
+    let signature = sign_with(signer, &request).await?;
+    complete_seal(&request, &signature)
+}
+
+/// The container layout, from parts already checked: the domain fits a u8 (≤ 255 bytes).
+fn pack(domain: &str, pubkey: &[u8], signature: &[u8], payload: &[u8]) -> Vec<u8> {
     let d = domain.as_bytes();
     let mut out =
         Vec::with_capacity(4 + 1 + 1 + d.len() + PUBLIC_KEY_SIZE + SIGNATURE_SIZE + payload.len());
@@ -51,10 +107,10 @@ pub fn seal(seed: &[u8; SEED_SIZE], domain: &str, payload: &[u8]) -> Result<Vec<
     out.push(VERSION);
     out.push(d.len() as u8); // ≤ 255: sign_in_domain has already checked it
     out.extend_from_slice(d);
-    out.extend_from_slice(&pubkey);
-    out.extend_from_slice(&signature);
+    out.extend_from_slice(pubkey);
+    out.extend_from_slice(signature);
     out.extend_from_slice(payload);
-    Ok(out)
+    out
 }
 
 /// Open `envelope`, which the caller expects to be sealed in `domain`. Errors — never

@@ -24,6 +24,7 @@ mod audience;
 pub use audience::derive_audience;
 
 use crate::possession;
+use crate::signer::{sign_with, Signer, SigningRequest};
 
 /// The RFC 8032 context every login-scheme proof is made in.
 pub const DOMAIN: &str = "archon-login/1";
@@ -155,6 +156,55 @@ pub fn prove_collect(
     }
     let bound = binding(ROLE_COLLECT, audience, req)?;
     possession::prove(seed, DOMAIN, &req.nonce, &bound)
+}
+
+/// The signing request the person's login proof needs, for a signer whose key is
+/// `public_key` (ADR 0009 §4). Pure; errors for what [`prove`] errors on about the request.
+/// Complete it with [`possession::complete`]: a login proof is a possession proof.
+pub fn prepare(
+    public_key: &[u8; PUBLIC_KEY_SIZE],
+    audience: &str,
+    req: &Request,
+) -> Result<SigningRequest, String> {
+    let bound = binding(ROLE_LOGIN, audience, req)?;
+    possession::prepare(public_key, DOMAIN, &req.nonce, &bound)
+}
+
+/// [`prove`] through a signer instead of a seed.
+pub async fn prove_with<S: Signer>(
+    signer: &S,
+    audience: &str,
+    req: &Request,
+) -> Result<[u8; SIGNATURE_SIZE], String> {
+    let request = prepare(&signer.public_key(), audience, req)?;
+    let signature = sign_with(signer, &request).await?;
+    possession::complete(&request, &signature)
+}
+
+/// The signing request the browser's collect proof needs. Pure. The expected key is the
+/// browser key `req` names, so only that key's signer can complete it — [`prove_collect`]'s
+/// refusal of any other seed, carried into the request itself.
+pub fn prepare_collect(audience: &str, req: &Request) -> Result<SigningRequest, String> {
+    let bound = binding(ROLE_COLLECT, audience, req)?;
+    let browser: [u8; PUBLIC_KEY_SIZE] = req.browser[..].try_into().map_err(|_| {
+        format!(
+            "login: browser key is {} bytes, want {PUBLIC_KEY_SIZE}",
+            req.browser.len()
+        )
+    })?;
+    possession::prepare(&browser, DOMAIN, &req.nonce, &bound)
+}
+
+/// [`prove_collect`] through a signer instead of a seed. A signer for any other key is
+/// refused.
+pub async fn prove_collect_with<S: Signer>(
+    signer: &S,
+    audience: &str,
+    req: &Request,
+) -> Result<[u8; SIGNATURE_SIZE], String> {
+    let request = prepare_collect(audience, req)?;
+    let signature = sign_with(signer, &request).await?;
+    possession::complete(&request, &signature)
 }
 
 /// Whether `signature` is the collect proof by `req.browser` for `req` at `audience`. Total.

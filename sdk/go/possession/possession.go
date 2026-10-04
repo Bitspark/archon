@@ -19,11 +19,14 @@
 package possession
 
 import (
+	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 
 	"github.com/Bitspark/archon/core/go/crypto"
+	"github.com/Bitspark/archon/sdk/go/signer"
 )
 
 // SchemeTag is the first byte of every possession message. Distinct from
@@ -62,6 +65,43 @@ func Verify(pubkey []byte, domain string, nonce, binding, signature []byte) bool
 		return false
 	}
 	return crypto.VerifyInDomain(pubkey, domain, message, signature)
+}
+
+// Prepare is the signing request a possession proof needs, for a signer whose key is pubkey
+// (ADR 0009 §4). Pure, and it errors for what Prove errors on. The message is
+// MessageBytes(nonce, binding), so a proof made through it is the same bytes.
+func Prepare(pubkey []byte, domain string, nonce, binding []byte) (signer.Request, error) {
+	message, err := MessageBytes(nonce, binding)
+	if err != nil {
+		return signer.Request{}, err
+	}
+	r := signer.Request{ExpectedPublicKey: pubkey, Scheme: signer.PhContext{Domain: domain}, Message: message}
+	if err := signer.Validate(r); err != nil {
+		return signer.Request{}, err
+	}
+	return r, nil
+}
+
+// Complete is the proof, from a signature over a prepared request: checked, then returned.
+// Pure.
+func Complete(r signer.Request, signature []byte) ([]byte, error) {
+	if err := signer.Check(r, signature); err != nil {
+		return nil, err
+	}
+	return bytes.Clone(signature), nil
+}
+
+// ProveWith is Prove through a signer instead of a seed.
+func ProveWith(ctx context.Context, s signer.Signer, domain string, nonce, binding []byte) ([]byte, error) {
+	r, err := Prepare(s.PublicKey(), domain, nonce, binding)
+	if err != nil {
+		return nil, err
+	}
+	signature, err := signer.SignWith(ctx, s, r)
+	if err != nil {
+		return nil, err
+	}
+	return Complete(r, signature)
 }
 
 // MessageBytes is the pinned layout of what gets signed. Exported so a consumer can pin

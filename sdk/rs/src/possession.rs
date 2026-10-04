@@ -17,7 +17,11 @@
 //! The tag keeps a possession message and an [envelope](crate::envelope) payload in the
 //! same domain from ever being the same bytes.
 
-use archon_core::crypto::{sign_in_domain, verify_in_domain, SEED_SIZE, SIGNATURE_SIZE};
+use archon_core::crypto::{
+    sign_in_domain, verify_in_domain, PUBLIC_KEY_SIZE, SEED_SIZE, SIGNATURE_SIZE,
+};
+
+use crate::signer::{check_signature, sign_with, validate, Scheme, Signer, SigningRequest};
 
 /// The first byte of every possession message. Distinct from
 /// [`crate::envelope::SCHEME_TAG`].
@@ -42,6 +46,46 @@ pub fn prove(
 ) -> Result<[u8; SIGNATURE_SIZE], String> {
     let message = message_bytes(nonce, binding)?;
     sign_in_domain(seed, domain, &message)
+}
+
+/// The signing request a possession proof needs, for a signer whose key is `public_key`
+/// (ADR 0009 §4). Pure, and errors for what [`prove`] errors on. The message is
+/// [`message_bytes`]`(nonce, binding)`, so a proof made through it is the same bytes.
+pub fn prepare(
+    public_key: &[u8; PUBLIC_KEY_SIZE],
+    domain: &str,
+    nonce: &[u8],
+    binding: &[u8],
+) -> Result<SigningRequest, String> {
+    let request = SigningRequest {
+        expected_public_key: *public_key,
+        scheme: Scheme::PhContext {
+            domain: domain.to_string(),
+        },
+        message: message_bytes(nonce, binding)?,
+    };
+    validate(&request)?;
+    Ok(request)
+}
+
+/// The proof, from a signature over a prepared request: checked, then returned. Pure.
+pub fn complete(
+    request: &SigningRequest,
+    signature: &[u8],
+) -> Result<[u8; SIGNATURE_SIZE], String> {
+    check_signature(request, signature)
+}
+
+/// [`prove`] through a signer instead of a seed.
+pub async fn prove_with<S: Signer>(
+    signer: &S,
+    domain: &str,
+    nonce: &[u8],
+    binding: &[u8],
+) -> Result<[u8; SIGNATURE_SIZE], String> {
+    let request = prepare(&signer.public_key(), domain, nonce, binding)?;
+    let signature = sign_with(signer, &request).await?;
+    complete(&request, &signature)
 }
 
 /// Verify a possession proof: `signature` was made by the key behind `pubkey` over this

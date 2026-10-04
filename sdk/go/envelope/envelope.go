@@ -18,10 +18,12 @@ package envelope
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 
 	"github.com/Bitspark/archon/core/go/crypto"
+	"github.com/Bitspark/archon/sdk/go/signer"
 )
 
 // Magic is the first four bytes of every envelope.
@@ -56,7 +58,49 @@ func Seal(seed []byte, domain string, payload []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	pubkey := crypto.PublicKeyFromSeed(seed)
+	return pack(domain, crypto.PublicKeyFromSeed(seed), signature, payload), nil
+}
+
+// PrepareSeal is the signing request sealing payload in domain needs, for a signer whose key
+// is pubkey (ADR 0009 §4). Pure; it errors on an invalid domain. The message is
+// MessageBytes(payload), so an envelope made through it is the same bytes.
+func PrepareSeal(pubkey []byte, domain string, payload []byte) (signer.Request, error) {
+	r := signer.Request{ExpectedPublicKey: pubkey, Scheme: signer.PhContext{Domain: domain}, Message: MessageBytes(payload)}
+	if err := signer.Validate(r); err != nil {
+		return signer.Request{}, err
+	}
+	return r, nil
+}
+
+// CompleteSeal is the envelope, from a signature over a prepared seal request: the signature
+// is checked against the request, then the envelope is assembled from the request's own key,
+// domain and payload. Pure.
+func CompleteSeal(r signer.Request, signature []byte) ([]byte, error) {
+	ph, ok := r.Scheme.(signer.PhContext)
+	if !ok || len(r.Message) == 0 || r.Message[0] != SchemeTag {
+		return nil, errors.New("envelope: not a seal request")
+	}
+	if err := signer.Check(r, signature); err != nil {
+		return nil, err
+	}
+	return pack(ph.Domain, r.ExpectedPublicKey, signature, r.Message[1:]), nil
+}
+
+// SealWith is Seal through a signer instead of a seed.
+func SealWith(ctx context.Context, s signer.Signer, domain string, payload []byte) ([]byte, error) {
+	r, err := PrepareSeal(s.PublicKey(), domain, payload)
+	if err != nil {
+		return nil, err
+	}
+	signature, err := signer.SignWith(ctx, s, r)
+	if err != nil {
+		return nil, err
+	}
+	return CompleteSeal(r, signature)
+}
+
+// pack is the container layout, from parts already checked: the domain fits a u8.
+func pack(domain string, pubkey, signature, payload []byte) []byte {
 	out := make([]byte, 0, 4+1+1+len(domain)+crypto.PublicKeySize+crypto.SignatureSize+len(payload))
 	out = append(out, Magic...)
 	out = append(out, Version)
@@ -65,7 +109,7 @@ func Seal(seed []byte, domain string, payload []byte) ([]byte, error) {
 	out = append(out, pubkey...)
 	out = append(out, signature...)
 	out = append(out, payload...)
-	return out, nil
+	return out
 }
 
 // Open opens envelope, which the caller expects to be sealed in domain. It errors — never
