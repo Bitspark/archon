@@ -18,6 +18,8 @@ message and an envelope payload in the same domain from ever being the same byte
 
 from archon_core import sign_in_domain, verify_in_domain
 
+from .signer import PhContext, Signer, SigningRequest, check_signature, sign_with, validate
+
 #: The first byte of every possession message. Distinct from `envelope.SCHEME_TAG`.
 SCHEME_TAG = 0x01
 
@@ -53,6 +55,26 @@ def verify(pubkey: bytes, domain: str, nonce: bytes, binding: bytes, signature: 
     except (ValueError, TypeError):
         return False
     return verify_in_domain(pubkey, domain, message, signature)
+
+
+def prepare(public_key: bytes, domain: str, nonce: bytes, binding: bytes) -> SigningRequest:
+    """The signing request a possession proof needs, for a signer whose key is `public_key`
+    (ADR 0009 §4). Pure, and raises what `prove` raises. The message is
+    `message_bytes(nonce, binding)`, so a proof made through it is the same bytes."""
+    request = SigningRequest(bytes(public_key), PhContext(domain), message_bytes(nonce, binding))
+    validate(request)
+    return request
+
+
+def complete(request: SigningRequest, signature: bytes) -> bytes:
+    """The proof, from a signature over a prepared request: checked, then returned. Pure."""
+    return check_signature(request, signature)
+
+
+def prove_with(signer: Signer, domain: str, nonce: bytes, binding: bytes) -> bytes:
+    """`prove` through a signer instead of a seed."""
+    request = prepare(signer.public_key, domain, nonce, binding)
+    return complete(request, sign_with(signer, request))
 
 
 def message_bytes(nonce: bytes, binding: bytes) -> bytes:

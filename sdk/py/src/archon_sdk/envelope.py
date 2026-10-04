@@ -26,6 +26,8 @@ from archon_core import (
     verify_in_domain,
 )
 
+from .signer import PhContext, Signer, SigningRequest, check_signature, sign_with, validate
+
 #: The first four bytes of every envelope.
 MAGIC = b"arcn"
 
@@ -57,7 +59,36 @@ def seal(seed: bytes, domain: str, payload: bytes) -> bytes:
     # Signing first: it is what validates the domain and the seed, so nothing below is
     # reached with either one wrong.
     signature = sign_in_domain(seed, domain, message_bytes(payload))
-    pubkey = public_key_from_seed(seed)
+    return _pack(domain, public_key_from_seed(seed), signature, payload)
+
+
+def prepare_seal(public_key: bytes, domain: str, payload: bytes) -> SigningRequest:
+    """The signing request sealing `payload` in `domain` needs, for a signer whose key is
+    `public_key` (ADR 0009 §4). Pure; raises `ValueError` on an invalid domain. The message is
+    `message_bytes(payload)`, so an envelope made through it is the same bytes."""
+    request = SigningRequest(bytes(public_key), PhContext(domain), message_bytes(bytes(payload)))
+    validate(request)
+    return request
+
+
+def complete_seal(request: SigningRequest, signature: bytes) -> bytes:
+    """The envelope, from a signature over a prepared seal request: the signature is checked
+    against the request, then the envelope is assembled from the request's own key, domain
+    and payload. Pure."""
+    if not isinstance(request.scheme, PhContext) or request.message[:1] != bytes([SCHEME_TAG]):
+        raise ValueError("envelope: not a seal request")
+    signature = check_signature(request, signature)
+    return _pack(request.scheme.domain, bytes(request.expected_public_key), signature, bytes(request.message[1:]))
+
+
+def seal_with(signer: Signer, domain: str, payload: bytes) -> bytes:
+    """`seal` through a signer instead of a seed."""
+    request = prepare_seal(signer.public_key, domain, payload)
+    return complete_seal(request, sign_with(signer, request))
+
+
+def _pack(domain: str, pubkey: bytes, signature: bytes, payload: bytes) -> bytes:
+    """The container layout, from parts already checked: the domain fits a u8."""
     d = domain.encode("utf-8")
     return MAGIC + bytes([VERSION, len(d)]) + d + pubkey + signature + payload
 

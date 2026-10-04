@@ -79,7 +79,57 @@ public final class Envelope {
     // Signing first: it is what validates the domain and the seed, so nothing below is reached
     // with either one wrong.
     byte[] signature = Crypto.signInDomain(seed, domain, messageBytes(payload));
-    byte[] pubkey = Crypto.publicKeyFromSeed(seed);
+    return pack(domain, Crypto.publicKeyFromSeed(seed), signature, payload);
+  }
+
+  /**
+   * The signing request sealing {@code payload} in {@code domain} needs, for a signer whose key
+   * is {@code publicKey} (ADR 0009 §4). Pure. The message is {@link #messageBytes}{@code
+   * (payload)}, so an envelope made through it is the same bytes.
+   *
+   * @throws IllegalArgumentException on an invalid domain or a missing payload
+   */
+  public static Signing.Request prepareSeal(byte[] publicKey, String domain, byte[] payload) {
+    if (payload == null) {
+      throw new IllegalArgumentException("envelope: payload is required (it may be empty)");
+    }
+    Signing.Request request =
+        new Signing.Request(publicKey, new Signing.PhContext(domain), messageBytes(payload));
+    Signing.validate(request);
+    return request;
+  }
+
+  /**
+   * The envelope, from a signature over a prepared seal request: the signature is checked
+   * against the request, then the envelope is assembled from the request's own key, domain and
+   * payload. Pure.
+   *
+   * @throws IllegalArgumentException when it is not a seal request or the signature does not
+   *     verify
+   */
+  public static byte[] completeSeal(Signing.Request request, byte[] signature) {
+    byte[] message = request.message();
+    if (!(request.scheme() instanceof Signing.PhContext ph)
+        || message.length == 0
+        || message[0] != (byte) SCHEME_TAG) {
+      throw new IllegalArgumentException("envelope: not a seal request");
+    }
+    byte[] checked = Signing.checkSignature(request, signature);
+    return pack(
+        ph.domain(),
+        request.expectedPublicKey(),
+        checked,
+        java.util.Arrays.copyOfRange(message, 1, message.length));
+  }
+
+  /** {@link #seal} through a signer instead of a seed. */
+  public static byte[] sealWith(Signing.Signer signer, String domain, byte[] payload) {
+    Signing.Request request = prepareSeal(signer.publicKey(), domain, payload);
+    return completeSeal(request, Signing.signWith(signer, request));
+  }
+
+  /** The container layout, from parts already checked: the domain fits a u8. */
+  private static byte[] pack(String domain, byte[] pubkey, byte[] signature, byte[] payload) {
     byte[] d = domain.getBytes(StandardCharsets.UTF_8);
     byte[] out =
         new byte
