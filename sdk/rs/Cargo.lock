@@ -15,6 +15,7 @@ version = "0.9.0"
 dependencies = [
  "bitspark-archon-core",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

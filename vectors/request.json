@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "archon request-authentication and key-enrollment conformance vectors (docs/request.md), PROVISIONAL until ADR 0010 §8's gate is met. This first cut carries key enrollment (§6): the binding, the new key's proof, and its verification — in the SDK's possession scheme, domain archon-enroll/1. The request-profile families follow. Purposes are given as hex so that a non-UTF-8 purpose can be a case; a lane decodes them before calling the scheme. Audience is a UTF-8 string. Entropy (nonce, transaction id, keys) is a case INPUT — the scheme never sources it. Signatures derived with OpenSSL 3.2.4, outside all three cores (vectors/tools/request-vectors.py).",
+  "note": "archon request-authentication and key-enrollment conformance vectors (docs/request.md), PROVISIONAL until ADR 0010 §8's gate is met. It carries the request profile (§3–§5, §7 steps 1–7: the client's signature base, headers and signature, and every acceptance and refusal of the verifier short of replay, which is the server's) and key enrollment (§6: the binding, the new key's proof, and its verification in the SDK's possession scheme, domain archon-enroll/1). Purposes are given as hex so that a non-UTF-8 purpose can be a case; a lane decodes them before calling the scheme. Audience is a UTF-8 string. Entropy (nonce, transaction id, keys) is a case INPUT — the scheme never sources it. Signatures derived with OpenSSL 3.2.4, outside all three cores (vectors/tools/request-vectors.py).",
   "enroll_binding": [
     {
       "note": "the pinned layout: version 0x01 ‖ u16 len ‖ purpose ‖ u16 len ‖ audience ‖ u16 len ‖ transaction ‖ new_key[32] ‖ intent_digest[32] (docs/request.md §6, PROVISIONAL). Inputs {audience (utf-8 string), request{nonce, transaction, purpose (hex), new_key, intent_digest}}; expected {\"ok\": hex} or {\"error\": true}. The nonce is not part of the binding. Oversize audience refusals (a binding over the possession scheme's u16 field) are per-lane unit tests, not 64 KB vectors.",
@@ -623,6 +623,3972 @@
       },
       "sig": "06fabdf4c4af5f6370f1e3dd78e89a751848152eacca3324fdcd6b544100e1449febe1f26913e8ccbaf28ad80a339d75a639dc2eafb3ef794633a016351ac805",
       "valid": false
+    }
+  ],
+  "request_sign": [
+    {
+      "note": "the client (docs/request.md §3–§4): inputs {seed, method, audience, request_target, body (hex), content_type (string or null), declared [[name, value]] in the product's order, created, expires, nonce (hex)}; expected {\"ok\": {base, headers}} — the RFC 9421 signature base as text, and the four headers archon adds, named in lowercase — or {\"error\": true}. Every signature is Ed25519ph in context archon-request/1 over the base, derived with OpenSSL 3.2.4 outside the cores. PROVISIONAL (ADR 0010 §8).",
+      "name": "basic",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "ok": {
+          "base": "\"@method\": POST\n\"@target-uri\": https://dawn.example/api/v1/things?x=1\n\"archon-audience\": https://dawn.example/api\n\"content-digest\": sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:\n\"content-type\": application/json\n\"@signature-params\": (\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+          "headers": {
+            "archon-audience": "https://dawn.example/api",
+            "content-digest": "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:",
+            "signature-input": "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+            "signature": "archon=:uw3lB7XVMB/joLvebecrowrX95UZ6KrM7VENvGuoYJZ5VSyYYMA29TPcImkh6SBDr++/L4qL0t8TjjQvhAYNBw==:"
+          }
+        }
+      }
+    },
+    {
+      "note": "a GET with no body and no Content-Type: the digest is the empty string's, and content-type is not covered.",
+      "name": "empty-body-get",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "GET",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things",
+      "body": "",
+      "content_type": null,
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "ok": {
+          "base": "\"@method\": GET\n\"@target-uri\": https://dawn.example/api/v1/things\n\"archon-audience\": https://dawn.example/api\n\"content-digest\": sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:\n\"@signature-params\": (\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+          "headers": {
+            "archon-audience": "https://dawn.example/api",
+            "content-digest": "sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:",
+            "signature-input": "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+            "signature": "archon=:MPd/EhfSrpfafrR9iOVzPUTsCv3DVF6QMJDsBl12UwWazAxZn/6LxcwirWAjXyYt8bxrPCPKTNnzXg2+Hav5Dg==:"
+          }
+        }
+      }
+    },
+    {
+      "note": "product-declared headers are covered in the product's order, after content-type.",
+      "name": "declared-headers",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [
+        [
+          "idempotency-key",
+          "k-123"
+        ],
+        [
+          "x-tenant",
+          "acme"
+        ]
+      ],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "ok": {
+          "base": "\"@method\": POST\n\"@target-uri\": https://dawn.example/api/v1/things?x=1\n\"archon-audience\": https://dawn.example/api\n\"content-digest\": sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:\n\"content-type\": application/json\n\"idempotency-key\": k-123\n\"x-tenant\": acme\n\"@signature-params\": (\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\" \"x-tenant\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+          "headers": {
+            "archon-audience": "https://dawn.example/api",
+            "content-digest": "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:",
+            "signature-input": "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\" \"x-tenant\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+            "signature": "archon=:14vd5xTTC+NTUqvytkfaQ1A3YGazhT/CjQ7Z465PAypvNeGrg2EuGvfK/XuJCrHTOxGcr7RssIuhqXlmaXLYAA==:"
+          }
+        }
+      }
+    },
+    {
+      "note": "the request-target is covered exactly as sent: an escape is not decoded, query order and duplicates are kept.",
+      "name": "target-kept-verbatim",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/a%2Fb?b=2&a=1&a=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "ok": {
+          "base": "\"@method\": POST\n\"@target-uri\": https://dawn.example/api/a%2Fb?b=2&a=1&a=1\n\"archon-audience\": https://dawn.example/api\n\"content-digest\": sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:\n\"content-type\": application/json\n\"@signature-params\": (\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+          "headers": {
+            "archon-audience": "https://dawn.example/api",
+            "content-digest": "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:",
+            "signature-input": "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+            "signature": "archon=:Vr+4srhWbvI4HHPv1qbhs9uFJ0YC9vL3Vrhj7ZtlQveFkPd4FCZvXW0Bq6umgjgru/xKH8fXte9hSdjloebHCw==:"
+          }
+        }
+      }
+    },
+    {
+      "note": "a covered value loses its leading and trailing SP and HTAB; inner whitespace stays.",
+      "name": "values-trimmed",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": " \tapplication/json; charset=utf-8\t ",
+      "declared": [
+        [
+          "idempotency-key",
+          "  k 1  "
+        ]
+      ],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "ok": {
+          "base": "\"@method\": POST\n\"@target-uri\": https://dawn.example/api/v1/things?x=1\n\"archon-audience\": https://dawn.example/api\n\"content-digest\": sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:\n\"content-type\": application/json; charset=utf-8\n\"idempotency-key\": k 1\n\"@signature-params\": (\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+          "headers": {
+            "archon-audience": "https://dawn.example/api",
+            "content-digest": "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:",
+            "signature-input": "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+            "signature": "archon=:E42ry1UMP8AYI4SM6AbkiVjJLLat/D4YRHkJ2z3qUXX86AFnPlpheaDtkOZu57KzjU9wzkBV09PcloWfP58uCA==:"
+          }
+        }
+      }
+    },
+    {
+      "note": "an audience with a port: the origin keeps it.",
+      "name": "audience-with-port",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "http://localhost:8080",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "ok": {
+          "base": "\"@method\": POST\n\"@target-uri\": http://localhost:8080/api/v1/things?x=1\n\"archon-audience\": http://localhost:8080\n\"content-digest\": sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:\n\"content-type\": application/json\n\"@signature-params\": (\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+          "headers": {
+            "archon-audience": "http://localhost:8080",
+            "content-digest": "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:",
+            "signature-input": "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+            "signature": "archon=:dhOVVQOF8Z6GTgcahfBV9izbqVyuZxeCFxKyCuibiDyt70mJOYtxibOkBW3e3G31zasoFy40IbJC/rnYxqO3Bg==:"
+          }
+        }
+      }
+    },
+    {
+      "note": "an audience with no path: the origin is the audience.",
+      "name": "audience-at-origin",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example",
+      "request_target": "/v1/things",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "ok": {
+          "base": "\"@method\": POST\n\"@target-uri\": https://dawn.example/v1/things\n\"archon-audience\": https://dawn.example\n\"content-digest\": sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:\n\"content-type\": application/json\n\"@signature-params\": (\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+          "headers": {
+            "archon-audience": "https://dawn.example",
+            "content-digest": "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:",
+            "signature-input": "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+            "signature": "archon=:qctWEfsILiASvh/BOg2N355QB2ptm1HsBsEnjCrxjtxkPVbDYJj0+KM4tj+SYoP7nRc90RHjXQYZvpBIyIHeDw==:"
+          }
+        }
+      }
+    },
+    {
+      "note": "64 bytes is the nonce's maximum.",
+      "name": "nonce-64",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "result": {
+        "ok": {
+          "base": "\"@method\": POST\n\"@target-uri\": https://dawn.example/api/v1/things?x=1\n\"archon-audience\": https://dawn.example/api\n\"content-digest\": sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:\n\"content-type\": application/json\n\"@signature-params\": (\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-Pw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+          "headers": {
+            "archon-audience": "https://dawn.example/api",
+            "content-digest": "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:",
+            "signature-input": "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-Pw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+            "signature": "archon=:kmGKzWJY15OdStbRaJtiIgn8Jff0L8+euvDrRP9iuqyHUVyMSnKKW81SjLOsL3KaOi8Njk8iYATK9k79dJOmAA==:"
+          }
+        }
+      }
+    },
+    {
+      "note": "the method is a token whose case is kept.",
+      "name": "method-case-kept",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "patch",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "ok": {
+          "base": "\"@method\": patch\n\"@target-uri\": https://dawn.example/api/v1/things?x=1\n\"archon-audience\": https://dawn.example/api\n\"content-digest\": sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:\n\"content-type\": application/json\n\"@signature-params\": (\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+          "headers": {
+            "archon-audience": "https://dawn.example/api",
+            "content-digest": "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:",
+            "signature-input": "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\"",
+            "signature": "archon=:mGCBKLprfUV/ccz0G0p5MYyUj1ND48y1l/cwbh3ckdH8kmClY6s6LYm+9Ws/p9HuVAKVnAAKgDsxL4+H+enVCQ==:"
+          }
+        }
+      }
+    },
+    {
+      "note": "an empty method.",
+      "name": "method-empty-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a space is not a tchar.",
+      "name": "method-space-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "GE T",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an audience ending in `/` is refused, not trimmed.",
+      "name": "audience-trailing-slash-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api/",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "only http and https.",
+      "name": "audience-scheme-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "ftp://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an audience with a query.",
+      "name": "audience-query-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api?x=1",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an authority with userinfo.",
+      "name": "audience-userinfo-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://user@dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "no authority.",
+      "name": "audience-empty-authority-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https:///api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "absolute form is not origin form.",
+      "name": "target-absolute-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "https://dawn.example/api/v1/things",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "asterisk form.",
+      "name": "target-asterisk-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "*",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a space in the target.",
+      "name": "target-space-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/a b",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a fragment is never part of a request-target.",
+      "name": "target-fragment-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things#x",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a byte above 0x7E.",
+      "name": "target-non-ascii-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/ä",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "8193 bytes.",
+      "name": "target-too-long-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a declared name is lowercase.",
+      "name": "declared-uppercase-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [
+        [
+          "Idempotency-Key",
+          "k"
+        ]
+      ],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "`signature` cannot be a declared header.",
+      "name": "declared-reserved-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [
+        [
+          "signature",
+          "x"
+        ]
+      ],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "content-type is covered by its own rule, never declared.",
+      "name": "declared-content-type-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [
+        [
+          "content-type",
+          "x"
+        ]
+      ],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a declared name given twice.",
+      "name": "declared-duplicate-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [
+        [
+          "idempotency-key",
+          "k-123"
+        ],
+        [
+          "idempotency-key",
+          "k-123"
+        ]
+      ],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a line feed in a covered value.",
+      "name": "declared-value-lf-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [
+        [
+          "idempotency-key",
+          "k\nx"
+        ]
+      ],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an empty covered value.",
+      "name": "declared-value-empty-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [
+        [
+          "idempotency-key",
+          "  "
+        ]
+      ],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a byte above 0x7E in a covered value.",
+      "name": "declared-value-non-ascii-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [
+        [
+          "idempotency-key",
+          "kä"
+        ]
+      ],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a control character in content-type.",
+      "name": "content-type-control-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json\u0001",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "15 bytes is under the floor.",
+      "name": "nonce-15-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000000000000000000000000000000",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "65 bytes is over the bound.",
+      "name": "nonce-65-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "created must be before expires.",
+      "name": "created-equals-expires-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034640,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an integer over 15 digits.",
+      "name": "expires-16-digits-rejected",
+      "seed": "4444444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1000000000000000,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a 31-byte seed.",
+      "name": "seed-short-rejected",
+      "seed": "44444444444444444444444444444444444444444444444444444444444444",
+      "method": "POST",
+      "audience": "https://dawn.example/api",
+      "request_target": "/api/v1/things?x=1",
+      "body": "7b226e616d65223a227468696e67227d",
+      "content_type": "application/json",
+      "declared": [],
+      "created": 1789034640,
+      "expires": 1789034700,
+      "nonce": "000102030405060708090a0b0c0d0e0f",
+      "result": {
+        "error": true
+      }
+    }
+  ],
+  "request_verify": [
+    {
+      "note": "the verifier (docs/request.md §3.1, §5, §7 steps 1–7; replay is the server's): inputs {policy {audience, declared, max_lifetime, skew}, now, request {method, request_target, headers [[name, value]] as received, body (hex)}}; expected {\"ok\": {principal, created, expires, nonce (hex), target_uri}} or {\"error\": true}. Each refusal below breaks exactly one rule; where the case can be signed correctly it is, so the refusal comes from that rule and not from a bad signature. PROVISIONAL (ADR 0010 §8).",
+      "name": "basic",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "ok": {
+          "principal": "ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+          "created": 1789034640,
+          "expires": 1789034700,
+          "nonce": "000102030405060708090a0b0c0d0e0f",
+          "target_uri": "https://dawn.example/api/v1/things?x=1"
+        }
+      }
+    },
+    {
+      "note": "header names are matched without regard to case.",
+      "name": "header-names-any-case",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "ARCHON-AUDIENCE",
+            "https://dawn.example/api"
+          ],
+          [
+            "CONTENT-DIGEST",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "SIGNATURE-INPUT",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "SIGNATURE",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "ok": {
+          "principal": "ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+          "created": 1789034640,
+          "expires": 1789034700,
+          "nonce": "000102030405060708090a0b0c0d0e0f",
+          "target_uri": "https://dawn.example/api/v1/things?x=1"
+        }
+      }
+    },
+    {
+      "note": "a header named with U+212A KELVIN SIGN is not idempotency-key: names fold ASCII case only, so this is an unrelated header and not a second covered field.",
+      "name": "names-fold-ascii-only",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ],
+          [
+            "Idempotency-Key",
+            "k-999"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "ok": {
+          "principal": "ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+          "created": 1789034640,
+          "expires": 1789034700,
+          "nonce": "000102030405060708090a0b0c0d0e0f",
+          "target_uri": "https://dawn.example/api/v1/things?x=1"
+        }
+      }
+    },
+    {
+      "note": "the Host and X-Forwarded-Host the request carries change nothing: @target-uri comes from the configured audience.",
+      "name": "host-is-not-authoritative",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ],
+          [
+            "X-Forwarded-Host",
+            "evil.example"
+          ],
+          [
+            "Forwarded",
+            "host=evil.example"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "ok": {
+          "principal": "ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+          "created": 1789034640,
+          "expires": 1789034700,
+          "nonce": "000102030405060708090a0b0c0d0e0f",
+          "target_uri": "https://dawn.example/api/v1/things?x=1"
+        }
+      }
+    },
+    {
+      "note": "a GET with no body and no Content-Type.",
+      "name": "empty-body-get",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "GET",
+        "request_target": "/api/v1/things",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:MPd/EhfSrpfafrR9iOVzPUTsCv3DVF6QMJDsBl12UwWazAxZn/6LxcwirWAjXyYt8bxrPCPKTNnzXg2+Hav5Dg==:"
+          ]
+        ],
+        "body": ""
+      },
+      "result": {
+        "ok": {
+          "principal": "ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+          "created": 1789034640,
+          "expires": 1789034700,
+          "nonce": "000102030405060708090a0b0c0d0e0f",
+          "target_uri": "https://dawn.example/api/v1/things"
+        }
+      }
+    },
+    {
+      "note": "a declared header the request does not carry is not covered.",
+      "name": "declared-absent-uncovered",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:uw3lB7XVMB/joLvebecrowrX95UZ6KrM7VENvGuoYJZ5VSyYYMA29TPcImkh6SBDr++/L4qL0t8TjjQvhAYNBw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "ok": {
+          "principal": "ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+          "created": 1789034640,
+          "expires": 1789034700,
+          "nonce": "000102030405060708090a0b0c0d0e0f",
+          "target_uri": "https://dawn.example/api/v1/things?x=1"
+        }
+      }
+    },
+    {
+      "note": "now = created − skew is the earliest acceptable time.",
+      "name": "fresh-at-earliest",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034610,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "ok": {
+          "principal": "ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+          "created": 1789034640,
+          "expires": 1789034700,
+          "nonce": "000102030405060708090a0b0c0d0e0f",
+          "target_uri": "https://dawn.example/api/v1/things?x=1"
+        }
+      }
+    },
+    {
+      "note": "now = expires + skew − 1 is the latest acceptable time.",
+      "name": "fresh-at-latest",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034729,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "ok": {
+          "principal": "ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+          "created": 1789034640,
+          "expires": 1789034700,
+          "nonce": "000102030405060708090a0b0c0d0e0f",
+          "target_uri": "https://dawn.example/api/v1/things?x=1"
+        }
+      }
+    },
+    {
+      "note": "expires − created = max_lifetime is accepted.",
+      "name": "lifetime-at-max",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034940;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:dV2KGqKYpQvoSjKdK/Zz2R0fvWWSLWbwwzy0JGsdQ0v5oqnYAKk7vTMjvjU2I8wPu0PrWLX+Zg3ExFAUo0u5DA==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "ok": {
+          "principal": "ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48",
+          "created": 1789034640,
+          "expires": 1789034940,
+          "nonce": "000102030405060708090a0b0c0d0e0f",
+          "target_uri": "https://dawn.example/api/v1/things?x=1"
+        }
+      }
+    },
+    {
+      "note": "no Signature-Input.",
+      "name": "signature-input-missing",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "no Signature.",
+      "name": "signature-missing",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "Signature-Input twice.",
+      "name": "signature-input-twice",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "Signature twice.",
+      "name": "signature-twice",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "another label.",
+      "name": "label-other",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "sig1=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "sig1=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a second dictionary member.",
+      "name": "second-member",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\", other=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "expires before created.",
+      "name": "params-reordered",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");expires=1789034700;created=1789034640;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:P0HctSTeCAqRl1oM7gM/QKR+YiHpF1nplDYRzxBkh9SsaXGVNMt3ZGMjh2Qgyjp8n89dE0R+jbcLs8XzebrRBg==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an alg parameter is refused: the registered ed25519 is pure Ed25519.",
+      "name": "param-alg",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\";alg=\"ed25519\""
+          ],
+          [
+            "Signature",
+            "archon=:FgERFCC+hzuYSiUt0H5NGYp4GOxejEmjMZ5Slwp7RPcUZ8vt3PUmRgk3Vwq8ly10z1PcQggYNTARfrHoC3aVDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an unknown parameter.",
+      "name": "param-unknown",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\";foo=1"
+          ],
+          [
+            "Signature",
+            "archon=:2vV10k5IA/t9qrbtUP07aEAq8iXxafOm5+Fzs3PMqOqWO/4YNXpn1al2aP8y+RD93qxBWPeWmgFsXVo5QjMpAg==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "created with a leading zero.",
+      "name": "int-leading-zero",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=01789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:QV4oh+4wDFxgWemb+XDtF5aq45xNiQ2TVQCSMA5MkCvrWEj8eNZX7I3mRUzeeJv7B2H/fUnXd9bfMjkF4QVtBQ==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "expires over 15 digits.",
+      "name": "int-16-digits",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1000000000000000;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:teidH/05borNNSn6/nO8HstkyaWBDyEPcD/R6LQop7wb7iMbpmng7tf4H8Q6XTY74f8dfdxQxDgbeb+SEMwzBA==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "padding is not the one spelling of base64url.",
+      "name": "nonce-padded",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw==\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:h0j24GbaHH565fOyJko5HWEkprDz4xZDKnSvYzlCcDZKMCayxdNvbNsnTc1oV2KkeBgZGHYDu/S/8zSv0LNxAg==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "unused bits set in the last character.",
+      "name": "nonce-non-canonical",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODx\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:MtCM5gaGpRprmiw8fi4ZkdPGKM4HWqxM/i2J1/DthjQcxs57TSsTuWJd9JAUSrDIbDp9ZTISDZGnoyngxmz1Cg==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "15 bytes is under the floor.",
+      "name": "nonce-15-bytes",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAAAAAAAAAAAAAAAAAAA\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:6ubQYVAhrJQBEqtYHaeo6hhuNlDN4QoJ7qKqL2gMiHbzk882Ow2QIYyyZS2dPcDYM37zIfR/dBq0oimGnOVfCw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "keyid is the canonical principal: the hex is lowercase, so a key decoder that accepts either case is not enough.",
+      "name": "keyid-uppercase-hex",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:D759793BBC13A2819A827C76ADB6FBA8A49AEE007F49F2D0992D99B825AD2C48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:txXFDA8wkKCXvbaQ3p82mawaeYPt62evEPzgzGgIhSvWaDNIIGBd2fTLfYR7VVBlOoXoJTsWQlK/uo+d51vgBg==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the prefix is `ed25519:` exactly.",
+      "name": "keyid-uppercase-prefix",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ED25519:D759793BBC13A2819A827C76ADB6FBA8A49AEE007F49F2D0992D99B825AD2C48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:gseSyIObBZ0+6AmlE/24BpEBd/MNuV2saxuVe1v0/G/q7XqAeml6Ot5IT9baHFhNWHIsk7xL/szbIEtpYBjqAw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "another profile tag.",
+      "name": "tag-other",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/2\""
+          ],
+          [
+            "Signature",
+            "archon=:vKdtcf2rNuDg945DKliqJTXZz/nXmIcqha+rVAjiaFhlsnvSxOJD6BVbhH5gNEEA57/3rRx8+zCIMqKPr+qbAA==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "whitespace other than the single spaces between components.",
+      "name": "space-after-semicolon",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\"); created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:qvtVANsJa5Maq/HBLIcOURc+NDt59z66oaWGvFBJwTRG+2f8GQvIPQZmfbwL3mjMPCYw9P7J7WaTzXwnAO89CQ==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a derived component the profile does not know.",
+      "name": "component-unknown",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\" \"@path\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:NtA9drjpMTrVuizXZa8VU/WikZ1R0+Jz6/AGxw4TagG4TgBTZVh2WkICMALmVqFcmA7hZbMaW8cpicot1LeLAg==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "padding missing.",
+      "name": "signature-not-canonical-base64",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "63 bytes.",
+      "name": "signature-63-bytes",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZn:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "only sha-256.",
+      "name": "digest-other-algorithm",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-512=:pZxxaJhV7bjB8kEU7/nxows18oVKCHKFYkDHogCWMbatUh1/N59ryHLIHxTCsOYxj4bYpSroLrBB+Itpv8Xr7Q==:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "one member only.",
+      "name": "digest-two-members",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:, sha-512=:pZxxaJhV7bjB8kEU7/nxows18oVKCHKFYkDHogCWMbatUh1/N59ryHLIHxTCsOYxj4bYpSroLrBB+Itpv8Xr7Q==:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a correctly signed request whose coverage is not §3's order.",
+      "name": "coverage-reordered",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"archon-audience\" \"@target-uri\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:ITl8umKHxqtW0ifnxiodSVyOhFWxH+w1uFnBnOqohEClpU/xGiyGgF2XJZLUozVdFj0N4eH2hVakW4uUboaQDg==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "Content-Type present but not covered.",
+      "name": "content-type-uncovered",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:Jge8A+b9PwNgXGmqvTHJBCowGf7QSlaNDxAp9xK4BGg6KNoSOmebdk5oWUfYmGNRu9UMW5QQ4SQ3/bfUIKtrAA==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a declared header present but not covered.",
+      "name": "declared-uncovered",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:uw3lB7XVMB/joLvebecrowrX95UZ6KrM7VENvGuoYJZ5VSyYYMA29TPcImkh6SBDr++/L4qL0t8TjjQvhAYNBw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a covered declared header the request does not carry.",
+      "name": "covers-absent-header",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\" \"x-tenant\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:14vd5xTTC+NTUqvytkfaQ1A3YGazhT/CjQ7Z465PAypvNeGrg2EuGvfK/XuJCrHTOxGcr7RssIuhqXlmaXLYAA==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a header the product did not declare is covered.",
+      "name": "covers-undeclared-header",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "user-agent",
+            "agent/1"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\" \"user-agent\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:gWTjsUjd4+F+QbbBy/uDrAh9YdE8WeVG6pTwobSl3uJ/cZ9+llJTXf57JR5EKQIsU6YPBdGpxf08Pnh1j00BBw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a covered field that appears more than once.",
+      "name": "covered-header-twice",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ],
+          [
+            "Idempotency-Key",
+            "k-123"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "Content-Type twice.",
+      "name": "content-type-twice",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "Archon-Audience twice.",
+      "name": "audience-header-twice",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a request signed for another audience is refused by the echo, whatever the signature.",
+      "name": "audience-mismatch",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://evil.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:zZs5XfaKcuVVAG/vdkbDcxRNV1kxGBxKLWIPJ66VU19mRPDHEJVXOEwhbbS9A7mE+7ZLX39Fg7fh0jlQNV1gCA==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a request properly signed with the audience plus a trailing slash: the echo is compared byte for byte.",
+      "name": "audience-trailing-slash",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api/"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:YT7niGozGIPdyve3eScaKY96aVR8WNs/AQKAXkTBKdvYx4OGX5HatOytH0HWGZ7zh8PRoBlf7MmafiTGx6PSCQ==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a request properly signed for another service on the same origin: its @target-uri is identical, so only the echo refuses it.",
+      "name": "audience-same-origin-other-path",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/other"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:4WHcN3w2b+/J9P8HVhKOc6u0izS7TxHQfj+37Hyk2dyTV+f1G8J08cZpSUc+q6PoC1mUVNCfiDIOodquJeZdCQ==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the digest is recomputed over the received body.",
+      "name": "body-changed",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a226f74686572227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the body removed: the digest no longer matches.",
+      "name": "body-dropped",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": ""
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the method as received is the one covered.",
+      "name": "method-changed",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "PUT",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "another query.",
+      "name": "target-changed",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=2",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a request signed over an escape and received decoded.",
+      "name": "target-decoded",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/a/b",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:tNBAQE2utSMQ5CdQW9FEsLAVsI5ENDCBkvKTEBzByJsfxwBRS61LA5mG6NcH5xbtgXhD9uaKdXkAtTaOhq4SCQ==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a received request-target that is not origin form.",
+      "name": "target-absolute-form",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "https://dawn.example/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the idempotency key changed.",
+      "name": "covered-value-changed",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-124"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "Content-Type changed.",
+      "name": "content-type-changed",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "text/plain"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a covered value with a byte above 0x7E.",
+      "name": "content-type-non-ascii",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "text/plain; x=ä"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:kSCQ/Frxnf05tyow+dAGvrO4AS37kmUcdftqkNXUQPK4Z825AC+VC2qVxRWwCxgnvesgvQWDeZ1SkZ0NSG8/Aw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "keyid names one key, the signature is another's.",
+      "name": "signed-by-another-key",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:bV9m3jksN8jxa/sosQ5qWsPKc4OOmpZGf3X9GbWlzQ4Dc76goFRjmmg5zplE4GqkyY1JHqPr8Sq83weUdcW6CQ==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a plain Ed25519 signature over the base.",
+      "name": "raw-signature",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:RWbq+vxRBbFEVUQCmDLFwQCymug49elnC1D1KlLxXmfX9N0uytQNfHj3JVlFTF/yG5Uy52kH+Ly88X6UhSowAg==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "Ed25519ph without the context.",
+      "name": "ph-without-context",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:XR4+034C2GUsHXTn6Ov5Zky8uQNcN9WxxrHQkcjAwIi6urMrpsV5FlUBPw+jbYWxO6J6qIg+KsqcLOxz+tUqBw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "the base signed in archon-login/1.",
+      "name": "other-domain",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:j2KHPVKdYUPM1YyuLeD+g5pBLvqW9cYhPQEzl+Y9aZWr8LjCUOmx1tEbCyoHp2MXvRLOhKFy68BKq9cr8d5nAA==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "one bit flipped.",
+      "name": "signature-flipped",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JIec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "now = expires + skew.",
+      "name": "expired",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034730,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "now = created − skew − 1.",
+      "name": "not-yet-valid",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034609,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "expires − created = max_lifetime + 1.",
+      "name": "lifetime-over-max",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 300,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034941;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:UKgQTnfWxg45y74r0H4jV5bxvbY8u1g8jWYf85kXBRH12t1VWVBned5AW18N8+AyGjJh/yDLW9UO2uFRxyj8DA==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "a policy with max_lifetime 0 is refused.",
+      "name": "policy-max-lifetime-zero",
+      "policy": {
+        "audience": "https://dawn.example/api",
+        "declared": [
+          "idempotency-key",
+          "x-tenant"
+        ],
+        "max_lifetime": 0,
+        "skew": 30
+      },
+      "now": 1789034650,
+      "request": {
+        "method": "POST",
+        "request_target": "/api/v1/things?x=1",
+        "headers": [
+          [
+            "Host",
+            "dawn.example"
+          ],
+          [
+            "Content-Type",
+            "application/json"
+          ],
+          [
+            "idempotency-key",
+            "k-123"
+          ],
+          [
+            "Archon-Audience",
+            "https://dawn.example/api"
+          ],
+          [
+            "Content-Digest",
+            "sha-256=:6yyJFBdrQZ5LVZApUb32YCte7JLwA7kIBExNpp5eei0=:"
+          ],
+          [
+            "Signature-Input",
+            "archon=(\"@method\" \"@target-uri\" \"archon-audience\" \"content-digest\" \"content-type\" \"idempotency-key\");created=1789034640;expires=1789034700;nonce=\"AAECAwQFBgcICQoLDA0ODw\";keyid=\"ed25519:d759793bbc13a2819a827c76adb6fba8a49aee007f49f2d0992d99b825ad2c48\";tag=\"archon-request/1\""
+          ],
+          [
+            "Signature",
+            "archon=:JYec4UBTtUI1ALdiZWU8DC5i2DT/9G231DypPD6THcwTUWy6WIWdAVkx81pyGhUyVpbHckdWReDMkVewEcZnDw==:"
+          ]
+        ],
+        "body": "7b226e616d65223a227468696e67227d"
+      },
+      "result": {
+        "error": true
+      }
     }
   ]
 }

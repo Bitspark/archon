@@ -13,8 +13,12 @@
 //!   enroll_binding : in `{name, audience, request}`       out `{"name","result":{"ok":"<hex>"}|{"error":true}}`
 //!   enroll_prove   : in `{name, seed, audience, request}` out `{"name","result":{"ok":"<128-hex>"}|{"error":true}}`
 //!   enroll_verify  : in `{name, audience, request, sig}`  out `{"name","valid":<bool>}`
+//!   request_sign   : in `{name, seed, method, audience, request_target, body, content_type, declared, created, expires, nonce}`
+//!                    out `{"name","result":{"ok":{"base","headers"}}|{"error":true}}`
+//!   request_verify : in `{name, policy, now, request{method, request_target, headers, body}}`
+//!                    out `{"name","result":{"ok":{"principal","created","expires","nonce","target_uri"}}|{"error":true}}`
 
-use archon_sdk::{enroll, envelope, login, possession};
+use archon_sdk::{enroll, envelope, login, possession, request};
 use serde_json::{json, Value};
 use std::io::Read;
 
@@ -197,6 +201,87 @@ fn main() {
                     .map(|req| enroll::verify(s("audience"), &req, &hex_decode(s("sig"))))
                     .unwrap_or(false);
                 json!({ "name": name, "valid": valid })
+            }
+            "request_sign" => {
+                let pairs = |v: &Value| -> Vec<(String, String)> {
+                    v.as_array()
+                        .map(|a| a.as_slice())
+                        .unwrap_or(&[])
+                        .iter()
+                        .map(|p| {
+                            (
+                                p[0].as_str().unwrap_or("").to_string(),
+                                p[1].as_str().unwrap_or("").to_string(),
+                            )
+                        })
+                        .collect()
+                };
+                let input = request::ToSign {
+                    method: s("method").to_string(),
+                    audience: s("audience").to_string(),
+                    request_target: s("request_target").to_string(),
+                    body: hex_decode(s("body")),
+                    content_type: c["content_type"].as_str().map(str::to_string),
+                    declared: pairs(&c["declared"]),
+                    created: c["created"].as_u64().unwrap_or(0),
+                    expires: c["expires"].as_u64().unwrap_or(0),
+                    nonce: hex_decode(s("nonce")),
+                };
+                let r = seed32_checked(c)
+                    .and_then(|seed| request::sign(&seed, &input))
+                    .map(|(base, h)| {
+                        json!({ "base": base, "headers": {
+                            "archon-audience": h.archon_audience,
+                            "content-digest": h.content_digest,
+                            "signature-input": h.signature_input,
+                            "signature": h.signature,
+                        } })
+                    });
+                json!({ "name": name, "result": result_json(r) })
+            }
+            "request_verify" => {
+                let p = &c["policy"];
+                let r = &c["request"];
+                let policy = request::Policy {
+                    audience: p["audience"].as_str().unwrap_or("").to_string(),
+                    declared: p["declared"]
+                        .as_array()
+                        .map(|a| a.as_slice())
+                        .unwrap_or(&[])
+                        .iter()
+                        .map(|d| d.as_str().unwrap_or("").to_string())
+                        .collect(),
+                    max_lifetime: p["max_lifetime"].as_u64().unwrap_or(0),
+                    skew: p["skew"].as_u64().unwrap_or(0),
+                };
+                let received = request::Received {
+                    method: r["method"].as_str().unwrap_or("").to_string(),
+                    request_target: r["request_target"].as_str().unwrap_or("").to_string(),
+                    headers: r["headers"]
+                        .as_array()
+                        .map(|a| a.as_slice())
+                        .unwrap_or(&[])
+                        .iter()
+                        .map(|h| {
+                            (
+                                h[0].as_str().unwrap_or("").to_string(),
+                                h[1].as_str().unwrap_or("").to_string(),
+                            )
+                        })
+                        .collect(),
+                    body: hex_decode(r["body"].as_str().unwrap_or("")),
+                };
+                let out =
+                    request::verify(&policy, c["now"].as_u64().unwrap_or(0), &received).map(|v| {
+                        json!({
+                            "principal": v.key_text,
+                            "created": v.created,
+                            "expires": v.expires,
+                            "nonce": hex_encode(&v.nonce),
+                            "target_uri": v.target_uri,
+                        })
+                    });
+                json!({ "name": name, "result": result_json(out) })
             }
             other => panic!("unknown family: {other}"),
         };

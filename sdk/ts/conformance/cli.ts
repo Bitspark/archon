@@ -13,9 +13,13 @@
 //   enroll_binding : in {name, audience, request}       out {"name","result":{"ok":"<hex>"}|{"error":true}}
 //   enroll_prove   : in {name, seed, audience, request} out {"name","result":{"ok":"<128-hex>"}|{"error":true}}
 //   enroll_verify  : in {name, audience, request, sig}  out {"name","valid":<bool>}
+//   request_sign   : in {name, seed, method, audience, request_target, body, content_type, declared, created, expires, nonce}
+//                    out {"name","result":{"ok":{"base","headers"}}|{"error":true}}
+//   request_verify : in {name, policy, now, request{method, request_target, headers, body}}
+//                    out {"name","result":{"ok":{"principal","created","expires","nonce","target_uri"}}|{"error":true}}
 
 import { readFileSync } from "node:fs";
-import { provePossession, verifyPossession, seal, open, loginBinding, proveLogin, verifyLogin, proveCollect, verifyCollect, deriveAudience, enrollBinding, proveEnroll, verifyEnroll } from "../src/index.js";
+import { provePossession, verifyPossession, seal, open, loginBinding, proveLogin, verifyLogin, proveCollect, verifyCollect, deriveAudience, enrollBinding, proveEnroll, verifyEnroll, signRequest, verifyRequest } from "../src/index.js";
 import type { EnrollRequest, LoginRequest } from "../src/index.js";
 
 function fromHex(s: string): Uint8Array {
@@ -136,6 +140,43 @@ for (const c of cases as Array<Record<string, string>>) {
     case "enroll_verify":
       out = { name, valid: totally(() => verifyEnroll(c["audience"]!, enrollRequest(c), fromHex(c["sig"]!))) };
       break;
+    case "request_sign": {
+      const k = c as Record<string, unknown>;
+      out = {
+        name,
+        result: attempt(() =>
+          signRequest(fromHex(k["seed"] as string), {
+            method: k["method"] as string,
+            audience: k["audience"] as string,
+            requestTarget: k["request_target"] as string,
+            body: fromHex(k["body"] as string),
+            contentType: (k["content_type"] as string | null) ?? undefined,
+            declared: k["declared"] as Array<[string, string]>,
+            created: k["created"] as number,
+            expires: k["expires"] as number,
+            nonce: fromHex(k["nonce"] as string),
+          }),
+        ),
+      };
+      break;
+    }
+    case "request_verify": {
+      const k = c as Record<string, unknown>;
+      const p = k["policy"] as { audience: string; declared: string[]; max_lifetime: number; skew: number };
+      const r = k["request"] as { method: string; request_target: string; headers: Array<[string, string]>; body: string };
+      out = {
+        name,
+        result: attempt(() => {
+          const v = verifyRequest(
+            { audience: p.audience, declared: p.declared, maxLifetime: p.max_lifetime, skew: p.skew },
+            k["now"] as number,
+            { method: r.method, requestTarget: r.request_target, headers: r.headers, body: fromHex(r.body) },
+          );
+          return { principal: v.keyText, created: v.created, expires: v.expires, nonce: toHex(v.nonce), target_uri: v.targetUri };
+        }),
+      };
+      break;
+    }
     default:
       throw new Error(`unknown family: ${family}`);
   }

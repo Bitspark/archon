@@ -22,7 +22,8 @@
     "test": "tsc -p tsconfig.json && node --test dist/test/*.test.js"
   },
   "dependencies": {
-    "@bitspark/archon": "file:../../core/ts"
+    "@bitspark/archon": "file:../../core/ts",
+    "@noble/hashes": "^2.2.0"
   },
   "devDependencies": {
     "typescript": "^7.0",

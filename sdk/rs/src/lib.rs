@@ -29,4 +29,5 @@ pub mod enroll;
 pub mod envelope;
 pub mod login;
 pub mod possession;
+pub mod request;
 pub mod signer;

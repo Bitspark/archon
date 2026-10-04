@@ -21,7 +21,7 @@ archon's (ADR 0008): Ed25519ph with the domain as the RFC 8032 context.
 | signature label | `archon` | the one dictionary member in `Signature-Input` and `Signature` |
 | audience echo | `Archon-Audience` | the header carrying the client's configured audience, checked, never trusted |
 | enrollment domain | `archon-enroll/1` | the context of an enrollment proof (§6) |
-| identifier floor | 16 bytes | the least entropy in `nonce` (128 bits) |
+| identifier size | 16..=64 bytes | the `nonce`'s entropy: at least 128 bits, and a bound |
 
 ## 2. The audience
 
@@ -45,11 +45,31 @@ audience and a list of product-declared headers:
    `"content-digest"`, then `"content-type"` if the request carries one, then each product-declared
    header the request carries, lowercased, in the product's declared order.
 4. **Choose the parameters**, in this order: `created` (integer seconds since the epoch), `expires`
-   (integer, `created < expires`), `nonce` (16 or more fresh random bytes, unpadded base64url),
+   (integer, `created < expires`), `nonce` (16..=64 fresh random bytes, unpadded base64url),
    `keyid` (the principal's canonical key text, `ed25519:<hex>`), `tag` (`archon-request/1`).
 5. **Build the signature base** (§4) and sign it: `signInDomain(seed, "archon-request/1", base)`.
 6. **Send** `Signature-Input: archon=<inner list with parameters>` and
    `Signature: archon=:<base64 of the 64-byte signature>:`.
+
+### 3.1 What each value may be
+
+Both ends refuse, rather than repair, anything outside these rules. "Visible ASCII" is 0x21–0x7E.
+
+| value | rule |
+|---|---|
+| audience | visible ASCII; begins `http://` or `https://`; a non-empty authority (up to the next `/`, or the end) with no `@`; no `?` or `#`; does not end in `/`. It is compared byte for byte, never normalised. **The origin** is the audience up to its authority's end. |
+| method | 1 or more `tchar` (RFC 9110 token), case kept |
+| request-target | origin form: begins `/`; visible ASCII without `#`; 1..=8192 bytes |
+| declared header name | 1 or more of `a-z 0-9 -`; not `archon-audience`, `content-digest`, `content-type`, `signature-input` or `signature` (the first three are covered anyway, the last two carry the proof) |
+| covered field value | after removing leading and trailing SP and HTAB, 1..=8192 bytes of visible ASCII, SP and HTAB: no CR, LF, NUL, other control, or byte above 0x7E in v1 |
+| `nonce` | 16..=64 bytes, as unpadded base64url (`A-Z a-z 0-9 - _`) in its one canonical spelling |
+| `created`, `expires` | integers in 0..=999999999999999 (at most 15 digits), `created < expires` |
+| base64 in `Signature` and `Content-Digest` | the standard alphabet with `=` padding, in its one canonical spelling (unused bits zero) |
+| the verifier's `W`, `δ` | integers, `W ≥ 1`, `δ ≥ 0`, both at most 999999999999999 |
+
+Header names are matched without regard to case. `Signature-Input` and `Signature` appear exactly
+once. `Content-Type`, and each product-declared header, is covered **if and only if** the request
+carries it: an uncovered one present is refused, and so is a covered one absent.
 
 A retry is a new request: new `created`, new `expires`, new `nonce`, a new signature; the
 application's idempotency key, if it uses one, is a product-declared header and stays the same.
@@ -140,7 +160,9 @@ the service's atomic operation, no adapter in which possession alone suffices.
 
 ## 7. The order a verifier checks, and the gate before this is frozen
 
-A request verifier checks, refusing at the first failure:
+A request verifier checks, refusing at the first failure. Steps 1–7 are the sdk's pure verification
+(`request.Verify` in Go, `request::verify` in Rust, `verifyRequest` in TypeScript); steps 8–9 are the
+server adapter's, which owns the clock, the replay store and what reaches the application:
 
 1. `Signature-Input`, `Signature` and `Content-Digest` parse under §5, exactly once each.
 2. `keyid` is a canonical principal; `tag` is the profile's.

@@ -22,3 +22,4 @@ export * from "./envelope.js";
 export * from "./login.js";
 export * from "./login-audience.js";
 export * from "./enroll.js";
+export * from "./request.js";
