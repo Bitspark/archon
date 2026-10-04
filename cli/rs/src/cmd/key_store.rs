@@ -8,7 +8,7 @@
 //! pinned in `cli/smoke.mjs`.
 
 use std::fs;
-use std::io::{IsTerminal, Read, Write};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use archon_core::crypto::{public_key_from_seed, SEED_SIZE};
@@ -138,13 +138,35 @@ fn trim_newline(b: &mut Vec<u8>) {
     }
 }
 
+/// The one wording for "nowhere to prompt", shared by every command that unlocks or creates a
+/// key.
+pub const NO_TERMINAL: &str =
+    "no password: there is no terminal to prompt on — set ARCHON_KEY_PASSWORD or pass --password-fd <n>";
+
+/// Whether there is a CONTROLLING TERMINAL to prompt on: `/dev/tty`, or the Windows console.
+/// rpassword prompts and reads there, never on fd 0 — which may be carrying the very message
+/// being signed (ADR 0009 §5) — so this asks the same devices rather than `stdin()`.
+fn has_terminal() -> bool {
+    let device = if cfg!(windows) { "CONIN$" } else { "/dev/tty" };
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(device)
+        .is_ok()
+}
+
 /// Sources the password: `--password-fd`, then `ARCHON_KEY_PASSWORD`, then an interactive
-/// prompt. `confirm` asks twice when a key is being created, where a typo would otherwise
-/// be discovered only at the next unlock.
+/// prompt on the controlling terminal. `confirm` asks twice when a key is being created,
+/// where a typo would otherwise be discovered only at the next unlock. `preamble` is shown on
+/// that terminal before the prompt, and only when there is a prompt.
 ///
 /// `Zeroizing`, as every unlocked seed is (docs/keystore.md §4, #53): wiped on drop,
 /// best-effort. The environment's own copy of `ARCHON_KEY_PASSWORD` is not ours to wipe.
-pub fn read_password(fd: Option<i32>, confirm: bool) -> Result<Zeroizing<Vec<u8>>, String> {
+pub fn read_password(
+    fd: Option<i32>,
+    confirm: bool,
+    preamble: &str,
+) -> Result<Zeroizing<Vec<u8>>, String> {
     if let Some(n) = fd {
         let mut buf = Zeroizing::new(Vec::new());
         read_from_fd(n, &mut buf)?;
@@ -154,14 +176,11 @@ pub fn read_password(fd: Option<i32>, confirm: bool) -> Result<Zeroizing<Vec<u8>
     if let Ok(v) = std::env::var("ARCHON_KEY_PASSWORD") {
         return Ok(Zeroizing::new(v.into_bytes()));
     }
-    if !std::io::stdin().is_terminal() {
-        return Err(
-            "no password: stdin is not a terminal — set ARCHON_KEY_PASSWORD or pass --password-fd <n>"
-                .to_string(),
-        );
+    if !has_terminal() {
+        return Err(NO_TERMINAL.to_string());
     }
     let first = Zeroizing::new(
-        rpassword::prompt_password("password: ")
+        rpassword::prompt_password(format!("{preamble}password: "))
             .map_err(|e| format!("could not read the password: {e}"))?,
     );
     if confirm {
@@ -271,10 +290,19 @@ pub fn read_default_key_name() -> Result<Option<String>, String> {
 /// the ONE unlock path, shared by `key export` and `login --key`, so no two commands can
 /// ask for a password differently.
 pub fn unlock_named_key(name: &str, fd: Option<i32>) -> Result<Zeroizing<[u8; SEED_SIZE]>, String> {
+    let (raw, _) = read_named_key(name)?;
+    let password = read_password(fd, false, "")?;
+    keystore::open(&raw, &password)
+}
+
+/// A stored key's file and the public key its header CLAIMS, opening nothing and asking for
+/// no password. The claim is what `sign --key --expect` checks before the prompt; it is proven
+/// only when the seal opens, because `keystore::open` refuses a seed that does not derive it.
+pub fn read_named_key(name: &str) -> Result<(Vec<u8>, Vec<u8>), String> {
     let path = key_path(name)?;
     let raw = fs::read(&path).map_err(|_| format!("no key named {name:?} in archon's store"))?;
-    let password = read_password(fd, false)?;
-    keystore::open(&raw, &password)
+    let public_key = keystore::parse_header(&raw)?.public_key.to_vec();
+    Ok((raw, public_key))
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +340,7 @@ pub fn store_generated(name: &str, seed: &[u8], fd: Option<i32>) -> Result<(), S
             "a key named {name:?} already exists; remove it first (archon key rm {name})"
         ));
     }
-    let password = read_password(fd, true)?;
+    let password = read_password(fd, true, "")?;
     let principal = seal_and_write(&path, seed, &password)?;
     println!("generated and stored {name} ({principal}).");
     Ok(())
@@ -413,7 +441,7 @@ pub fn run_add(args: &[String]) -> Result<(), String> {
         }
     };
 
-    let password = read_password(fd, true)?;
+    let password = read_password(fd, true, "")?;
     let principal = seal_and_write(&path, &seed[..], &password)?;
     match from {
         None => println!("generated and stored {name} ({principal})."),

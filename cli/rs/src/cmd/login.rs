@@ -1130,7 +1130,7 @@ mod tests {
     fn command_secrets_leave_as_zeroizing() {
         type Seed = Result<Zeroizing<[u8; SEED_SIZE]>, String>;
         type Password = Result<Zeroizing<Vec<u8>>, String>;
-        let _: fn(Option<i32>, bool) -> Password = crate::cmd::key_store::read_password;
+        let _: fn(Option<i32>, bool, &str) -> Password = crate::cmd::key_store::read_password;
         let _: fn(&str, Option<i32>) -> Seed = unlock_named_key;
         let _: fn(&LoginSource, Option<i32>) -> Seed = resolve_login_seed;
     }

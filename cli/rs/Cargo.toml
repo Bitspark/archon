@@ -44,6 +44,10 @@ argon2 = "0.6"
 chacha20poly1305 = "0.11"
 unicode-normalization = "0.1"
 rpassword = "7"
+# The SHA-256 `sign --key` shows before the password, so a person can match the bytes a tool
+# is asking them to sign. Already in the graph through the floor, so it adds no crate — with
+# its default `oid` feature off, which would add const-oid for nothing this crate uses.
+sha2 = { version = "0.11", default-features = false }
 # Best-effort wiping of the seed, the password and the derived key (docs/keystore.md §4,
 # #53). Already in the graph through ed25519-dalek and rustls, so it adds no crate.
 zeroize = "1"

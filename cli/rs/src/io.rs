@@ -50,6 +50,25 @@ pub fn take_in_flag(args: &[String]) -> Result<(Vec<String>, Option<String>), St
 /// True when the args request this command's help — `<cmd> --help` / `<cmd> -h`, with the
 /// flag as the first token. Help is success (usage to STDOUT, exit 0), distinct from the
 /// error path (usage to stderr, exit non-zero).
+/// A JSON string literal by the one rule the three binaries share, so machine output is
+/// byte-identical across them: `"` and `\` are escaped, every C0 control is `\u00xx` in
+/// lowercase hex, and everything else — U+2028 included, which Go's encoder would escape — is
+/// written as itself.
+pub fn json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 pub fn wants_help(args: &[String]) -> bool {
     matches!(args.first().map(String::as_str), Some("--help" | "-h"))
 }

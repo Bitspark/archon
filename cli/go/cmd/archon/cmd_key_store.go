@@ -12,6 +12,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -116,7 +117,7 @@ func runKeyAdd(args []string) error {
 	}
 	defer keystore.Zeroise(seed)
 
-	password, err := readPassword(pwFD, true)
+	password, err := readPassword(pwFD, true, "")
 	if err != nil {
 		return err
 	}
@@ -353,20 +354,36 @@ func runKeyExport(args []string) error {
 // It is the ONE unlock path, shared by `key export` and `login --key`, so no two commands
 // can ask for a password differently. The caller owns the seed and must Zeroise it.
 func unlockNamedKey(name string, pwFD int) ([]byte, error) {
-	path, err := keystore.Path(name)
+	raw, _, err := readNamedKey(name)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("no key named %q in archon's store", name)
-	}
-	password, err := readPassword(pwFD, false)
+	password, err := readPassword(pwFD, false, "")
 	if err != nil {
 		return nil, err
 	}
 	defer keystore.Zeroise(password)
 	return keystore.Open(raw, password)
+}
+
+// readNamedKey returns a stored key's file and the public key its header CLAIMS, opening
+// nothing and asking for no password. The claim is what `sign --key --expect` checks before
+// the prompt; it is proven only when the seal opens, because keystore.Open refuses a seed
+// that does not derive it.
+func readNamedKey(name string) (file, publicKey []byte, err error) {
+	path, err := keystore.Path(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	file, err = os.ReadFile(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("no key named %q in archon's store", name)
+	}
+	h, err := keystore.ParseHeader(file)
+	if err != nil {
+		return nil, nil, err
+	}
+	return file, h.PublicKey, nil
 }
 
 // seedFromHexish accepts the two shapes ADR 0007 §A names: a 32-byte seed as 64 hex, and
@@ -420,10 +437,16 @@ func takePasswordFD(args []string) (rest []string, fd int, err error) {
 	return rest, fd, nil
 }
 
+// errNoTerminal is the one wording for "nowhere to prompt", shared by every command that
+// unlocks or creates a key.
+var errNoTerminal = errors.New("no password: there is no terminal to prompt on — set ARCHON_KEY_PASSWORD or pass --password-fd <n>")
+
 // readPassword sources the password: --password-fd, then ARCHON_KEY_PASSWORD, then an
-// interactive prompt. Never argv. `confirm` asks twice when a key is being created, where
-// a typo would otherwise be discovered only at the next unlock.
-func readPassword(fd int, confirm bool) ([]byte, error) {
+// interactive prompt on the CONTROLLING TERMINAL — never fd 0, which may be carrying the
+// very message being signed (ADR 0009 §5). Never argv. `confirm` asks twice when a key is
+// being created, where a typo would otherwise be discovered only at the next unlock.
+// `preamble` is shown on that terminal before the prompt, and only when there is a prompt.
+func readPassword(fd int, confirm bool, preamble string) ([]byte, error) {
 	if fd >= 0 {
 		f := os.NewFile(uintptr(fd), fmt.Sprintf("fd/%d", fd))
 		if f == nil {
@@ -442,19 +465,29 @@ func readPassword(fd int, confirm bool) ([]byte, error) {
 	if env, ok := os.LookupEnv("ARCHON_KEY_PASSWORD"); ok {
 		return []byte(env), nil
 	}
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return nil, fmt.Errorf("no password: stdin is not a terminal — set ARCHON_KEY_PASSWORD or pass --password-fd <n>")
+	in, out, err := openTerminal()
+	if err != nil {
+		return nil, errNoTerminal
 	}
-	fmt.Fprint(os.Stderr, "password: ")
-	first, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(os.Stderr)
+	defer func() {
+		if out != in {
+			out.Close()
+		}
+		in.Close()
+	}()
+	if !term.IsTerminal(int(in.Fd())) {
+		return nil, errNoTerminal
+	}
+	fmt.Fprint(out, preamble, "password: ")
+	first, err := term.ReadPassword(int(in.Fd()))
+	fmt.Fprintln(out)
 	if err != nil {
 		return nil, fmt.Errorf("could not read the password: %w", err)
 	}
 	if confirm {
-		fmt.Fprint(os.Stderr, "password (again): ")
-		second, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Fprintln(os.Stderr)
+		fmt.Fprint(out, "password (again): ")
+		second, err := term.ReadPassword(int(in.Fd()))
+		fmt.Fprintln(out)
 		if err != nil {
 			return nil, fmt.Errorf("could not read the password: %w", err)
 		}
@@ -526,7 +559,7 @@ func storeGenerated(name string, seed []byte, pwFD int) error {
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("a key named %q already exists; remove it first (archon key rm %s)", name, name)
 	}
-	password, err := readPassword(pwFD, true)
+	password, err := readPassword(pwFD, true, "")
 	if err != nil {
 		return err
 	}

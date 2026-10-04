@@ -56,16 +56,29 @@ its error codes. **It is not an OAuth or OpenID Connect provider, not SAML, and 
 single sign-on integration**, and it issues no bearer token. Whether the person behind the key
 may do anything is the authority layer's question, answered in your `AdmitAuthority`.
 
+## Decided, not yet released
+
+These are decided ([ADR 0009](architecture/decisions/0009-the-signing-boundary-and-the-signer-contract.md),
+[#47](https://github.com/Bitspark/archon/issues/47)) but not yet in a published release. Do not
+pin to them until a release names them:
+
+- `archon sign --key <name> --domain <d> --expect <principal>`: a tool that is not archon gets
+  a person's stored key to sign its bytes without receiving the seed. It signs in a domain only,
+  and the tool runs it from a path its integrator pinned
+  ([`cli/README.md`](../cli/README.md#sign---key-signing-for-another-tool)). This is on `main`
+  for the release after 0.8.2;
+- a signer interface in the sdk, so the protocol helpers can sign through something other than
+  a seed (ADR 0009 §4). It is on `main` for TypeScript, Go and Rust (#66) for the release after
+  0.8.2; Python and Java follow.
+
 ## Not available — proposed only
 
 These are open proposals with no decision. Do not build on them as if they existed:
 
-- `archon sign --key <name>` — signing with a stored key; today `sign` takes `--key-file` or
-  `--seed`, and only `login` reads the store ([#47](https://github.com/Bitspark/archon/issues/47));
-- a reusable signer interface for other tools to sign through archon's store without receiving
-  the seed (#47);
 - request-authentication and key-enrollment profiles for authenticating ordinary API requests
-  ([#48](https://github.com/Bitspark/archon/issues/48)).
+  ([#48](https://github.com/Bitspark/archon/issues/48)). A direction is decided internally (a
+  narrow RFC 9421 application profile, and a separate enrollment statement), but no wire format
+  is: the ADRs come after the signing boundary.
 
 ## Getting started
 

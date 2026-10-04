@@ -114,7 +114,11 @@ not a format change: files written at any parameters keep opening, which is what
 
 ## 4. Passwords
 
-Interactive prompt by default. Non-interactive: `ARCHON_KEY_PASSWORD` or `--password-fd <n>`.
+Interactive prompt by default, **on the controlling terminal** — `/dev/tty`, or the Windows
+console — and never on stdin, which may be carrying the message being signed (ADR 0009 §5): a
+tool can pipe bytes to `archon sign --key` and the person still types the password into their own
+terminal. With no terminal to prompt on (a daemon, a detached session, CI), the command refuses
+and names the two non-interactive sources: `ARCHON_KEY_PASSWORD` or `--password-fd <n>`.
 **Never argv** — argv is world-readable in the process table.
 
 On POSIX, a password file handed to `--password-fd` is **refused if it is group- or

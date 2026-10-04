@@ -29,6 +29,29 @@ func readInput(inPath string) ([]byte, error) {
 	return b, nil
 }
 
+// jsonString is a JSON string literal by the one rule the three binaries share, so machine
+// output is byte-identical across them: `"` and `\` are escaped, every C0 control is
+// `\u00xx` in lowercase hex, and everything else is written as itself — including U+2028 and
+// U+2029, which encoding/json would escape and the other two lanes' encoders would not.
+func jsonString(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch {
+		case r == '"':
+			b.WriteString(`\"`)
+		case r == '\\':
+			b.WriteString(`\\`)
+		case r < 0x20:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
 // takeInFlag scans args for an optional `--in <file>` pair, returning args with that pair
 // removed and the path ("" when absent). A trailing or empty `--in` is a clean error, so
 // all three lanes reject `--in ""` identically.

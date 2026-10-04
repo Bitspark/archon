@@ -19,6 +19,7 @@ archon <keygen|key|login|sign|verify|version> [args]
 | `key pub [--in <pem>\|--seed <hex>] [--format spki\|text\|hex]` | the public key of a private key |
 | `keygen [--seed <hex>] [--out <pem>] [--pub-out <file>] [--pub-format …]` | a key pair: public key text on stdout, private PEM to `--out` or to stderr behind a SECRET warning |
 | `sign (--key-file <pem>\|--seed <hex>) [--domain <d>] [--in <file>]` | sign the input bytes; `--domain` makes it domain-separated |
+| `sign --key <name> --domain <d> --expect <ed25519:…> [--in <file>] [--json]` | sign with a key in the store, for a tool that is not archon — [below](#sign---key-signing-for-another-tool) |
 | `verify --pubkey <ed25519:…\|hex> --sig <hex> [--domain <d>] [--in <file>]` | `valid` (exit 0) / `invalid` (exit 1) |
 | `login <url> [--key <name>\|--seed <hex>\|--key-file <pem>\|--seed-file <file>] [--authority-file <f>] [--yes]` | prove possession to a service so a browser key may act for you, within a scope you are shown first; with no key flag, the store's default key signs |
 | `login --audience <base> [--scope <entry>]... --valid-for <seconds> [--key <name>\|--seed <hex>\|--key-file <pem>\|--seed-file <file>] [--authority-file <f>]` | the offers form ([§4.1](../docs/login.md)): with no URL, *you* start and the page finishes — the code and the page address on stderr, no confirmation, the ledger on stdout after the service answers |
@@ -39,13 +40,49 @@ store of [ADR 0007](../docs/architecture/decisions/0007-custody-in-the-command-a
 fixed 134-byte file each; [`docs/keystore.md`](../docs/keystore.md) is the byte contract and
 `vectors/keystore.json` pins it across the three binaries.
 
-Passwords come from an interactive prompt, or from `ARCHON_KEY_PASSWORD` or
-`--password-fd <n>` — never from argv, which is world-readable in the process table.
+Passwords come from an interactive prompt **on the controlling terminal** (`/dev/tty`, or the
+Windows console — never stdin, which may be carrying a message to sign), or from
+`ARCHON_KEY_PASSWORD` or `--password-fd <n>` — never from argv, which is world-readable in
+the process table. With no terminal and neither of the other two, the command refuses.
 
 Every operation that destroys, reveals or creates key material says what it did **in
 scope**: archon speaks for its own store and never for anyone else's, so an empty result
 means *nothing visible here*, never *nothing exists*. Those lines are pinned in
 `cli/smoke.mjs` so the wording cannot drift.
+
+## `sign --key`: signing for another tool
+
+A tool that needs a person's stored key to sign bytes it built — thesmos issuing a grant is the
+first — runs `archon sign --key` instead of asking for the key
+([ADR 0009](../docs/architecture/decisions/0009-the-signing-boundary-and-the-signer-contract.md) §5).
+The seed never leaves archon's process.
+
+```
+archon key list --json                    # [{"name": "alice", "principal": "ed25519:…"}] — no password
+archon sign --key alice --domain thesmos/fact/v1 --expect ed25519:… < bytes > sig.hex
+```
+
+- **The store signs in a domain only.** `--key` requires `--domain`; raw signing stays on
+  `--seed` and `--key-file`. A raw signature from a long-lived key over bytes someone else chose
+  is a signature for any protocol that signs raw.
+- **Name the key you built around.** `--key` also requires `--expect`: the principal you read
+  from `key list --json`, which comes from the file's header without a password. If the header
+  names another key, archon refuses before asking for the password. The opened seed is checked
+  again before signing, so a key replaced between the two steps never produces a signature.
+- **What the person sees.** Before the password prompt, the terminal shows the key's name and
+  principal, the domain, and the message's length and SHA-256. That proves which bytes are being
+  signed, not what they mean. Showing the meaning is the calling tool's job, before it runs archon.
+- **What comes back.** Without `--json`, stdout is the signature alone: 128 hex digits. With
+  `--json`, stdout is one record, `{"version":1,"principal":…,"scheme":"ed25519ph-context","domain":…,"signature":…}`,
+  or on failure `{"version":1,"error":"<category>"}`. The categories are `usage`, `domain`,
+  `no-key`, `key-mismatch`, `password`, `cancelled`, `unlock-failed`, `input` and `internal`.
+  The sentence on stderr is for people and may change.
+- **Every signature is verified before it is printed**, against the key, domain and bytes that
+  were asked for. That holds for `--seed` and `--key-file` too.
+- **Run it from a path you pinned.** A tool executes `archon` from an absolute path its
+  integrator configures: directly, with no shell, no `PATH` search and no fallback. It should
+  pass no secrets or descriptors it does not mean to. Finding `archon` by name is refused, for
+  the same reason as in `login` (ADR 0007 §C.5).
 
 ## `login` and the audience
 
