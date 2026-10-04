@@ -9,6 +9,11 @@
 > unlocked-key lifetime, session access control, revocation and no demonstrated need. §C.5's refusal
 > of executable discovery by name **stands**, and a downstream tool may run `archon` from an
 > absolute path its integrator pins (0009 §5). Custody remains **not** a library surface.
+>
+> **Status note, 2026-10-04 — [0010](0010-request-authentication-and-key-enrollment-profiles.md)**
+> rules the row below left open ("RFC 9421 / 9530 helpers — a separate ADR, not ruled") and
+> narrows §B's "in-memory, single process" to the login handler: new profiles carry a replay-store
+> interface with stated consistency and failure rules. The login handler is unchanged.
 **Re-rules two subtractions**, both by the operator on archon#16, first-hand, verbatim:
 custody (*"a - Yes"*, 12:15Z) and the server package (*"a - Yes!"*, 12:21Z). Both are also in `docs/growth-plan.md` §10. Written by
 the archon maintainers from the proposers' requirements (the first consumer
