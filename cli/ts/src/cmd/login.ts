@@ -148,7 +148,7 @@ export function decideLoginSource(src: LoginSource): void {
     // domain, is refused here, before any request is made (docs/keystore.md §8.2).
     const name = src.storeKey;
     const policy = store.requireNamedKey(name).policy;
-    if (policy !== null && !keystore.permits(policy, LOGIN_DOMAIN)) {
+    if (policy === null || !keystore.permits(policy, LOGIN_DOMAIN)) {
       throw new Error(
         `key ${name} may not sign in ${LOGIN_DOMAIN}: its policy is ${keystore.describePolicy(policy)} ` +
           `(change it with \`archon key policy ${name}\`)`,

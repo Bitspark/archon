@@ -176,7 +176,7 @@ func signWith(argv []string, json bool) error {
 				keyName, keytext.EncodeKey(h.PublicKey), keytext.EncodeKey(expected))
 		}
 		// Refused before the message is read or a password is asked for.
-		if !h.Policy.Permits(domain) {
+		if h.Policy == nil || !h.Policy.Permits(domain) { // fails closed on its own
 			return refuse("policy", "key %s may not sign in domain %s: its policy is %s",
 				keyName, jsonString(domain), h.Policy)
 		}

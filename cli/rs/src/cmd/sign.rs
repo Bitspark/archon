@@ -184,14 +184,25 @@ archon's own commands, which show what they sign",
             ));
         }
         // Refused before the message is read or a password is asked for.
-        if let Some(p) = header.policy.as_ref().filter(|p| !p.permits(d)) {
-            return Err(refuse(
-                "policy",
-                format!(
-                    "key {name} may not sign in domain {}: its policy is {p}",
-                    json_string(d)
-                ),
-            ));
+        // Fails closed on its own: an entry without a policy is refused here, whatever
+        // usable_key already refused.
+        match &header.policy {
+            Some(p) if p.permits(d) => {}
+            Some(p) => {
+                return Err(refuse(
+                    "policy",
+                    format!(
+                        "key {name} may not sign in domain {}: its policy is {p}",
+                        json_string(d)
+                    ),
+                ))
+            }
+            None => {
+                return Err(refuse(
+                    "policy",
+                    format!("key {name} carries no policy; refusing to sign"),
+                ))
+            }
         }
         let message = as_("input", read_bytes(in_path.as_deref()))?;
         let preamble = format!(

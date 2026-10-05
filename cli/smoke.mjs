@@ -784,7 +784,7 @@ expect("key store: rm --force says what it could not read",
       login.out === "[1]" && login.stderr.includes("may not sign in archon-login/1") ? "refused" : login.stderr, "refused");
     expect(`key policy: ${lane.name} shows the claimed policy`,
       run(lane, ["key", "policy", "twoctx"]).out,
-      `twoctx (${TEXT}): allow archon/test/v1, archon/test/v2 (claimed by the header; proven only at unlock)\n[0]`);
+      `twoctx (${TEXT}): allow "archon/test/v1", "archon/test/v2" (claimed by the header; proven only at unlock)\n[0]`);
     const before = readFileSync(keyFile("limited"));
     expect(`key policy: ${lane.name} refuses to change a policy with no person at a terminal`,
       run(lane, ["key", "policy", "limited", "--unrestricted"], { env: noPassword, detached: true }).out.endsWith("[1]") &&
@@ -832,7 +832,7 @@ expect("key store: rm --force says what it could not read",
       const [code, ...transcript] = (r.stdout ?? "").split("\n");
       const shown = transcript.join("\n");
       expect(`key policy: ${lane.name} converts a version-1 entry at the terminal`,
-        code === "0" && shown.includes("policy:  version 1, no policy") && shown.includes("becomes: allow archon/test/v1") &&
+        code === "0" && shown.includes("policy:  version 1, no policy") && shown.includes('becomes: allow "archon/test/v1"') &&
           readFileSync(keyFile(name))[4] === 2 ? "converted" : `${code} ${shown}`, "converted");
     }
     // A conversion keeps the key's own password: the version-1 file's, not this store's usual one.

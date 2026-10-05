@@ -168,7 +168,7 @@ function runSign(argv: string[], json: boolean): void {
     }
     // Refused before the message is read or a password is asked for.
     const policy = stored.header.policy;
-    if (policy !== null && !permits(policy, domain)) {
+    if (policy === null || !permits(policy, domain)) {
       throw new SignFailure(
         "policy",
         `key ${name} may not sign in domain ${jsonString(domain)}: its policy is ${describePolicy(policy)}`,

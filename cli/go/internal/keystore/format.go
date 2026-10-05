@@ -194,8 +194,32 @@ func (p Policy) String() string {
 	case len(p.Contexts) == 0:
 		return "allow nothing"
 	default:
-		return "allow " + strings.Join(p.Contexts, ", ")
+		quoted := make([]string, len(p.Contexts))
+		for i, c := range p.Contexts {
+			quoted[i] = quote(c)
+		}
+		return "allow " + strings.Join(quoted, ", ")
 	}
+}
+
+// quote spells a context by the JSON string rule, so a context holding ", " cannot read as two.
+// The same rule in the three lanes: `"` and `\` escaped, C0 controls as \u00xx.
+func quote(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch {
+		case r == '"' || r == '\\':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r < 0x20:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 func (p Policy) encode() []byte {

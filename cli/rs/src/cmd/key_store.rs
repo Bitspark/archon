@@ -798,13 +798,16 @@ pub fn run_export(args: &[String]) -> Result<(), String> {
     }
     // An allowlisted entry's seed is not written out (§8.2): its policy would not travel with
     // it. A backup is the encrypted file itself. Refused from the header, before the password.
-    if let Some(p) = usable_key(&name)?.1.policy {
-        if !p.unrestricted {
+    // Fails closed on its own: only an entry whose policy is unrestricted is exported.
+    match usable_key(&name)?.1.policy {
+        Some(p) if p.unrestricted => {}
+        Some(p) => {
             return Err(format!(
                 "refusing to export {name}: its policy allows only listed contexts ({p}), and a \
 plaintext seed would carry none of it; back up the encrypted file instead"
-            ));
+            ))
         }
+        None => return Err(format!("refusing to export {name}: it carries no policy")),
     }
     let seed = unlock_named_key(&name, fd)?;
     let pem = Zeroizing::new(seed_to_pkcs8_pem(&seed[..])?);

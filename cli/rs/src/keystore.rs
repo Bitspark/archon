@@ -220,9 +220,29 @@ impl std::fmt::Display for Policy {
         } else if self.contexts.is_empty() {
             f.write_str("allow nothing")
         } else {
-            write!(f, "allow {}", self.contexts.join(", "))
+            let quoted: Vec<String> = self.contexts.iter().map(|c| quote(c)).collect();
+            write!(f, "allow {}", quoted.join(", "))
         }
     }
+}
+
+/// Spells a context by the JSON string rule, so a context holding ", " cannot read as two. The
+/// same rule in the three lanes: `"` and `\` escaped, C0 controls as \u00xx.
+fn quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '"' | '\\' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn check_context(c: &[u8]) -> Result<(), String> {

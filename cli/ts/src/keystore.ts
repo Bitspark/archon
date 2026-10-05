@@ -180,10 +180,24 @@ export function permits(p: Policy, domain: string): boolean {
 }
 
 /** The policy as the command prints it. */
-export function describePolicy(p: Policy): string {
+export function describePolicy(p: Policy | null): string {
+  if (p === null) return "no policy";
   if (p.unrestricted) return "unrestricted";
   if (p.contexts.length === 0) return "allow nothing";
-  return `allow ${p.contexts.join(", ")}`;
+  return `allow ${p.contexts.map(quote).join(", ")}`;
+}
+
+/** Spells a context by the JSON string rule, so a context holding ", " cannot read as two. The
+ *  same rule in the three lanes: `"` and `\` escaped, C0 controls as \u00xx. */
+function quote(s: string): string {
+  let out = '"';
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) as number;
+    if (ch === '"' || ch === "\\") out += `\\${ch}`;
+    else if (cp < 0x20) out += `\\u${cp.toString(16).padStart(4, "0")}`;
+    else out += ch;
+  }
+  return `${out}"`;
 }
 
 function encodePolicy(p: Policy): Uint8Array {

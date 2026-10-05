@@ -817,7 +817,7 @@ export function runExport(args: string[]): void {
   // An allowlisted entry's seed is not written out (§8.2): its policy would not travel with it.
   // A backup is the encrypted file itself. Refused from the header, before the password.
   const policy = usableKey(name).header.policy;
-  if (policy !== null && !policy.unrestricted) {
+  if (policy === null || !policy.unrestricted) {
     throw new Error(
       `refusing to export ${name}: its policy allows only listed contexts (${keystore.describePolicy(policy)}), ` +
         "and a plaintext seed would carry none of it; back up the encrypted file instead",

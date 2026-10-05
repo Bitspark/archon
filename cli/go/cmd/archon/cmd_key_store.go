@@ -478,7 +478,7 @@ func runKeyExport(args []string) error {
 	// it. A backup is the encrypted file itself. Refused from the header, before the password.
 	if _, h, err := usableKey(name); err != nil {
 		return err
-	} else if !h.Policy.Unrestricted {
+	} else if h.Policy == nil || !h.Policy.Unrestricted { // fails closed on its own
 		return fmt.Errorf("refusing to export %s: its policy allows only listed contexts (%s), and a "+
 			"plaintext seed would carry none of it; back up the encrypted file instead", name, h.Policy)
 	}

@@ -141,7 +141,7 @@ func (s *loginSource) decide() error {
 		if err != nil {
 			return err
 		}
-		if !h.Policy.Permits(login.Domain) {
+		if h.Policy == nil || !h.Policy.Permits(login.Domain) { // fails closed on its own
 			return fmt.Errorf("key %s may not sign in %s: its policy is %s (change it with `archon key policy %s`)",
 				s.storeKey, login.Domain, h.Policy, s.storeKey)
 		}
