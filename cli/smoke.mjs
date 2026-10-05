@@ -703,7 +703,7 @@ for (const lane of lanes) {
 }
 expect("key store: rm --force says what it could not read",
   scrub(runStore(lanes[lanes.length - 1], ["key", "rm", "stray", "--force"]).stdout),
-  "removed stray (unreadable header: not 134 bytes (got 22)) from archon's store at " +
+  "removed stray (unreadable header: bad magic: not an archon key file) from archon's store at " +
     `${join("<store>", "stray")}; any copy of this key outside it is untouched.\n`);
 
 // 5c. Version 2's context policy (docs/keystore.md §8), in every lane, on files one lane wrote.
