@@ -1,6 +1,6 @@
 {
   "name": "@bitspark/archon-server",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "archon's service side: the login handler (four routes, law-free, store-minimal), the request profile's verifier with its replay store, and key enrollment's server half. Fetch-style; opens no socket.",
   "license": "Apache-2.0",
   "repository": {
