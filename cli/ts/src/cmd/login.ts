@@ -37,7 +37,7 @@ import {
   type LoginRequest as SchemeRequest,
 } from "@bitspark/archon-sdk";
 
-import { resolveSeed, wantsHelp } from "../io.js";
+import { jsonString, resolveSeed, shown, wantsHelp } from "../io.js";
 import * as store from "./key_store.js";
 
 const USAGE =
@@ -583,7 +583,12 @@ export async function runOffer(args: string[], write: (text: string) => void, io
   // `archon login … > file` must never write the code into a log (§4.1 rule 1).
   io.writeErr(`offer registered at ${audience}\n`);
   io.writeErr(`code: ${code}\n`);
-  if (offered.page !== undefined) io.writeErr(`${describePage(audience, offered.page)}\n`);
+  if (offered.page !== undefined) {
+    // The address a person would open, printed beside a warning about itself: one that would not
+    // show as itself is refused, not escaped (docs/login.md §5).
+    refuseUndisplayable("the service's page address", offered.page);
+    io.writeErr(`${describePage(audience, offered.page)}\n`);
+  }
   io.writeErr(`waiting for the page to take the offer, up to ${offered.expires_in}s\n`);
 
   // The prover paces ITSELF (ADR 0007 §C.7, #39): the route is unpaced because two parties
@@ -776,7 +781,8 @@ function errorCodeOf(status: number, body: string): string | undefined {
   if (status === 204 || status === 200) return undefined;
   try {
     const payload = JSON.parse(body) as { error?: unknown };
-    if (payload !== null && typeof payload === "object" && typeof payload.error === "string" && payload.error !== "") return payload.error;
+    // Printed in the ledger: escaped, never raw (docs/login.md §5).
+    if (payload !== null && typeof payload === "object" && typeof payload.error === "string" && payload.error !== "") return shown(payload.error);
   } catch {
     // not JSON; fall through to the status
   }
@@ -791,8 +797,9 @@ export function loginHttpError(status: number, body: string): string {
     if (payload !== null && typeof payload === "object" && typeof payload.error === "string" && payload.error !== "") {
       if (payload.error === "expired_token") return "login: this request has expired — reload the page and run the new command";
       if (payload.error === "access_denied") return "login: the service refused the login";
-      if (payload.error_description) return `login: ${payload.error_description} (${payload.error})`;
-      return `login: the service answered ${JSON.stringify(payload.error)}`;
+      // The service's words reach the terminal escaped (docs/login.md §5), never raw.
+      if (payload.error_description) return `login: ${shown(payload.error_description)} (${shown(payload.error)})`;
+      return `login: the service answered ${jsonString(payload.error)}`;
     }
   } catch {
     // not JSON; fall through to the status line

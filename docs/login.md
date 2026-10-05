@@ -321,10 +321,17 @@ test sweeps every code point against that file.
 - **The server's refusal is a courtesy.** The login handler refuses the same code points at
   begin and offer (`400`), so an honest service learns at once rather than from a person whose
   CLI refused. A third-party server that skips this check still cannot get past the CLI.
-- **Elsewhere, such a code point is escaped, never shown.** The CLIs write one as `\uxxxx` in
-  everything they print through their JSON string rule: `sign`'s pre-prompt display and `--json`
-  output, `key list --json`. Above U+FFFF it is a UTF-16 surrogate pair. The value is
-  unchanged; the raw code point never reaches the terminal.
+- **The offers form's page address is refused too** when it carries one. It is the address a
+  person would open, printed beside the CLI's warning about whether it is on the service's
+  origin, so it is never shown escaped.
+- **Elsewhere, such a code point is escaped, never shown.** The CLIs write one as `\uxxxx`, a
+  UTF-16 surrogate pair above U+FFFF, in everything else a service or a caller chose that they
+  print:
+  - `sign`'s pre-prompt display and `--json` output, and `key list --json`;
+  - a refused response's `error` and `error_description`;
+  - the offers ledger's verdict.
+
+  The value is unchanged; the raw code point never reaches the terminal.
 - **Look-alikes are not caught.** A Cyrillic "а" in place of a Latin "a" is an ordinary letter,
   and no list of code points can tell it from the one it imitates. A service that wants its
   scope entries to be unmistakable keeps them to ASCII.

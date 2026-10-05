@@ -17,11 +17,21 @@ from this Python's unicodedata; Default_Ignorable_Code_Point is not in unicodeda
 written out below from Unicode's DerivedCoreProperties.txt. Extending the list is a change to
 this file, reviewed like any other.
 
-Run from the repo root: `python vectors/tools/display-unsafe.py > vectors/display-unsafe.json`.
+Run from the repo root, with a Python whose Unicode data is 15.1.0:
+`python vectors/tools/display-unsafe.py > vectors/display-unsafe.json`.
 """
 
 import json
+import sys
 import unicodedata
+
+# The general categories come from the running Python's tables, so the Unicode version is
+# pinned: another version may move a code point between categories, and moving to it is a
+# reviewed change to this line, not a side effect of upgrading Python.
+UNICODE = "15.1.0"
+if unicodedata.unidata_version != UNICODE:
+    sys.exit(f"display-unsafe.py: this Python's Unicode data is {unicodedata.unidata_version}, "
+             f"the list is pinned to {UNICODE}; run it with a Python that has {UNICODE}")
 
 # DerivedCoreProperties.txt, Default_Ignorable_Code_Point (unchanged from Unicode 14.0 to 16.0).
 DEFAULT_IGNORABLE = [
@@ -50,8 +60,11 @@ for cp in sorted(unsafe):
 doc = {
     "_why": "The code points archon refuses to show as themselves (docs/login.md §5): Cc ∪ Cf ∪ Zl ∪ Zp ∪ Default_Ignorable_Code_Point. login refuses a scope entry carrying one before it is shown or signed; the servers refuse one at the door; the CLIs' display and machine output escape one as \\uXXXX. Frozen here as explicit ranges so every lane agrees without a Unicode table; each sdk lane's unit test sweeps all of 0..=0x10FFFF (surrogates excepted) against this file, by code point.",
     "definition": "Cc ∪ Cf ∪ Zl ∪ Zp ∪ Default_Ignorable_Code_Point",
-    "unicode": unicodedata.unidata_version,
+    "unicode": UNICODE,
     "generator": "vectors/tools/display-unsafe.py",
     "ranges": [[f"{lo:04X}", f"{hi:04X}"] for lo, hi in ranges],
 }
+# UTF-8 and LF whatever the platform: Windows' console encoding and newline translation would
+# otherwise change the bytes.
+sys.stdout.reconfigure(encoding="utf-8", newline="\n")
 print(json.dumps(doc, indent=2, ensure_ascii=False))

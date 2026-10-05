@@ -54,12 +54,26 @@ export function jsonString(s: string): string {
     const c = ch.codePointAt(0) as number;
     if (ch === '"') out += '\\"';
     else if (ch === '\\') out += '\\\\';
-    else if (displayUnsafe(c)) {
-      // `ch` is one code point; its UTF-16 units are the JSON escape's.
-      for (let i = 0; i < ch.length; i++) out += `\\u${ch.charCodeAt(i).toString(16).padStart(4, "0")}`;
-    } else out += ch;
+    else if (displayUnsafe(c)) out += escapeUnsafe(ch);
+    else out += ch;
   }
   return `${out}"`;
+}
+
+/** `s` with every display-unsafe code point written as jsonString writes it, and everything else
+ *  as itself, without quotes: for text a service chose (an error description, a verdict) that
+ *  reaches a terminal inside a message. By code point, so the astral ones are seen. */
+export function shown(s: string): string {
+  let out = "";
+  for (const ch of s) out += displayUnsafe(ch.codePointAt(0) as number) ? escapeUnsafe(ch) : ch;
+  return out;
+}
+
+/** One code point as `\uxxxx` per UTF-16 unit: a surrogate pair above U+FFFF. */
+function escapeUnsafe(ch: string): string {
+  let out = "";
+  for (let i = 0; i < ch.length; i++) out += `\\u${ch.charCodeAt(i).toString(16).padStart(4, "0")}`;
+  return out;
 }
 
 export function wantsHelp(args: string[]): boolean {

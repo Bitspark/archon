@@ -27,7 +27,8 @@ rule and is otherwise signed correctly, so it can only be refused for that rule.
 scope entry and escape in what they print ([docs/login.md](../docs/login.md) §5). Each sdk lane's
 unit test sweeps every code point against it, so the three lanes' tables are this file exactly.
 Derived by [`tools/display-unsafe.py`](tools/display-unsafe.py); regenerate with
-`python vectors/tools/display-unsafe.py > vectors/display-unsafe.json` (LF line endings).
+`python vectors/tools/display-unsafe.py > vectors/display-unsafe.json`, with a Python whose
+Unicode data is 15.1.0 (the generator refuses any other).
 
 `identity.json` — 105 cases in 7 families, the byte-level contract every archon core must
 satisfy. Driven by [`../conformance/`](../conformance/).

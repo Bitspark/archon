@@ -45,17 +45,41 @@ func jsonString(s string) string {
 			b.WriteString(`\"`)
 		case r == '\\':
 			b.WriteString(`\\`)
-		case login.DisplayUnsafe(r) && r > 0xFFFF:
-			hi, lo := utf16.EncodeRune(r)
-			fmt.Fprintf(&b, `\u%04x\u%04x`, hi, lo)
-		case login.DisplayUnsafe(r):
-			fmt.Fprintf(&b, `\u%04x`, r)
+		case escapeUnsafe(&b, r):
 		default:
 			b.WriteRune(r)
 		}
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+// shown is s with every display-unsafe code point written as jsonString writes it, and
+// everything else as itself, without quotes: for text a service chose (an error description,
+// a verdict) that reaches a terminal inside a message.
+func shown(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if !escapeUnsafe(&b, r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// escapeUnsafe writes r as `\uxxxx` — a UTF-16 surrogate pair above U+FFFF — when it is
+// display-unsafe (login.DisplayUnsafe), and reports whether it did.
+func escapeUnsafe(b *strings.Builder, r rune) bool {
+	switch {
+	case !login.DisplayUnsafe(r):
+		return false
+	case r > 0xFFFF:
+		hi, lo := utf16.EncodeRune(r)
+		fmt.Fprintf(b, `\u%04x\u%04x`, hi, lo)
+	default:
+		fmt.Fprintf(b, `\u%04x`, r)
+	}
+	return true
 }
 
 // takeInFlag scans args for an optional `--in <file>` pair, returning args with that pair

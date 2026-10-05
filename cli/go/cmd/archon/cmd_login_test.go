@@ -164,6 +164,27 @@ func TestValidateRefusesUndisplayableScope(t *testing.T) {
 	}
 }
 
+// A refusal names the code point and never echoes it: echoing it would carry it to the terminal.
+func TestARefusalNeverEchoesTheCodePoint(t *testing.T) {
+	r := validRequest()
+	r.Scope = []string{"read:\u202eprojects"}
+	err := validateLoginRequest(r, "8f3c")
+	if err == nil || !strings.Contains(err.Error(), "U+202E") || strings.Contains(err.Error(), "\u202e") {
+		t.Fatalf("err = %v, want U+202E named and never echoed", err)
+	}
+}
+
+// The service's own words — an error description, an error code — are escaped, never raw.
+func TestServiceTextIsEscaped(t *testing.T) {
+	got := loginHTTPError(400, []byte(`{"error":"invalid\u2066_request","error_description":"bad \u202e thing \ud83d\ude80"}`)).Error()
+	if want := `login: bad \u202e thing ` + "\U0001F680" + ` (invalid\u2066_request)`; got != want {
+		t.Fatalf("loginHTTPError = %q, want %q", got, want)
+	}
+	if got := loginHTTPError(400, []byte(`{"error":"x\u202ey"}`)).Error(); got != `login: the service answered "x\u202ey"` {
+		t.Fatalf("loginHTTPError = %q", got)
+	}
+}
+
 // The statement is the contract with the person AND the cross-lane pin: all three
 // binaries must produce these bytes exactly.
 func TestRenderStatement(t *testing.T) {
@@ -1014,6 +1035,18 @@ func TestOffersFromASealedStoreKey(t *testing.T) {
 		}
 		if !strings.Contains(errOut, "page: https://evil.example/login#"+stub.theCode(t)+" (NOT on the service's origin — do not open it)\n") {
 			t.Fatalf("the page was not marked off-origin:\n%s", errOut)
+		}
+	})
+
+	t.Run("a page address that would not show as itself is refused, and never echoed", func(t *testing.T) {
+		reset()
+		stub.page = "https://dawn.example/\u202elogin"
+		_, errOut, err := run(base...)
+		if err == nil || !strings.Contains(err.Error(), "page address contains U+202E") {
+			t.Fatalf("runLogin = %v, want the page address refused", err)
+		}
+		if strings.Contains(err.Error()+errOut, "\u202e") {
+			t.Fatal("the raw U+202E reached the output")
 		}
 	})
 

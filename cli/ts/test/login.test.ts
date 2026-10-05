@@ -136,6 +136,21 @@ test("refuses every display-unsafe code point in scope", () => {
   }
 });
 
+// A refusal names the code point and never echoes it.
+test("a refusal never echoes the code point", () => {
+  const r = validRequest();
+  r.scope = ["read:\u202eprojects"];
+  assert.throws(() => validateLoginRequest(r, "8f3c"), (e: Error) => e.message.includes("U+202E") && !e.message.includes("\u202e"));
+});
+
+// The service's own words are escaped, never raw.
+test("the service's text is escaped", () => {
+  const got = loginHttpError(400, '{"error":"invalid\\u2066_request","error_description":"bad \\u202e thing \\ud83d\\ude80"}');
+  assert.ok(!got.includes("\u202e") && !got.includes("\u2066"), got);
+  assert.ok(got.includes("bad \\u202e thing \u{1f680}") && got.includes("invalid\\u2066_request"), got);
+  assert.equal(loginHttpError(400, '{"error":"x\\u202ey"}'), 'login: the service answered "x\\u202ey"');
+});
+
 // The statement is the contract with the person AND the cross-lane pin: these exact bytes
 // must come out of all three binaries.
 test("renders the statement", () => {
@@ -743,6 +758,11 @@ test("offers from a sealed store key", async () => {
     r = await go(base, (s) => { s.page = "https://evil.example/login"; });
     assert.equal(r.error, undefined, r.error?.message ?? "expected the command to succeed");
     assert.ok(r.err.includes(`page: https://evil.example/login#${theCode()} (NOT on the service's origin — do not open it)\n`), r.err);
+
+    // A page address that would not show as itself is refused, and never echoed.
+    r = await go(base, (s) => { s.page = "https://dawn.example/\u202elogin"; });
+    assert.match(r.error?.message ?? "", /page address contains U\+202E/);
+    assert.ok(!(r.error?.message ?? "").includes("\u202e") && !r.err.includes("\u202e"), "the raw U+202E reached the output");
 
     // A refusal by the service is recorded in the ledger, and the command still fails.
     r = await go(base, (s) => { s.refuse = "invalid_grant"; });

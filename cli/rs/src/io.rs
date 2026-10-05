@@ -62,17 +62,35 @@ pub fn json_string(s: &str) -> String {
         match c {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
-            c if archon_sdk::login::display_unsafe(c) => {
-                let mut units = [0u16; 2];
-                for u in c.encode_utf16(&mut units) {
-                    out.push_str(&format!("\\u{:04x}", u));
-                }
-            }
+            c if archon_sdk::login::display_unsafe(c) => escape_unsafe(&mut out, c),
             c => out.push(c),
         }
     }
     out.push('"');
     out
+}
+
+/// `s` with every display-unsafe code point written as [`json_string`] writes it, and everything
+/// else as itself, without quotes: for text a service chose (an error description, a verdict)
+/// that reaches a terminal inside a message.
+pub fn shown(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if archon_sdk::login::display_unsafe(c) {
+            escape_unsafe(&mut out, c);
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `c` as `\uxxxx`: a UTF-16 surrogate pair above U+FFFF.
+fn escape_unsafe(out: &mut String, c: char) {
+    let mut units = [0u16; 2];
+    for u in c.encode_utf16(&mut units) {
+        out.push_str(&format!("\\u{:04x}", u));
+    }
 }
 
 pub fn wants_help(args: &[String]) -> bool {

@@ -554,10 +554,11 @@ func loginHTTPError(status int, body []byte) error {
 		case "access_denied":
 			return errors.New("login: the service refused the login")
 		}
+		// The service's words reach the terminal escaped (docs/login.md §5), never raw.
 		if payload.Description != "" {
-			return fmt.Errorf("login: %s (%s)", payload.Description, payload.Error)
+			return fmt.Errorf("login: %s (%s)", shown(payload.Description), shown(payload.Error))
 		}
-		return fmt.Errorf("login: the service answered %q", payload.Error)
+		return fmt.Errorf("login: the service answered %s", jsonString(payload.Error))
 	}
 	return fmt.Errorf("login: the service answered HTTP %d", status)
 }
@@ -710,6 +711,11 @@ func runOffer(args []string) error {
 	fmt.Fprintf(os.Stderr, "offer registered at %s\n", audience)
 	fmt.Fprintf(os.Stderr, "code: %s\n", code)
 	if offered.Page != "" {
+		// The address a person would open, printed beside a warning about itself: one that would
+		// not show as itself is refused, not escaped (docs/login.md §5).
+		if err := refuseUndisplayable("the service's page address", offered.Page); err != nil {
+			return err
+		}
 		fmt.Fprintln(os.Stderr, describePage(audience, offered.Page))
 	}
 	fmt.Fprintf(os.Stderr, "waiting for the page to take the offer, up to %ds\n", offered.ExpiresIn)
@@ -976,7 +982,7 @@ func errorCodeOf(status int, body []byte) string {
 		Error string `json:"error"`
 	}
 	if json.Unmarshal(body, &payload) == nil && payload.Error != "" {
-		return payload.Error
+		return shown(payload.Error) // printed in the ledger: escaped, never raw (docs/login.md §5)
 	}
 	return fmt.Sprintf("HTTP %d", status)
 }
