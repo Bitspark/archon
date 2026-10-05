@@ -103,8 +103,8 @@ pub(crate) const MAX_BODY_BYTES: usize = 64 * 1024;
 pub type AdmitAuthority =
     Box<dyn Fn(&[u8], &[u8], &[u8], &Admitted) -> Result<(), String> + Send + Sync + 'static>;
 
-/// The request a verified answer is for, as its proof bound it. The law gets its own copy:
-/// nothing it does to it reaches the stored request.
+/// The request a verified answer is for, as its proof bound it, and when this server accepted
+/// that answer. The law gets its own copy: nothing it does to it reaches the stored request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Admitted {
     /// The server's request id, unique per login — the key for idempotent effects.
@@ -113,6 +113,11 @@ pub struct Admitted {
     pub scope: Vec<String>,
     /// The delegation's approved lifetime in seconds.
     pub valid_for: u32,
+    /// When this server accepted the answer, in seconds since the epoch by its own clock
+    /// (`docs/login.md` §4): the delegation is `[accepted_at, accepted_at + valid_for)`. Taken
+    /// once, while the answer holds the admission turn; the collected answer carries the same
+    /// instant as `accepted_at`.
+    pub accepted_at: u64,
 }
 
 /// Seconds since the Unix epoch. A constructor argument rather than a call to the system
@@ -151,6 +156,8 @@ pub(crate) struct Answer {
     /// Opaque. Stored as the raw JSON the CLI sent, so what the law admitted is what the
     /// browser receives, byte for byte.
     pub authority: Option<String>,
+    /// When this server accepted it: the same instant the law was handed.
+    pub accepted_at: u64,
 }
 
 impl Record {

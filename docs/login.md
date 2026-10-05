@@ -149,7 +149,7 @@ JSON over HTTPS; bytes as lowercase hex; keys as archon key text. Error bodies a
 | **begin** (browser) | `POST <audience>/login` `{"browser": "ed25519:…", "scope": [...], "valid_for": 28800}` | `201` `{"id", "nonce", "browser", "scope", "valid_for", "expires_in": 300, "interval": 5, "verification_uri": "<audience>/login/<id>"}` |
 | **read** (CLI) | `GET <audience>/login/<id>` | `200` `{"id", "nonce", "browser", "scope", "valid_for", "expires": "<RFC 3339>"}` · `404 expired_token` |
 | **answer** (CLI) | `POST <audience>/login/<id>/answer` `{"principal", "possession", "authority"}` | `204` · `400 invalid_request` · `403 invalid_grant` (proof or authority refused) · `404 expired_token` · `409 invalid_request` (already answered) |
-| **collect** (browser) | `GET <audience>/login/<id>/answer` with header `Archon-Collect: <hex collect proof>` | `200` `{"principal", "possession", "authority"}` **once**, then the record is dropped · `202 authorization_pending` · `429 slow_down` · `403 invalid_grant` (collect proof refused) · `404 expired_token` |
+| **collect** (browser) | `GET <audience>/login/<id>/answer` with header `Archon-Collect: <hex collect proof>` | `200` `{"principal", "possession", "accepted_at": "<RFC 3339>", "authority"}` **once**, then the record is dropped · `202 authorization_pending` · `429 slow_down` · `403 invalid_grant` (collect proof refused) · `404 expired_token` |
 
 The server verifies **before storing** an answer: the id is pending and unexpired; the nonce is
 the request's; the binding recomputed from the stored request and the server's own audience
@@ -162,6 +162,21 @@ first verified answer.
 person was shown and approved, exactly as the binding carried them (§3.2). A law therefore
 decides against what was signed, not against a scope it would have to look up or assume. Each
 lane hands it a copy, so nothing the law does to it reaches the stored request.
+
+**When the delegation starts** *(archon#93)*. The server records `acceptedAt`, its own clock in
+whole seconds, once: when the answer holds the admission turn (below) and has passed its
+re-check, just before the law runs. That one instant is:
+
+- handed to the law as `Admitted`'s `acceptedAt`;
+- stored with the answer;
+- returned to the collecting client as `accepted_at` (RFC 3339), which is how a service with no
+  law learns it.
+
+The delegation is the interval **`[acceptedAt, acceptedAt + valid_for)`**. Nothing moves it:
+a refused answer stores nothing, so only the answer that is stored starts it; the browser
+collects once, and collecting reads the stored instant rather than taking a new one; and a
+retry is a new request with a new proof and its own `acceptedAt`. The binding is unchanged: the
+duration is signed, the start is the accepting server's record.
 
 **The law runs at most once at a time per request, and never for a late answer.** A verified
 answer takes the request's *admission turn* before the law runs and re-checks the request while
@@ -278,7 +293,11 @@ CLI's own entropy.
 ## 5. What the CLI shows before it signs
 
 The audience it derived (§2), the browser principal, every scope entry verbatim in order, the
-validity as a duration and as a wall-clock end, and which of its keys will sign. It signs only
+validity as a duration and as an approximate wall-clock end ("for 8h0m0s, until about <T>"),
+and which of its keys will sign. `<T>` is the CLI's clock plus `valid_for` when it shows the
+statement. The delegation starts when the server accepts the answer (§4), a little later, so
+the real end is later than `<T>` by the time the person takes to confirm, and at most by the
+request's remaining lifetime. It signs only
 after an explicit confirmation. A request that fails any rule in §3 is refused before display.
 
 ## 6. Properties
@@ -287,7 +306,11 @@ after an explicit confirmation. A request that fails any rule in §3 is refused 
   request, the scope and the validity; the possession scheme refuses an empty binding and a
   short nonce. A proof made for one origin verifies nowhere else; a proof captured in transit
   binds a key the attacker does not hold.
-- **What you see is what you sign.** Scope and validity are inside the binding.
+- **What you see is what you sign.** Scope and validity are inside the binding. The validity is
+  signed as a duration; its start is the server's `acceptedAt` (§4), so the wall-clock end the
+  CLI shows is an estimate, which is why it says "about". A signed absolute end would need a new
+  binding version (archon#93 records that as a later decision, for a consumer that must check
+  the end from the proof alone).
 - **No long-lived secrets in the browser, no sessions on the server.** K is a key the page
   can read — necessarily: the collect proof is Ed25519ph with a context (§3.3), which
   WebCrypto's Ed25519 cannot compute, so a non-extractable K is not a property this scheme

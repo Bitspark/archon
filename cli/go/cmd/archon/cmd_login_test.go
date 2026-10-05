@@ -168,7 +168,7 @@ func TestRenderStatement(t *testing.T) {
 	want := "https://prover.core.example.dev/api asks you to let browser key " + testBrowserKey + " act as you:\n" +
 		"  read:projects\n" +
 		"  read:campaigns\n" +
-		"for 8h0m0s, until 2026-09-10T18:04:00Z\n" +
+		"for 8h0m0s, until about 2026-09-10T18:04:00Z\n" +
 		"signing with the seed file /keys/julia\n"
 	if got != want {
 		t.Fatalf("statement mismatch\n got: %q\nwant: %q", got, want)
@@ -873,7 +873,7 @@ func TestOffersFromASealedStoreKey(t *testing.T) {
 	ledger := func(verdict string) string {
 		return "you offered " + audience + " to let browser key " + K + " act as you:\n" +
 			"  read:projects\n  read:campaigns\n" +
-			"for 8h0m0s, until 2026-09-10T18:04:00Z\n" +
+			"for 8h0m0s, until about 2026-09-10T18:04:00Z\n" +
 			"signed with the store key julia\n" + verdict
 	}
 	run := func(args ...string) (string, string, error) {

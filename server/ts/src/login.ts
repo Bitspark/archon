@@ -77,8 +77,8 @@ export type AdmitAuthority = (
   request: Admitted,
 ) => void | Promise<void>;
 
-/** The request a verified answer is for, as its proof bound it. The law gets copies: nothing it
- *  does to them reaches the stored request. */
+/** The request a verified answer is for, as its proof bound it, and when this server accepted
+ *  that answer. The law gets copies: nothing it does to them reaches the stored request. */
 export interface Admitted {
   /** The server's request id, unique per login — the key for idempotent effects. */
   readonly id: Uint8Array;
@@ -86,6 +86,11 @@ export interface Admitted {
   readonly scope: readonly string[];
   /** The delegation's approved lifetime in seconds. */
   readonly validFor: number;
+  /** When this server accepted the answer, in whole seconds since the epoch by its own clock
+   *  (docs/login.md §4): the delegation is [acceptedAt, acceptedAt + validFor). Taken once, while
+   *  the answer holds the admission turn; the collected answer carries the same instant as
+   *  `accepted_at`. */
+  readonly acceptedAt: number;
 }
 
 /** Seconds since the Unix epoch. A config field rather than a call to `Date.now()`, which is
@@ -124,6 +129,8 @@ interface Answer {
    *  of a parsed value. undefined means the member was absent, which is a different answer
    *  from a member whose value is `null` (§3.4) — that one has the span "null". */
   authority: string | undefined;
+  /** When this server accepted it: the same instant the law was handed. */
+  acceptedAt: number;
 }
 
 /** One pending login. Written once at begin; only `answered`, `lastPoll` and `admission` ever
@@ -663,12 +670,17 @@ export class Handler {
         // admission nobody can use.
         return fail(409, ERR_INVALID_REQUEST);
       }
+      // The delegation starts here (§4, #93): one instant, taken while this answer holds the
+      // turn, handed to the law and stored with the answer — so the law and the collecting client
+      // agree on it, and neither a refused answer before nor a late collection after can move it.
+      const acceptedAt = Math.floor(this.#clock());
       if (this.#admit !== undefined) {
         try {
           await this.#admit(live.browser, principal, new TextEncoder().encode(authority ?? ""), {
             id: new Uint8Array(live.id),
             scope: [...live.scope],
             validFor: live.validFor,
+            acceptedAt,
           });
         } catch {
           return fail(403, ERR_INVALID_GRANT);
@@ -679,7 +691,7 @@ export class Handler {
       // the turn stores an answer.
       const still = this.#live(idHex);
       if (still === undefined) return fail(404, ERR_EXPIRED_TOKEN);
-      still.answered = { principal: principalText, possession: possessionText, authority };
+      still.answered = { principal: principalText, possession: possessionText, authority, acceptedAt };
       return new Response(null, { status: 204 });
     } finally {
       release();
@@ -730,7 +742,8 @@ export class Handler {
     const authority = answer.authority === undefined ? "" : `,"authority":${answer.authority}`;
     const body =
       `{"principal":${JSON.stringify(answer.principal)},` +
-      `"possession":${JSON.stringify(answer.possession)}${authority}}`;
+      `"possession":${JSON.stringify(answer.possession)},` +
+      `"accepted_at":${JSON.stringify(rfc3339(answer.acceptedAt))}${authority}}`;
     return new Response(body, { status: 200, headers: JSON_HEADERS });
   }
 

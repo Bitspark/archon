@@ -45,11 +45,13 @@ type record struct {
 	turn chan struct{}
 }
 
-// answer is what the CLI posted and the browser collects, held verbatim between the two.
+// answer is what the CLI posted and the browser collects, held verbatim between the two, and
+// when this server accepted it.
 type answer struct {
 	Principal  string          `json:"principal"`
 	Possession string          `json:"possession"`
 	Authority  json.RawMessage `json:"authority,omitempty"`
+	AcceptedAt time.Time       `json:"-"`
 }
 
 // offer is one registered offer (docs/login.md §4.1): what a prover is willing to delegate, to

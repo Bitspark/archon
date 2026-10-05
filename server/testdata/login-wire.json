@@ -62,10 +62,12 @@
       "forbidden_keys": []
     },
     "collect": {
+      "_why": "`accepted_at` is when the server stored this answer (docs/login.md §4, archon#93): the delegation is [accepted_at, accepted_at + valid_for). The law was handed the same instant as Admitted's acceptedAt.",
       "status": 200,
       "keys": [
         "principal",
-        "possession"
+        "possession",
+        "accepted_at"
       ],
       "optional_keys": [
         "authority"
@@ -73,7 +75,8 @@
       "types": {
         "principal": "keytext",
         "possession": "hex",
-        "authority": "opaque"
+        "authority": "opaque",
+        "accepted_at": "rfc3339"
       },
       "forbidden_keys": [
         "audience"

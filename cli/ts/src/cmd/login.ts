@@ -332,7 +332,7 @@ function scopeAndValidityLines(r: LoginRequest, nowSeconds: number): string[] {
   // exactly the moment the person is deciding what to sign.
   if (r.scope.length === 0) lines.push(`  ${NO_SCOPE_LINE}`);
   for (const entry of r.scope) lines.push(`  ${entry}`);
-  lines.push(`for ${formatDuration(r.valid_for)}, until ${formatRfc3339Utc(end)}`);
+  lines.push(`for ${formatDuration(r.valid_for)}, until about ${formatRfc3339Utc(end)}`);
   return lines;
 }
 

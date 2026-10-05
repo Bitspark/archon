@@ -510,12 +510,18 @@ impl Handler {
         // `get()` is the source text as the CLI wrote it. Nothing here re-encodes it: it
         // reaches the law and the browser as the same bytes, or the tier is not opaque.
         let authority_raw = body.authority.as_ref().map(|raw| raw.get().to_string());
+        // The delegation starts here (§4, #93): one instant, taken while this answer holds the
+        // turn, handed to the law and stored with the answer — so the law and the collecting
+        // client agree on it, and neither a refused answer before nor a late collection after
+        // can move it.
+        let accepted_at = (self.clock)();
         if let Some(admit) = &self.admit {
             let payload = authority_raw.as_deref().unwrap_or("").as_bytes();
             let admitted = Admitted {
                 id: request.id.clone(),
                 scope: request.scope.clone(),
                 valid_for: request.valid_for,
+                accepted_at,
             };
             if admit(&browser, &principal, payload, &admitted).is_err() {
                 return Response::error(403, ERR_INVALID_GRANT);
@@ -536,6 +542,7 @@ impl Handler {
             principal: body.principal.clone(),
             possession: body.possession.clone(),
             authority: authority_raw,
+            accepted_at,
         });
         Response::empty(204)
     }
@@ -604,8 +611,11 @@ impl Handler {
         Response::json(
             200,
             format!(
-                "{{\"principal\":\"{}\",\"possession\":\"{}\"{}}}",
-                answer.principal, answer.possession, authority
+                "{{\"principal\":\"{}\",\"possession\":\"{}\",\"accepted_at\":\"{}\"{}}}",
+                answer.principal,
+                answer.possession,
+                crate::rfc3339(answer.accepted_at),
+                authority
             )
             .into_bytes(),
         )
