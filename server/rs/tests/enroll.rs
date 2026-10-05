@@ -527,3 +527,117 @@ fn prepare_refuses_what_could_not_complete() {
     }
     assert!(h.enroller.prepare(&good).is_ok());
 }
+
+// The by-hand flow of docs/enroll.md §1 end to end, short of the command's terminal: the
+// service builds an intent and a challenge token, the command decodes the token and proves over
+// the request it yields, and the page reads the proof token back and completes through the route.
+#[test]
+fn a_stored_key_enrolls_through_the_tokens() {
+    let h = harness();
+    let new_key = crypto::public_key_from_seed(&KEY_SEED).to_vec();
+    let intent = h
+        .enroller
+        .intent(
+            "u_1",
+            "julia (acme)",
+            "add-key",
+            &["read:projects".to_string()],
+        )
+        .unwrap();
+    let (record, _) = h
+        .enroller
+        .prepare(&Begin {
+            authorization: b"s1".to_vec(),
+            account: b"acct-1".to_vec(),
+            purpose: "add-key".to_string(),
+            new_key: new_key.clone(),
+            intent: intent.clone(),
+        })
+        .unwrap();
+    h.svc.persist(record.clone());
+    let token = h.enroller.challenge_token(&record, &intent).unwrap();
+
+    // The command: decode once, show the intent, prove over the request the token yields.
+    let ch = sdk::decode_challenge(&format!("\n{token}\n")).unwrap();
+    assert_eq!(ch.audience, AUDIENCE);
+    assert_eq!(ch.deadline, T0 + DEFAULT_TTL_SECS);
+    let (req, shown) = ch.request().unwrap();
+    assert_eq!(shown.account_name, "julia (acme)");
+    assert_eq!(shown.account_id, "u_1");
+    assert_eq!(shown.restrictions, vec!["read:projects".to_string()]);
+    let proof = sdk::prove(&KEY_SEED, &ch.audience, &req).unwrap().to_vec();
+    let proof_token = sdk::encode_proof(&sdk::Proof {
+        transaction: req.transaction.clone(),
+        new_key: req.new_key.clone(),
+        proof,
+    })
+    .unwrap();
+
+    // The page: only its own pending enrollment, then the route.
+    let p = sdk::decode_proof(&proof_token).unwrap();
+    assert_eq!(p.transaction, record.transaction);
+    assert_eq!(p.new_key, record.new_key);
+    assert_eq!(complete(&h, "s1", &p.transaction, &p.proof), 204);
+    let recorded = h.svc.recorded();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].key, new_key);
+}
+
+#[test]
+fn challenge_token_refuses_what_could_never_verify() {
+    let h = harness();
+    let intent = h.enroller.intent("u_1", "julia", "add-key", &[]).unwrap();
+    let other = h.enroller.intent("u_1", "julia", "add-key", &[]).unwrap(); // another blind
+    let prepare = |purpose: &str, intent: &[u8]| {
+        h.enroller
+            .prepare(&Begin {
+                authorization: b"s1".to_vec(),
+                account: b"acct-1".to_vec(),
+                purpose: purpose.to_string(),
+                new_key: crypto::public_key_from_seed(&KEY_SEED).to_vec(),
+                intent: intent.to_vec(),
+            })
+            .unwrap()
+            .0
+    };
+    let cases: [(&str, Record, Vec<u8>, &str); 3] = [
+        (
+            "other intent bytes",
+            prepare("add-key", &intent),
+            other.clone(),
+            "not the record's",
+        ),
+        (
+            "purpose differs",
+            prepare("rotate", &intent),
+            intent.clone(),
+            "purpose",
+        ),
+        (
+            "not format 1",
+            prepare("add-key", b"acct-1 add-key"),
+            b"acct-1 add-key".to_vec(),
+            "format",
+        ),
+    ];
+    for (name, record, bytes, want) in cases {
+        let err = h.enroller.challenge_token(&record, &bytes).unwrap_err();
+        assert!(err.contains(want), "{name}: {err} does not name {want:?}");
+    }
+}
+
+#[test]
+fn intent_draws_a_fresh_blind_and_refuses_what_cannot_be_shown() {
+    let h = harness();
+    let a =
+        sdk::decode_intent(&h.enroller.intent("u_1", "julia", "add-key", &[]).unwrap()).unwrap();
+    let b =
+        sdk::decode_intent(&h.enroller.intent("u_1", "julia", "add-key", &[]).unwrap()).unwrap();
+    assert_eq!(a.blind.len(), sdk::MIN_BLIND_SIZE);
+    assert_ne!(a.blind, b.blind);
+    let rlo = char::from_u32(0x202e).unwrap();
+    assert!(h
+        .enroller
+        .intent("u_1", &format!("julia{rlo}"), "add-key", &[])
+        .is_err());
+}

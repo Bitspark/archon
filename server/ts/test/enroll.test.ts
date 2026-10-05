@@ -13,7 +13,16 @@ import { createServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import { getPublicKey } from "@bitspark/archon";
-import { proveEnroll, type EnrollRequest } from "@bitspark/archon-sdk";
+import {
+  ENROLL_MIN_BLIND_SIZE,
+  decodeEnrollChallenge,
+  decodeEnrollIntent,
+  decodeEnrollProof,
+  encodeEnrollProof,
+  enrollChallengeRequest,
+  proveEnroll,
+  type EnrollRequest,
+} from "@bitspark/archon-sdk";
 
 import {
   ENROLL_DEFAULT_TTL_SECONDS,
@@ -366,4 +375,76 @@ test("prepare refuses what could not complete", async () => {
     await assert.rejects(h.enroller.prepare({ ...good, ...edit }), Error, name);
   }
   await h.enroller.prepare(good);
+});
+
+// The by-hand flow of docs/enroll.md §1 end to end, short of the command's terminal: the service
+// builds an intent and a challenge token, the command decodes the token and proves over the
+// request it yields, and the page reads the proof token back and completes through the route.
+test("a stored key enrolls through the tokens", async () => {
+  const h = await harness();
+  h.clock.at = T0 + 0.7; // a fractional clock: the token's deadline rounds the expiry down
+  const intent = h.enroller.intent({ accountId: "u_1", accountName: "julia (acme)", purpose: "add-key", restrictions: ["read:projects"] });
+  const { record } = await h.enroller.prepare({
+    authorization: new TextEncoder().encode("s1"),
+    account: new TextEncoder().encode("acct-1"),
+    purpose: "add-key",
+    newKey: NEW_KEY,
+    intent,
+  });
+  h.svc.persist(record);
+  const token = await h.enroller.challengeToken(record, intent);
+
+  // The command: decode once, show the intent, prove over the request the token yields.
+  const ch = decodeEnrollChallenge(`\n${token}\r\n`);
+  assert.equal(ch.audience, AUDIENCE);
+  assert.equal(ch.deadline, T0 + ENROLL_DEFAULT_TTL_SECONDS);
+  const { request, intent: shown } = enrollChallengeRequest(ch);
+  assert.equal(shown.accountName, "julia (acme)");
+  assert.equal(shown.accountId, "u_1");
+  assert.deepEqual(shown.restrictions, ["read:projects"]);
+  const proofToken = encodeEnrollProof({
+    transaction: request.transaction,
+    newKey: request.newKey,
+    proof: proveEnroll(KEY_SEED, ch.audience, request),
+  });
+
+  // The page: only its own pending enrollment, then the route.
+  const p = decodeEnrollProof(proofToken);
+  assert.equal(hex(p.transaction), hex(record.transaction));
+  assert.equal(hex(p.newKey), hex(record.newKey));
+  assert.equal(await complete(h, "s1", p.transaction, p.proof), 204);
+  assert.deepEqual(h.svc.associations, [{ account: "acct-1", key: hex(NEW_KEY), purpose: "add-key" }]);
+});
+
+test("challengeToken refuses what could never verify", async () => {
+  const h = await harness();
+  const intent = h.enroller.intent({ accountId: "u_1", accountName: "julia", purpose: "add-key" });
+  const other = h.enroller.intent({ accountId: "u_1", accountName: "julia", purpose: "add-key" }); // another blind
+  const prepare = async (purpose: string, bytes: Uint8Array) =>
+    (await h.enroller.prepare({
+      authorization: new TextEncoder().encode("s1"),
+      account: new TextEncoder().encode("acct-1"),
+      purpose,
+      newKey: NEW_KEY,
+      intent: bytes,
+    })).record;
+  const opaque = new TextEncoder().encode("acct-1 add-key");
+  const cases: Array<[string, EnrollmentRecord, Uint8Array, RegExp]> = [
+    ["other intent bytes", await prepare("add-key", intent), other, /not the record's/],
+    ["purpose differs", await prepare("rotate", intent), intent, /purpose/],
+    ["not format 1", await prepare("add-key", opaque), opaque, /format/],
+  ];
+  for (const [name, record, bytes, want] of cases) {
+    await assert.rejects(h.enroller.challengeToken(record, bytes), want, name);
+  }
+});
+
+test("intent draws a fresh blind and refuses what cannot be shown", async () => {
+  const h = await harness();
+  const a = decodeEnrollIntent(h.enroller.intent({ accountId: "u_1", accountName: "julia", purpose: "add-key" }));
+  const b = decodeEnrollIntent(h.enroller.intent({ accountId: "u_1", accountName: "julia", purpose: "add-key" }));
+  assert.equal(a.blind.length, ENROLL_MIN_BLIND_SIZE);
+  assert.notEqual(hex(a.blind), hex(b.blind));
+  const rlo = String.fromCodePoint(0x202e);
+  assert.throws(() => h.enroller.intent({ accountId: "u_1", accountName: `julia${rlo}`, purpose: "add-key" }), /cannot be shown/);
 });

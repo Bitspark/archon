@@ -26,7 +26,18 @@
 //
 // archon defines no enrollment route. The service mounts completion wherever it serves its
 // accounts, behind its own session and CSRF protection.
-import { ENROLL_DIGEST_SIZE, ENROLL_MAX_TRANSACTION_SIZE, MIN_NONCE_SIZE, enrollBinding, verifyEnroll, type EnrollRequest } from "@bitspark/archon-sdk";
+import {
+  ENROLL_DIGEST_SIZE,
+  ENROLL_MAX_TRANSACTION_SIZE,
+  ENROLL_MIN_BLIND_SIZE,
+  MIN_NONCE_SIZE,
+  decodeEnrollIntent,
+  encodeEnrollChallenge,
+  encodeEnrollIntent,
+  enrollBinding,
+  verifyEnroll,
+  type EnrollRequest,
+} from "@bitspark/archon-sdk";
 
 /** How long a pending enrollment lives, in seconds, when the config names no ttl. */
 export const ENROLL_DEFAULT_TTL_SECONDS = 300;
@@ -222,5 +233,60 @@ export class Enroller {
     if (outcome === "completed") return record;
     if (outcome === "notPending") throw new EnrollmentRefusal(409, "enroll: already completed or no longer eligible");
     throw new EnrollmentRefusal(503, "enroll: the integration cannot complete");
+  }
+
+  // The service's half of `archon enroll`'s formats (docs/enroll.md §2–§3, §6; ADR 0013).
+  // Verification and completion never read the intent; only these helpers and the command do.
+
+  /**
+   * An intent in format 1 (docs/enroll.md §2) with a fresh blind from this enroller's entropy.
+   * `accountId` is the service's identifier for the account; `accountName` is the account's
+   * unique name, such as its sign-in handle, never a display name its holder chooses freely.
+   * Build both from the account the validated session or credential authorizes, never from a
+   * label the browser sent.
+   *
+   * Pass the bytes to `prepare` as `intent` with `purpose` set to the same purpose, and persist
+   * them beside the record: `challengeToken` needs them again.
+   */
+  intent(fields: { accountId: string; accountName: string; purpose: string; restrictions?: string[] }): Uint8Array {
+    return encodeEnrollIntent({
+      blind: this.#entropy(ENROLL_MIN_BLIND_SIZE).slice(),
+      accountId: fields.accountId,
+      accountName: fields.accountName,
+      purpose: fields.purpose,
+      restrictions: fields.restrictions ?? [],
+    });
+  }
+
+  /**
+   * The challenge token for `record` (docs/enroll.md §3): the configured audience, the record's
+   * transaction, nonce and new key, `intent`, and the record's expiry rounded down to the
+   * second. `intent` is the bytes passed to `prepare` for `record`.
+   *
+   * Refuses intent bytes whose SHA-256 is not the record's intent digest, an intent not in
+   * format 1, and an intent whose purpose is not the record's: `archon enroll` binds the intent's
+   * purpose and the digest of the bytes it shows, so a proof over any of those would never
+   * verify.
+   */
+  async challengeToken(record: EnrollmentRecord, intent: Uint8Array): Promise<string> {
+    // slice(): an ArrayBuffer-backed copy, which is what subtle.digest's BufferSource admits.
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", intent.slice()));
+    if (!equal(digest, record.intentDigest)) {
+      throw new Error("enroll: these intent bytes are not the record's: their SHA-256 differs from its intent digest");
+    }
+    const decoded = decodeEnrollIntent(intent);
+    if (decoded.purpose !== record.purpose) {
+      throw new Error(
+        `enroll: the intent's purpose ${JSON.stringify(decoded.purpose)} is not the record's ${JSON.stringify(record.purpose)}; pass prepare the intent's purpose`,
+      );
+    }
+    return encodeEnrollChallenge({
+      audience: this.#audience,
+      transaction: record.transaction,
+      nonce: record.nonce,
+      newKey: record.newKey,
+      intent,
+      deadline: Math.floor(record.expires),
+    });
   }
 }

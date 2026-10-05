@@ -302,3 +302,66 @@ impl Enroller {
         }
     }
 }
+
+/// The service's half of `archon enroll`'s formats (`docs/enroll.md` §2–§3, §6; ADR 0013).
+/// Verification and completion never read the intent; only these helpers and the command do.
+impl Enroller {
+    /// An intent in format 1 (`docs/enroll.md` §2) with a fresh blind from this enroller's
+    /// entropy. `account_id` is the service's identifier for the account; `account_name` is the
+    /// account's unique name, such as its sign-in handle, never a display name its holder chooses
+    /// freely. Build both from the account the validated session or credential authorizes,
+    /// never from a label the browser sent.
+    ///
+    /// Pass the bytes to [`Enroller::prepare`] as `Begin::intent` with `Begin::purpose` set to
+    /// the same purpose, and persist them beside the record: [`Enroller::challenge_token`]
+    /// needs them again.
+    pub fn intent(
+        &self,
+        account_id: &str,
+        account_name: &str,
+        purpose: &str,
+        restrictions: &[String],
+    ) -> Result<Vec<u8>, String> {
+        let mut blind = vec![0; sdk::MIN_BLIND_SIZE];
+        (self.entropy)(&mut blind).map_err(|e| format!("enroll: entropy: {e}"))?;
+        sdk::encode_intent(&sdk::Intent {
+            blind,
+            account_id: account_id.to_string(),
+            account_name: account_name.to_string(),
+            purpose: purpose.to_string(),
+            restrictions: restrictions.to_vec(),
+        })
+    }
+
+    /// The challenge token for `record` (`docs/enroll.md` §3): the configured audience, the
+    /// record's transaction, nonce and new key, `intent`, and the record's expiry. `intent` is
+    /// the bytes passed to `prepare` for `record`.
+    ///
+    /// Refuses intent bytes whose SHA-256 is not the record's intent digest, an intent not in
+    /// format 1, and an intent whose purpose is not the record's: `archon enroll` binds the
+    /// intent's purpose and the digest of the bytes it shows, so a proof over any of those
+    /// would never verify.
+    pub fn challenge_token(&self, record: &Record, intent: &[u8]) -> Result<String, String> {
+        if Sha256::digest(intent).as_slice() != record.intent_digest.as_slice() {
+            return Err(
+                "enroll: these intent bytes are not the record's: their SHA-256 differs from its intent digest"
+                    .to_string(),
+            );
+        }
+        let decoded = sdk::decode_intent(intent)?;
+        if decoded.purpose != record.purpose {
+            return Err(format!(
+                "enroll: the intent's purpose {:?} is not the record's {:?}; pass prepare the intent's purpose",
+                decoded.purpose, record.purpose
+            ));
+        }
+        sdk::encode_challenge(&sdk::Challenge {
+            audience: self.audience.clone(),
+            transaction: record.transaction.clone(),
+            nonce: record.nonce.clone(),
+            new_key: record.new_key.clone(),
+            intent: intent.to_vec(),
+            deadline: record.expires,
+        })
+    }
+}
