@@ -150,6 +150,10 @@ func TestValidateRefusesUndisplayableScope(t *testing.T) {
 	for _, bad := range []string{
 		"read:\x1b[2Jprojects", "read:\nprojects", "read:\rprojects",
 		"read:\x00projects", "read:\x7fprojects",
+		"read:\u202eprojects", "read:\u2066x\u2069", "read:\u200fx", // bidirectional controls
+		"read:pro\u200bjects", "read:\ufeffx", "read:\u2060x", // zero-width
+		"read:x\u2028for 1h", "read:\u0085x", "read:\u00adx", // separator, C1, soft hyphen
+		"read:x\U000e0041", "read:x\u3164", "read:x\ufe0f", // a tag, a Hangul filler, a variation selector
 		"read:\xff\xfeprojects", // not valid UTF-8
 	} {
 		r := validRequest()
@@ -157,6 +161,27 @@ func TestValidateRefusesUndisplayableScope(t *testing.T) {
 		if err := validateLoginRequest(r, "8f3c"); err == nil {
 			t.Fatalf("accepted scope entry %q; want refusal", bad)
 		}
+	}
+}
+
+// A refusal names the code point and never echoes it: echoing it would carry it to the terminal.
+func TestARefusalNeverEchoesTheCodePoint(t *testing.T) {
+	r := validRequest()
+	r.Scope = []string{"read:\u202eprojects"}
+	err := validateLoginRequest(r, "8f3c")
+	if err == nil || !strings.Contains(err.Error(), "U+202E") || strings.Contains(err.Error(), "\u202e") {
+		t.Fatalf("err = %v, want U+202E named and never echoed", err)
+	}
+}
+
+// The service's own words — an error description, an error code — are escaped, never raw.
+func TestServiceTextIsEscaped(t *testing.T) {
+	got := loginHTTPError(400, []byte(`{"error":"invalid\u2066_request","error_description":"bad \u202e thing \ud83d\ude80"}`)).Error()
+	if want := `login: bad \u202e thing ` + "\U0001F680" + ` (invalid\u2066_request)`; got != want {
+		t.Fatalf("loginHTTPError = %q, want %q", got, want)
+	}
+	if got := loginHTTPError(400, []byte(`{"error":"x\u202ey"}`)).Error(); got != `login: the service answered "x\u202ey"` {
+		t.Fatalf("loginHTTPError = %q", got)
 	}
 }
 
@@ -1013,6 +1038,18 @@ func TestOffersFromASealedStoreKey(t *testing.T) {
 		}
 	})
 
+	t.Run("a page address that would not show as itself is refused, and never echoed", func(t *testing.T) {
+		reset()
+		stub.page = "https://dawn.example/\u202elogin"
+		_, errOut, err := run(base...)
+		if err == nil || !strings.Contains(err.Error(), "page address contains U+202E") {
+			t.Fatalf("runLogin = %v, want the page address refused", err)
+		}
+		if strings.Contains(err.Error()+errOut, "\u202e") {
+			t.Fatal("the raw U+202E reached the output")
+		}
+	})
+
 	t.Run("a refusal by the service is recorded in the ledger", func(t *testing.T) {
 		reset()
 		stub.refuse = "invalid_grant"
@@ -1082,7 +1119,7 @@ func TestOffersFromASealedStoreKey(t *testing.T) {
 	t.Run("a scope entry that could lie on screen is refused before any request", func(t *testing.T) {
 		reset()
 		_, _, err := run("--audience", audience, "--scope", "read:\x1b[2Jx", "--valid-for", "60", "--key", "julia")
-		if err == nil || !strings.Contains(err.Error(), "control character") {
+		if err == nil || !strings.Contains(err.Error(), "U+001B, which would not show as itself") {
 			t.Fatalf("err = %v", err)
 		}
 		_, _, err = run("--audience", audience, "--scope", "", "--valid-for", "60", "--key", "julia")

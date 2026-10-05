@@ -319,11 +319,13 @@ pub fn validate_login_request(r: &LoginRequest, want_id: &str) -> Result<(), Str
 /// `serde_json` has already refused that on this lane's behalf. Go and TypeScript check it
 /// explicitly, because their string types can.
 fn refuse_undisplayable(field: &str, s: &str) -> Result<(), String> {
+    // Every display-unsafe code point (docs/login.md §5), stricter than the scheme's own
+    // grammar, which refuses only C0 and DEL. The code point is named, never echoed.
     for c in s.chars() {
-        if (c as u32) < 0x20 || c as u32 == 0x7f {
+        if archon_sdk::login::display_unsafe(c) {
             return Err(format!(
-                "login: {field} contains a control character ({:?}) — refusing",
-                c
+                "login: {field} contains U+{:04X}, which would not show as itself — refusing",
+                c as u32
             ));
         }
     }
@@ -614,10 +616,16 @@ pub fn login_http_error(status: u16, body: &str) -> String {
                         .to_string()
                 }
                 "access_denied" => "login: the service refused the login".to_string(),
-                other if !p.error_description.is_empty() => {
-                    format!("login: {} ({other})", p.error_description)
-                }
-                other => format!("login: the service answered {other:?}"),
+                // The service's words reach the terminal escaped (docs/login.md §5), never raw.
+                other if !p.error_description.is_empty() => format!(
+                    "login: {} ({})",
+                    crate::io::shown(&p.error_description),
+                    crate::io::shown(other)
+                ),
+                other => format!(
+                    "login: the service answered {}",
+                    crate::io::json_string(other)
+                ),
             };
         }
     }
@@ -777,6 +785,9 @@ pub fn run_offer(args: &[String], io: &mut LoginIo) -> Result<(), String> {
     say(io, format!("offer registered at {audience}"))?;
     say(io, format!("code: {code}"))?;
     if let Some(page) = &offered.page {
+        // The address a person would open, printed beside a warning about itself: one that
+        // would not show as itself is refused, not escaped (docs/login.md §5).
+        refuse_undisplayable("the service's page address", page)?;
         say(io, describe_page(&audience, page))?;
     }
     say(
@@ -1049,7 +1060,8 @@ fn error_code_of(status: u16, body: &str) -> Option<String> {
         error: String,
     }
     match serde_json::from_str::<Payload>(body) {
-        Ok(p) if !p.error.is_empty() => Some(p.error),
+        // Printed in the ledger: escaped, never raw (docs/login.md §5).
+        Ok(p) if !p.error.is_empty() => Some(crate::io::shown(&p.error)),
         _ => Some(format!("HTTP {status}")),
     }
 }
@@ -1281,13 +1293,25 @@ mod tests {
     // A scope entry is printed verbatim to a terminal. An escape sequence there can erase
     // or repaint the statement the person is about to approve.
     #[test]
-    fn refuses_control_characters_in_scope() {
+    fn refuses_display_unsafe_code_points_in_scope() {
         for bad in [
             "read:\u{1b}[2Jprojects",
             "read:\nprojects",
             "read:\rprojects",
             "read:\u{0}p",
             "read:\u{7f}p",
+            "read:\u{202e}projects",
+            "read:\u{2066}x\u{2069}",
+            "read:\u{200f}x",
+            "read:pro\u{200b}jects",
+            "read:\u{feff}x",
+            "read:\u{2060}x",
+            "read:x\u{2028}for 1h",
+            "read:\u{85}x",
+            "read:\u{ad}x",
+            "read:x\u{e0041}",
+            "read:x\u{3164}",
+            "read:x\u{fe0f}",
         ] {
             let mut r = valid_request();
             r.scope = vec![bad.to_string()];
@@ -1296,6 +1320,36 @@ mod tests {
                 "accepted {bad:?}"
             );
         }
+    }
+
+    // A refusal names the code point and never echoes it.
+    #[test]
+    fn a_refusal_never_echoes_the_code_point() {
+        let mut r = valid_request();
+        r.scope = vec!["read:\u{202e}projects".to_string()];
+        let e = validate_login_request(&r, "8f3c").expect_err("refused");
+        assert!(e.contains("U+202E") && !e.contains('\u{202e}'), "{e}");
+    }
+
+    // The service's own words are escaped, never raw.
+    #[test]
+    fn service_text_is_escaped() {
+        let got = login_http_error(
+            400,
+            r#"{"error":"invalid\u2066_request","error_description":"bad \u202e thing \ud83d\ude80"}"#,
+        );
+        assert!(
+            !got.contains('\u{202e}') && !got.contains('\u{2066}'),
+            "{got}"
+        );
+        assert!(
+            got.contains(r"bad \u202e thing 🚀") && got.contains(r"invalid\u2066_request"),
+            "{got}"
+        );
+        assert_eq!(
+            login_http_error(400, r#"{"error":"x\u202ey"}"#),
+            r#"login: the service answered "x\u202ey""#
+        );
     }
 
     // The statement is the contract with the person AND the cross-lane pin.
@@ -2414,6 +2468,14 @@ Connection: close
             "{err}"
         );
 
+        // A page address that would not show as itself is refused, and never echoed.
+        let (r, _, err, _) = go(&base, &|s| {
+            s.page = Some("https://dawn.example/\u{202e}login".to_string())
+        });
+        let e = r.expect_err("a display-unsafe page address");
+        assert!(e.contains("page address contains U+202E"), "{e}");
+        assert!(!e.contains('\u{202e}') && !err.contains('\u{202e}'));
+
         // A refusal by the service is recorded in the ledger, and the command still fails.
         let (r, out, _, _) = go(&base, &|s| s.refuse = Some("invalid_grant".to_string()));
         assert!(r.unwrap_err().contains("refused the login (invalid_grant)"));
@@ -2489,7 +2551,9 @@ Connection: close
             ],
             &|_| {},
         );
-        assert!(r.unwrap_err().contains("control character"));
+        assert!(r
+            .unwrap_err()
+            .contains("U+001B, which would not show as itself"));
         let (r, _, _, _) = go(
             &[
                 "--audience",

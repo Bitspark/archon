@@ -32,11 +32,12 @@ import { encodeKey, decodeKey, getPublicKey } from "@bitspark/archon";
 import {
   MIN_NONCE_SIZE as SCHEME_MIN_NONCE_SIZE,
   deriveAudience,
+  displayUnsafe,
   proveLogin as schemeProveLogin,
   type LoginRequest as SchemeRequest,
 } from "@bitspark/archon-sdk";
 
-import { resolveSeed, wantsHelp } from "../io.js";
+import { jsonString, resolveSeed, shown, wantsHelp } from "../io.js";
 import * as store from "./key_store.js";
 
 const USAGE =
@@ -266,9 +267,12 @@ export function validateLoginRequest(r: LoginRequest, wantId: string): void {
   }
 }
 
-/** Reject C0/DEL control characters in anything the person will be shown. A scope entry
- *  carrying an escape sequence can repaint the terminal and hide what is really being
- *  signed, so display safety is a validation concern, not a cosmetic one. */
+/** Reject every display-unsafe code point (displayUnsafe, docs/login.md §5) in anything the
+ *  person will be shown: controls, bidirectional and zero-width characters, separators, and the
+ *  rest of what a terminal may render as nothing or let rearrange the text around it. A scope
+ *  entry carrying one can make the statement read differently from the bytes that are signed,
+ *  so display safety is a validation concern, not a cosmetic one. Stricter than the scheme's
+ *  own grammar (C0 and DEL only). The code point is named, never echoed. */
 function refuseUndisplayable(field: string, s: string): void {
   // Lone surrogates survive JSON.parse and are NOT valid UTF-8; the scheme's check_text
   // refuses them at binding time, which is after the person has already agreed. Refusing
@@ -278,8 +282,9 @@ function refuseUndisplayable(field: string, s: string): void {
   }
   for (const ch of s) {
     const code = ch.codePointAt(0)!;
-    if (code < 0x20 || code === 0x7f) {
-      throw new Error(`login: ${field} contains a control character — refusing`);
+    if (displayUnsafe(code)) {
+      const u = code.toString(16).toUpperCase().padStart(4, "0");
+      throw new Error(`login: ${field} contains U+${u}, which would not show as itself — refusing`);
     }
   }
 }
@@ -578,7 +583,12 @@ export async function runOffer(args: string[], write: (text: string) => void, io
   // `archon login … > file` must never write the code into a log (§4.1 rule 1).
   io.writeErr(`offer registered at ${audience}\n`);
   io.writeErr(`code: ${code}\n`);
-  if (offered.page !== undefined) io.writeErr(`${describePage(audience, offered.page)}\n`);
+  if (offered.page !== undefined) {
+    // The address a person would open, printed beside a warning about itself: one that would not
+    // show as itself is refused, not escaped (docs/login.md §5).
+    refuseUndisplayable("the service's page address", offered.page);
+    io.writeErr(`${describePage(audience, offered.page)}\n`);
+  }
   io.writeErr(`waiting for the page to take the offer, up to ${offered.expires_in}s\n`);
 
   // The prover paces ITSELF (ADR 0007 §C.7, #39): the route is unpaced because two parties
@@ -771,7 +781,8 @@ function errorCodeOf(status: number, body: string): string | undefined {
   if (status === 204 || status === 200) return undefined;
   try {
     const payload = JSON.parse(body) as { error?: unknown };
-    if (payload !== null && typeof payload === "object" && typeof payload.error === "string" && payload.error !== "") return payload.error;
+    // Printed in the ledger: escaped, never raw (docs/login.md §5).
+    if (payload !== null && typeof payload === "object" && typeof payload.error === "string" && payload.error !== "") return shown(payload.error);
   } catch {
     // not JSON; fall through to the status
   }
@@ -786,8 +797,9 @@ export function loginHttpError(status: number, body: string): string {
     if (payload !== null && typeof payload === "object" && typeof payload.error === "string" && payload.error !== "") {
       if (payload.error === "expired_token") return "login: this request has expired — reload the page and run the new command";
       if (payload.error === "access_denied") return "login: the service refused the login";
-      if (payload.error_description) return `login: ${payload.error_description} (${payload.error})`;
-      return `login: the service answered ${JSON.stringify(payload.error)}`;
+      // The service's words reach the terminal escaped (docs/login.md §5), never raw.
+      if (payload.error_description) return `login: ${shown(payload.error_description)} (${shown(payload.error)})`;
+      return `login: the service answered ${jsonString(payload.error)}`;
     }
   } catch {
     // not JSON; fall through to the status line

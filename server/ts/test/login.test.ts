@@ -783,10 +783,17 @@ test("every pinned error code is emitted", async () => {
 test("a scope entry that could lie on screen is refused at the door", () => {
   assert.throws(() => checkScopeEntry(""), /empty/);
   // ESC [ 2 J is "clear the screen" — the whole reason this check exists.
-  assert.throws(() => checkScopeEntry("read:\u001b[2Jx"), /control character/);
-  assert.throws(() => checkScopeEntry("read:\u0000"), /control character/);
-  assert.throws(() => checkScopeEntry("read:\u007f"), /control character/);
-  assert.throws(() => checkScopeEntry("read:\u000d\u000aX-Evil: 1"), /control character/);
+  assert.throws(() => checkScopeEntry("read:\u001b[2Jx"), /U\+001B, which would not show as itself/);
+  assert.throws(() => checkScopeEntry("read:\u0000"), /U\+0000/);
+  assert.throws(() => checkScopeEntry("read:\u007f"), /U\+007F/);
+  assert.throws(() => checkScopeEntry("read:\u000d\u000aX-Evil: 1"), /U\+000D/);
+  // Every display-unsafe code point (docs/login.md §5), not only C0 and DEL: these can make
+  // the statement read differently from the bytes that are signed.
+  assert.throws(() => checkScopeEntry("read:\u202eprojects"), /U\+202E/); // right-to-left override
+  assert.throws(() => checkScopeEntry("read:pro\u200bjects"), /U\+200B/); // zero-width space
+  assert.throws(() => checkScopeEntry("read:x\u2028for 1h"), /U\+2028/); // line separator
+  assert.throws(() => checkScopeEntry("read:\u0085x"), /U\+0085/); // C1 next line
+  assert.throws(() => checkScopeEntry("read:x\u{e0041}"), /U\+E0041/); // a tag: astral, by code point
   // A lone surrogate is a string JavaScript holds happily and UTF-8 cannot represent. Rust
   // needs no such check — its String cannot hold one — which is exactly why go and ts must.
   assert.throws(() => checkScopeEntry("read:\ud800"), /not valid UTF-8/);

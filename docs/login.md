@@ -300,6 +300,42 @@ the real end is later than `<T>` by the time the person takes to confirm, and at
 request's remaining lifetime. It signs only
 after an explicit confirmation. A request that fails any rule in §3 is refused before display.
 
+**What may be shown.** A scope entry is text a service chose, and the person reads it on a
+terminal. Some code points make what they read differ from the bytes they sign: a terminal may
+render them as nothing, or let them rearrange or hide the text around them. The CLI refuses,
+before it shows anything, a scope entry carrying one of them, the **display-unsafe** code points:
+
+    Cc ∪ Cf ∪ Zl ∪ Zp ∪ Default_Ignorable_Code_Point
+
+That is the control characters (C0, DEL, C1), the format characters (bidirectional controls,
+zero-width characters, invisible operators, interlinear annotations, tags), the line and
+paragraph separators, and every code point Unicode says should render invisibly (soft hyphen,
+combining grapheme joiner, Hangul fillers, variation selectors, …). The list is frozen as
+explicit ranges in `vectors/display-unsafe.json` (from Unicode 15.1), identical in the three
+lanes (`login.DisplayUnsafe`, `login::display_unsafe`, `displayUnsafe`), and each lane's sdk
+test sweeps every code point against that file.
+
+- **The CLI's refusal is the guarantee.** The binding's grammar (§3.1) is unchanged and still
+  refuses only C0 and DEL, so such an entry is valid on the wire and a server may send one.
+  The person's CLI will neither show it nor sign it.
+- **The server's refusal is a courtesy.** The login handler refuses the same code points at
+  begin and offer (`400`), so an honest service learns at once rather than from a person whose
+  CLI refused. A third-party server that skips this check still cannot get past the CLI.
+- **The offers form's page address is refused too** when it carries one. It is the address a
+  person would open, printed beside the CLI's warning about whether it is on the service's
+  origin, so it is never shown escaped.
+- **Elsewhere, such a code point is escaped, never shown.** The CLIs write one as `\uxxxx`, a
+  UTF-16 surrogate pair above U+FFFF, in everything else a service or a caller chose that they
+  print:
+  - `sign`'s pre-prompt display and `--json` output, and `key list --json`;
+  - a refused response's `error` and `error_description`;
+  - the offers ledger's verdict.
+
+  The value is unchanged; the raw code point never reaches the terminal.
+- **Look-alikes are not caught.** A Cyrillic "а" in place of a Latin "a" is an ordinary letter,
+  and no list of code points can tell it from the one it imitates. A service that wants its
+  scope entries to be unmistakable keeps them to ASCII.
+
 ## 6. Properties
 
 - **Unrelayable.** The binding names the audience the CLI talks to, the key that will act, the

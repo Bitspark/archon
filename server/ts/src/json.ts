@@ -1,6 +1,8 @@
 // Hex, strict body parsing and the door checks. Small on purpose: the wire format is §4's
 // and is spelled where the routes are, not abstracted behind builders that would hide it.
 
+import { displayUnsafe } from "@bitspark/archon-sdk";
+
 /** Caps every request body. See the note on `MAX_BODY_BYTES` in the Rust lane: the authority
  *  payload is the only field with no natural size, and a law needing more than this should say
  *  so rather than have the handler guess high. */
@@ -90,19 +92,23 @@ export interface ParsedBody {
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 /**
- * Refuses what the CLI could not display faithfully: an empty entry, a control character
- * (§3.1), or text that is not valid UTF-8.
+ * Refuses what the CLI could not display faithfully: an empty entry, text that is not valid
+ * UTF-8, or a display-unsafe code point (displayUnsafe, docs/login.md §5), checked by code
+ * point so the astral ones are seen.
  *
- * Checked HERE as well as in the scheme, and that is not redundancy for its own sake:
- * checking at the door means a request that could lie on screen never exists to be shown.
+ * That is stricter than the scheme's grammar (C0 and DEL only), and it is not the boundary:
+ * the person's CLI refuses every one of these before it shows the statement, and that
+ * refusal is the guarantee: a server that skips this check still cannot get past it. This is
+ * the courtesy that tells an honest service at begin rather than at the person's CLI.
  */
 export function checkScopeEntry(entry: string): void {
   if (entry.length === 0) throw new Error("a scope entry is empty");
   if (LONE_SURROGATE.test(entry)) throw new Error("a scope entry is not valid UTF-8");
   for (const ch of entry) {
     const code = ch.codePointAt(0) ?? 0;
-    if (code < 0x20 || code === 0x7f) {
-      throw new Error(`a scope entry carries a control character (U+${code.toString(16).padStart(4, "0")})`);
+    if (displayUnsafe(code)) {
+      const u = code.toString(16).toUpperCase().padStart(4, "0");
+      throw new Error(`a scope entry carries U+${u}, which would not show as itself`);
     }
   }
 }

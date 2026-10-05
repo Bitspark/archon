@@ -4,6 +4,7 @@
 // value" so all three lanes fail the same way.
 import { readFileSync } from "node:fs";
 import { pkcs8PemToSeed, seedFromHex } from "@bitspark/archon";
+import { displayUnsafe } from "@bitspark/archon-sdk";
 
 /** Read the whole input as raw bytes: the file when given, else stdin. */
 export function readBytes(file?: string): Uint8Array {
@@ -42,9 +43,10 @@ export function takeInFlag(args: string[]): [string[], string | undefined] {
 /** `<cmd> --help` / `-h` as the first token: help is success (usage to stdout, exit 0). */
 /**
  * A JSON string literal by the one rule the three binaries share, so machine output is
- * byte-identical across them: `"` and `\` are escaped, every C0 control is `\u00xx` in
- * lowercase hex, and everything else — U+2028 included, which Go's encoder would escape — is
- * written as itself.
+ * byte-identical across them: `"` and `\` are escaped, every display-unsafe code point
+ * (displayUnsafe, docs/login.md §5) is `\uxxxx` in lowercase hex — a UTF-16 surrogate pair
+ * above U+FFFF — and everything else is written as itself. The escape keeps the value and keeps
+ * such a code point off a terminal that displays the output.
  */
 export function jsonString(s: string): string {
   let out = '"';
@@ -52,10 +54,26 @@ export function jsonString(s: string): string {
     const c = ch.codePointAt(0) as number;
     if (ch === '"') out += '\\"';
     else if (ch === '\\') out += '\\\\';
-    else if (c < 0x20) out += `\\u${c.toString(16).padStart(4, "0")}`;
+    else if (displayUnsafe(c)) out += escapeUnsafe(ch);
     else out += ch;
   }
   return `${out}"`;
+}
+
+/** `s` with every display-unsafe code point written as jsonString writes it, and everything else
+ *  as itself, without quotes: for text a service chose (an error description, a verdict) that
+ *  reaches a terminal inside a message. By code point, so the astral ones are seen. */
+export function shown(s: string): string {
+  let out = "";
+  for (const ch of s) out += displayUnsafe(ch.codePointAt(0) as number) ? escapeUnsafe(ch) : ch;
+  return out;
+}
+
+/** One code point as `\uxxxx` per UTF-16 unit: a surrogate pair above U+FFFF. */
+function escapeUnsafe(ch: string): string {
+  let out = "";
+  for (let i = 0; i < ch.length; i++) out += `\\u${ch.charCodeAt(i).toString(16).padStart(4, "0")}`;
+  return out;
 }
 
 export function wantsHelp(args: string[]): boolean {
