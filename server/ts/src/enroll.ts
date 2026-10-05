@@ -81,8 +81,10 @@ export interface EnrollmentBegin {
   account: Uint8Array;
   purpose: string;
   newKey: Uint8Array;
-  /** The immutable intent bytes — what the service will record. archon binds their digest and
-   *  never interprets them. A digest is not confidentiality: keep guessable account data out. */
+  /** The immutable intent bytes — what the service will record. `prepare` and `complete` bind
+   *  their digest and never interpret them. A digest is not confidentiality, so no intent may
+   *  have a guessable preimage: build it with `Enroller.intent` (format 1, a fresh blind) for
+   *  `archon enroll`, or keep guessable account data out (ADR 0013, docs/enroll.md §2). */
   intent: Uint8Array;
 }
 
