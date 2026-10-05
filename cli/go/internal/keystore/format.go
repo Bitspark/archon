@@ -58,6 +58,33 @@ func DefaultParams() Params {
 	return Params{MemoryKiB: DefaultMemoryKiB, Time: DefaultTime, Parallelism: DefaultParallelism}
 }
 
+// The ceilings a header's parameters must stay under (docs/keystore.md §2). They exist only so
+// that a header someone else wrote cannot make an unlock unbounded, and they are generous on
+// purpose: RFC 9106's first recommended setting (2 GiB, t=1, p=4) still opens.
+const (
+	MaxMemoryKiB = 2 * 1024 * 1024
+	MaxTime      = 10
+)
+
+// check refuses parameters no lane may derive with. The lower bounds are RFC 9106's validity
+// rules and nothing more (t ≥ 1, p ≥ 1, m ≥ 8p), so a weak but valid file keeps opening: its
+// weakness is its writer's. x/crypto/argon2 would silently raise m < 8p to 8p and derive a key
+// the other lanes' libraries refuse to compute, so the rule is stated here, once, before any
+// derivation.
+func (p Params) check() error {
+	switch {
+	case p.Time == 0 || p.Parallelism == 0:
+		return errors.New("argon2id parameters are not usable: t and p must be at least 1")
+	case p.MemoryKiB < 8*uint32(p.Parallelism):
+		return fmt.Errorf("argon2id parameters are not usable: m=%d KiB is below 8*p=%d", p.MemoryKiB, 8*uint32(p.Parallelism))
+	case p.MemoryKiB > MaxMemoryKiB:
+		return fmt.Errorf("argon2id parameters are not usable: m=%d KiB is above %d", p.MemoryKiB, MaxMemoryKiB)
+	case p.Time > MaxTime:
+		return fmt.Errorf("argon2id parameters are not usable: t=%d is above %d", p.Time, MaxTime)
+	}
+	return nil
+}
+
 // Header is the authenticated prefix of a key file. PublicKey is readable without a
 // password — that is what `key list` prints — but it is only a CLAIM until an unlock
 // verifies the tag over this header and re-derives it from the seed.
@@ -112,8 +139,8 @@ func ParseHeader(file []byte) (Header, error) {
 		Salt:      append([]byte(nil), file[14:30]...),
 		PublicKey: append([]byte(nil), file[30:HeaderSize]...),
 	}
-	if h.Params.MemoryKiB == 0 || h.Params.Time == 0 || h.Params.Parallelism == 0 {
-		return Header{}, fmt.Errorf("argon2id parameters in the header are not usable")
+	if err := h.Params.check(); err != nil {
+		return Header{}, err
 	}
 	return h, nil
 }
@@ -132,6 +159,9 @@ func Seal(seed, password, salt, nonce []byte, p Params) ([]byte, error) {
 	}
 	if len(nonce) != NonceSize {
 		return nil, fmt.Errorf("nonce must be %d bytes", NonceSize)
+	}
+	if err := p.check(); err != nil {
+		return nil, err
 	}
 	header := EncodeHeader(Header{Params: p, Salt: salt, PublicKey: crypto.PublicKeyFromSeed(seed)})
 	key := deriveKey(password, salt, p)

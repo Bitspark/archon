@@ -47,6 +47,35 @@ export const defaultParams = (): KeyParams => ({
 });
 
 /**
+ * The ceilings a header's parameters must stay under (docs/keystore.md §2). They exist only so
+ * that a header someone else wrote cannot make an unlock unbounded, and they are generous on
+ * purpose: RFC 9106's first recommended setting (2 GiB, t=1, p=4) still opens.
+ */
+export const MAX_MEMORY_KIB = 2 * 1024 * 1024;
+export const MAX_TIME = 10;
+
+/**
+ * Refuses parameters no lane may derive with. The lower bounds are RFC 9106's validity rules
+ * and nothing more (t ≥ 1, p ≥ 1, m ≥ 8p), so a weak but valid file keeps opening: its weakness
+ * is its writer's. Stated here, once, before any derivation, so all three lanes refuse the same
+ * headers at the same step whatever their Argon2 library does.
+ */
+function checkParams(p: KeyParams): void {
+  if (p.time === 0 || p.parallelism === 0) {
+    throw new Error("argon2id parameters are not usable: t and p must be at least 1");
+  }
+  if (p.memoryKiB < 8 * p.parallelism) {
+    throw new Error(`argon2id parameters are not usable: m=${p.memoryKiB} KiB is below 8*p=${8 * p.parallelism}`);
+  }
+  if (p.memoryKiB > MAX_MEMORY_KIB) {
+    throw new Error(`argon2id parameters are not usable: m=${p.memoryKiB} KiB is above ${MAX_MEMORY_KIB}`);
+  }
+  if (p.time > MAX_TIME) {
+    throw new Error(`argon2id parameters are not usable: t=${p.time} is above ${MAX_TIME}`);
+  }
+}
+
+/**
  * The authenticated prefix of a key file. `publicKey` is readable without a password —
  * that is what `key list` prints — but it is only a CLAIM until an unlock verifies the tag
  * over this header and re-derives it from the seed.
@@ -96,9 +125,7 @@ export function parseHeader(file: Uint8Array): KeyHeader {
     time: dv.getUint32(9, false),
     parallelism: file[13] as number,
   };
-  if (params.memoryKiB === 0 || params.time === 0 || params.parallelism === 0) {
-    throw new Error("argon2id parameters in the header are not usable");
-  }
+  checkParams(params);
   return {
     params,
     salt: file.slice(14, 30),
@@ -128,6 +155,7 @@ export function seal(
   if (password.length === 0) throw new Error(EMPTY_PASSWORD);
   if (salt.length !== SALT_SIZE) throw new Error(`salt must be ${SALT_SIZE} bytes`);
   if (nonce.length !== NONCE_SIZE) throw new Error(`nonce must be ${NONCE_SIZE} bytes`);
+  checkParams(p);
   const header = encodeHeader({ params: p, salt, publicKey: getPublicKey(seed) });
   const key = deriveKey(password, salt, p);
   const ciphertext = xchacha20poly1305(key, nonce, header).encrypt(seed);

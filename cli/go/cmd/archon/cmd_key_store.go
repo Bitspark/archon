@@ -154,18 +154,24 @@ func runKeyList(args []string) error {
 		Principal string `json:"principal"`
 	}
 	rows := make([]row, 0, len(names))
+	// An entry that is not listed is named on stderr, one line each, so a key never vanishes
+	// from the list without a word; stdout, and with it --json, carries only usable keys.
+	skip := func(n string, err error) { fmt.Fprintf(os.Stderr, "archon key list: skipped %s: %v\n", n, err) }
 	for _, n := range names {
 		path, err := keystore.Path(n)
 		if err != nil {
-			continue // a file the store cannot name is not a key; `rm --force` deals with it
+			skip(n, err) // a file the store cannot name is not a key; `rm --force` deals with it
+			continue
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
+			skip(n, err)
 			continue
 		}
 		h, err := keystore.ParseHeader(raw)
 		if err != nil {
-			continue // the magic is what keeps a stray file out of this list
+			skip(n, err) // the magic is what keeps a stray file out of this list
+			continue
 		}
 		rows = append(rows, row{Name: n, Principal: keytext.EncodeKey(h.PublicKey)})
 	}

@@ -56,7 +56,22 @@ text: the file is exactly these bytes.
   reader that does not know a version refuses the file; it does not guess.
 - **The Argon2id parameters are read, never assumed** (ADR 0007 §A). A file written with
   other parameters opens on any binary, which is what lets the values change without a
-  format version.
+  format version — **within bounds every reader checks when it parses the header, before any
+  derivation:**
+
+      t:  1 ≤ t ≤ 10
+      p:  1 ≤ p          (one byte, so ≤ 255)
+      m:  8·p ≤ m ≤ 2097152 KiB (2 GiB)
+
+  The lower bounds are RFC 9106's validity rules and nothing more, so a weak but valid file keeps
+  opening: its weakness is its writer's. They are stated here because not every Argon2
+  implementation enforces them — `golang.org/x/crypto/argon2` silently raises `m < 8p` to `8p`
+  where the reference implementation refuses — and three lanes must refuse the same headers.
+  The upper bounds exist only so that a header someone else wrote cannot make an unlock
+  unbounded; they are generous on purpose, and RFC 9106 §4's first recommended setting (2 GiB,
+  `t=1`, `p=4`) still opens. **Their cost is named:** a file above them, which no archon binary
+  has ever written, no longer opens. A file outside the bounds is refused at parse, so `key
+  list` does not show it either. Writers refuse to seal outside them.
 - **The public key is in the clear, and this is load-bearing**: `archon key list [--json]`
   prints `{name, principal}` for every key, and it must not ask for a password to do it.
   Because the public key is inside the authenticated header, it also binds the ciphertext to
@@ -109,8 +124,8 @@ Two things the table says that the ADR could not have known:
 **Shipping default: `m=65536, t=3, p=1`** — same memory hardness, same wall clock within noise,
 three oracles back. Accepted by the archon maintainers on the LANE A PR and recorded against ADR 0007
 §A by number. The values are in the header and are read, never assumed, so this is a default and
-not a format change: files written at any parameters keep opening, which is what
-`keystore_seal/params-in-header` and `keystore_seal/parallelism-4` exist to pin.
+not a format change: files written at any parameters within §2's bounds keep opening, which is
+what `keystore_seal/params-in-header` and `keystore_seal/parallelism-4` exist to pin.
 
 ## 4. Passwords
 

@@ -463,14 +463,29 @@ pub fn run_list(args: &[String]) -> Result<(), String> {
         as_json = true;
     }
     let mut rows: Vec<(String, String)> = Vec::new();
+    // An entry that is not listed is named on stderr, one line each, so a key never vanishes
+    // from the list without a word; stdout, and with it --json, carries only usable keys.
+    let skip = |n: &str, e: &dyn std::fmt::Display| eprintln!("archon key list: skipped {n}: {e}");
     for n in list_key_names()? {
-        let Ok(path) = key_path(&n) else { continue };
-        let Ok(raw) = fs::read(&path) else { continue };
-        // The magic is what keeps a stray file out of this list.
-        let Ok(h) = keystore::parse_header(&raw) else {
-            continue;
+        let path = match key_path(&n) {
+            Ok(path) => path,
+            Err(e) => {
+                skip(&n, &e);
+                continue;
+            }
         };
-        rows.push((n, encode_key(&h.public_key)));
+        let raw = match fs::read(&path) {
+            Ok(raw) => raw,
+            Err(e) => {
+                skip(&n, &e);
+                continue;
+            }
+        };
+        // The magic is what keeps a stray file out of this list.
+        match keystore::parse_header(&raw) {
+            Ok(h) => rows.push((n, encode_key(&h.public_key))),
+            Err(e) => skip(&n, &e),
+        }
     }
     if as_json {
         let body: Vec<String> = rows

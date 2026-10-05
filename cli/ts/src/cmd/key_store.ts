@@ -456,14 +456,16 @@ export function runList(args: string[]): void {
     asJson = true;
   }
   const rows: { name: string; principal: string }[] = [];
+  // An entry that is not listed is named on stderr, one line each, so a key never vanishes
+  // from the list without a word; stdout, and with it --json, carries only usable keys.
   for (const name of listKeyNames()) {
     try {
       const raw = new Uint8Array(readFileSync(keyPath(name)));
       // The magic is what keeps a stray file out of this list.
       const h = keystore.parseHeader(raw);
       rows.push({ name, principal: encodeKey(h.publicKey) });
-    } catch {
-      continue;
+    } catch (e) {
+      process.stderr.write(`archon key list: skipped ${name}: ${e instanceof Error ? e.message : String(e)}\n`);
     }
   }
   if (asJson) {

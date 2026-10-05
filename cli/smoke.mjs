@@ -628,6 +628,43 @@ for (const lane of lanes) {
   expect(`key store: ${lane.name} refuses to rm a stray file`,
     String(runStore(lane, ["key", "rm", "stray"]).code), "1");
 }
+// 5b. The Argon2id bounds (docs/keystore.md §2) are checked when the header is PARSED, so
+//     `list`, which reads nothing else, shows exactly the in-bounds entries in every lane,
+//     and names on stderr each one it skipped. The files are the shared key's with only m, t
+//     or p rewritten: their tags no longer verify, which `list` never looks at. An edge at
+//     its bound is listed; one step past it is not. m = 2 GiB is checked here rather than by
+//     a vector, because deriving at it is too slow for a conformance run.
+{
+  const shared = readFileSync(join(storeHome, "keys", "shared"));
+  const withParams = (m, t, p) => {
+    const f = Buffer.from(shared);
+    f.writeUInt32BE(m, 5);
+    f.writeUInt32BE(t, 9);
+    f[13] = p;
+    return f;
+  };
+  const edges = {
+    "edge-m-floor": withParams(8, 1, 1),
+    "edge-m-under": withParams(7, 1, 1),
+    "edge-m-max": withParams(2 * 1024 * 1024, 1, 1),
+    "edge-m-over": withParams(2 * 1024 * 1024 + 1, 1, 1),
+    "edge-t-max": withParams(1024, 10, 1),
+    "edge-t-over": withParams(1024, 11, 1),
+    "edge-p4-under": withParams(31, 1, 4),
+  };
+  for (const [name, bytes] of Object.entries(edges)) writeFileSync(join(storeHome, "keys", name), bytes);
+  const listed = ["edge-m-floor", "edge-m-max", "edge-t-max", "shared"]
+    .map((name) => `{"name":"${name}","principal":"${TEXT}"}`).join(",");
+  const skipped = ["edge-m-over", "edge-m-under", "edge-p4-under", "edge-t-over", "stray"];
+  for (const lane of lanes) {
+    const r = runStore(lane, ["key", "list", "--json"]);
+    expect(`key store: ${lane.name} lists exactly the in-bounds entries`, r.stdout, `[${listed}]\n`);
+    const named = r.stderr.split(/\r?\n/u)
+      .map((line) => /^archon key list: skipped (\S+): /u.exec(line)?.[1]).filter(Boolean);
+    expect(`key store: ${lane.name} names each skipped entry on stderr`, named.join(" "), skipped.join(" "));
+  }
+  for (const name of Object.keys(edges)) rmSync(join(storeHome, "keys", name));
+}
 expect("key store: rm --force says what it could not read",
   scrub(runStore(lanes[lanes.length - 1], ["key", "rm", "stray", "--force"]).stdout),
   "removed stray (unreadable header: not 134 bytes (got 22)) from archon's store at " +
