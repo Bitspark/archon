@@ -5,7 +5,9 @@ A release is one commit on `main`, one version in every manifest, five tags, one
 conformance and publication separately, because a tag does not claim an upload to every
 registry, and a registry step that did not run is not a registry that published.
 
-The current release is **0.13.0**. Its key store is version 2: every stored key names the
+The current release is **0.14.0**: `archon enroll`, which enrolls a stored key under an account a
+service has already authenticated, showing that account first (ADR 0013, #113). It only adds
+API, so it is a minor (ADR 0005). 0.13.0's key store is version 2: every stored key names the
 contexts it may sign in (ADR 0012, #105). That is a minor, because a version-1 key must be
 converted once with `archon key policy` before it can be used again. 0.12.0 made `archon login`
 refuse, before display, scope entries and offers page addresses carrying display-unsafe code

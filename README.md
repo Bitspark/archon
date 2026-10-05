@@ -121,7 +121,7 @@ pip install bitspark-archon-core                 # also bitspark-archon-sdk
 
 # Java — Maven Central; also artifactId archon-sdk
 #   <dependency><groupId>dev.bitspark</groupId><artifactId>archon-core</artifactId>
-#     <version>0.13.0</version></dependency>
+#     <version>0.14.0</version></dependency>
 ```
 
 The Go modules resolve directly from this repository and need nothing else; the others are
