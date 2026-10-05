@@ -36,6 +36,13 @@ class SignFailure extends Error {
   }
 }
 
+/** Marks archon's own protocol domains (archon-login/1, archon-request/1, archon-enroll/1).
+ *  Those signatures are made only by the commands that show the person what they mean; `sign`
+ *  shows a length and a digest, so it refuses them for every key source, before anything is
+ *  read. The prefix is compared code unit for code unit, which for this ASCII prefix is byte for
+ *  byte, like a domain itself (ADR 0008 §2): "Archon-x" is not reserved. */
+const RESERVED_DOMAIN_PREFIX = "archon-";
+
 function as<T>(category: string, f: () => T): T {
   try {
     return f();
@@ -129,6 +136,13 @@ function runSign(argv: string[], json: boolean): void {
   if (domain !== undefined) {
     const d = domain;
     as("domain", () => signInDomain(new Uint8Array(32), d, new Uint8Array(0)));
+    if (d.startsWith(RESERVED_DOMAIN_PREFIX)) {
+      throw new SignFailure(
+        "domain",
+        `domain ${jsonString(d)} is reserved: ${RESERVED_DOMAIN_PREFIX}* domains are signed only by ` +
+          "archon's own commands, which show what they sign",
+      );
+    }
   }
   const expected =
     expectText === undefined ? undefined : as("usage", () => decodeKey(expectText as string));

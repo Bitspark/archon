@@ -69,9 +69,14 @@ archon sign --key alice --domain thesmos/fact/v1 --expect ed25519:… < bytes > 
   from `key list --json`, which comes from the file's header without a password. If the header
   names another key, archon refuses before asking for the password. The opened seed is checked
   again before signing, so a key replaced between the two steps never produces a signature.
-- **What the person sees.** Before the password prompt, the terminal shows the key's name and
-  principal, the domain, and the message's length and SHA-256. That proves which bytes are being
-  signed, not what they mean. Showing the meaning is the calling tool's job, before it runs archon.
+- **archon's own domains are not for `sign`.** A domain whose bytes begin with `archon-`
+  (`archon-login/1`, `archon-request/1`, `archon-enroll/1`) is refused with the category `domain`,
+  whatever the key source: those signatures come only from the commands that show what they mean.
+  The comparison is byte for byte, so `Archon-x` is an ordinary domain.
+- **What the person sees.** Before an interactive password prompt, the terminal shows the key's
+  name and principal, the domain, and the message's length and SHA-256. That proves which bytes are
+  being signed, not what they mean. Showing the meaning is the calling tool's job, before it runs
+  archon. With `ARCHON_KEY_PASSWORD` or `--password-fd` there is no prompt, and nothing is shown.
 - **What comes back.** Without `--json`, stdout is the signature alone: 128 hex digits. With
   `--json`, stdout is one record, `{"version":1,"principal":…,"scheme":"ed25519ph-context","domain":…,"signature":…}`,
   or on failure `{"version":1,"error":"<category>"}`. The categories are `usage`, `domain`,

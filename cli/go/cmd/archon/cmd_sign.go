@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Bitspark/archon/cli/go/internal/keystore"
 	"github.com/Bitspark/archon/core/go/crypto"
@@ -44,6 +45,13 @@ func as(category string, err error) error {
 func refuse(category, format string, args ...any) error {
 	return &signFailure{category, fmt.Errorf(format, args...)}
 }
+
+// reservedDomainPrefix marks archon's own protocol domains (archon-login/1, archon-request/1,
+// archon-enroll/1). Those signatures are made only by the commands that show the person what
+// they mean; `sign` shows a length and a digest, so it refuses them for every key source,
+// before anything is read. The prefix is compared byte for byte, like a domain itself (ADR 0008
+// §2): "Archon-x" is not reserved.
+const reservedDomainPrefix = "archon-"
 
 // runSign signs raw bytes, raw or in a domain. The message is the input, verbatim. With
 // --domain the signature is domain-separated (Ed25519ph with the domain as RFC 8032
@@ -139,6 +147,10 @@ func signWith(argv []string, json bool) error {
 	if haveDomain {
 		if _, err := crypto.SignInDomain(make([]byte, crypto.SeedSize), domain, nil); err != nil {
 			return as("domain", err)
+		}
+		if strings.HasPrefix(domain, reservedDomainPrefix) {
+			return refuse("domain", "domain %s is reserved: %s* domains are signed only by archon's "+
+				"own commands, which show what they sign", jsonString(domain), reservedDomainPrefix)
 		}
 	}
 	var expected []byte
