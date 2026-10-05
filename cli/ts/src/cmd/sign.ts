@@ -17,8 +17,7 @@ import { decodeKey, encodeKey, getPublicKey, sign, signInDomain, toHex, verify, 
   from "@bitspark/archon";
 
 import { jsonString, readBytes, resolveSeed, wantsHelp } from "../io.js";
-import * as keystore from "../keystore.js";
-import { readNamedKey, readPassword, takePasswordFd } from "./key_store.js";
+import { openEntered, readNamedKey, readPasswordEntry, takePasswordFd, type PasswordEntry } from "./key_store.js";
 
 const USAGE =
   "usage: archon sign (--key-file <pkcs8.pem> | --seed <hex> | --key <name> --domain <d>) " +
@@ -148,14 +147,14 @@ function runSign(argv: string[], json: boolean): void {
     const preamble =
       `signing ${message.length} bytes (sha256 ${createHash("sha256").update(message).digest("hex")}) ` +
       `in domain ${jsonString(domain)} with ${name} (${encodeKey(expected)})\n`;
-    let password: string;
+    let entry: PasswordEntry;
     try {
-      password = readPassword(fd, false, preamble);
+      entry = readPasswordEntry(fd, false, preamble);
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
       throw new SignFailure(why === "interrupted" ? "cancelled" : "password", why);
     }
-    seed = as("unlock-failed", () => keystore.open(stored.file, password));
+    seed = as("unlock-failed", () => openEntered(name, stored.file, entry));
     principal = getPublicKey(seed);
     if (!same(principal, expected)) {
       throw new SignFailure("key-mismatch", `key ${name} did not open to the expected key; refusing to sign`);
