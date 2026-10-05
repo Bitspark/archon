@@ -1,8 +1,17 @@
 # `archon enroll`: enrolling a stored key
 
-**Status:** specified by [ADR 0013](architecture/decisions/0013-enrolling-a-stored-key.md); the
-implementation follows in its own pull requests
+**Status:** specified by [ADR 0013](architecture/decisions/0013-enrolling-a-stored-key.md)
 ([archon#113](https://github.com/Bitspark/archon/issues/113)).
+- **The formats (§2–§3) are implemented** in all three lanes and pinned by `vectors/enroll.json`.
+  - **The sdk** encodes and decodes the intent and both tokens, and derives the request a token
+    yields. It is Go's `enroll.EncodeIntent` and `enroll.DecodeChallenge` with
+    `(*Challenge).Request`, Rust's `enroll::encode_intent` and `enroll::decode_challenge` with
+    `Challenge::request`, and TypeScript's `encodeEnrollIntent` and `decodeEnrollChallenge` with
+    `enrollChallengeRequest`, each with its proof-token pair.
+  - **The server** builds an intent with a fresh blind and writes a record's challenge token:
+    `Enroller.Intent` and `Enroller.ChallengeToken` in Go, `intent` and `challenge_token` in Rust,
+    `intent` and `challengeToken` in TypeScript.
+- **The command (§4) follows** in its own pull request.
 
 Enrollment ([`request.md`](request.md) §6) has a new key prove its own possession while a signed-in
 session, or a bootstrap credential, says whose key it becomes. The proof binds the account only
