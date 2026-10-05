@@ -266,18 +266,26 @@ Deriving and opening are §2's, with `aad = header[0, H)`. A changed policy byte
 
 | command | version 2, allowlist | version 2, unrestricted | version 1 | unknown version / malformed |
 |---|---|---|---|---|
-| `sign --key <n> --domain <d>` | signs only if `d` is in the list; otherwise refused as `policy`, **before the message or the password is read** | as before | refused: `migration-required` | refused: `unsupported` / `malformed` |
+| `sign --key <n> --domain <d>` | signs only if `d` is in the list; otherwise refused as `policy`, **before the message or the password is read** | as before | refused: `migration-required`, naming the conversion command | refused: `unsupported` / `malformed` |
 | `login --key <n>` or the default key | needs `archon-login/1` in the list; otherwise refused **before contacting the server** | as before | refused before contacting the server | refused before contacting the server |
 | `key export <n> --reveal` | **refused**: an allowlisted entry's seed is not written out (a backup is the encrypted file) | as before | refused (convert first) | refused |
 | `key default <n>` | accepted | accepted | refused (convert first) | refused |
-| `key list` | listed, with its policy | listed | named, not listed: migration required | named, not listed |
+| `key list` | listed, with its policy | listed | listed as `migration-required` | named on stderr, not listed |
 | `key rm <n>` | as before | as before | as before | needs `--force` |
 
 `sign` never signs in `archon-*` domains whatever the list holds (ADR 0009's note); `archon-login/1`
 in a list is for `login`.
 
-The machine-mode categories of `sign --key` (cli/README) gain four: **`policy`**, **`migration-required`**,
-**`unsupported`** and **`malformed`**. `no-key` now means only that no file has that name.
+The machine-mode categories of `sign --key` (cli/README) gain four, and **every header refusal has
+exactly one**:
+
+| category | when |
+|---|---|
+| `no-key` | no file has that name |
+| `unsupported` | the version byte is neither `0x01` nor `0x02` |
+| `malformed` | anything else wrong with the header or the file: magic, length, Argon2id parameters outside §2's bounds (before this version, `no-key`), a policy that breaks §8.1 |
+| `migration-required` | a version-1 entry. The message names the command that converts it: `archon key policy <name> --allow <context>…` (or `--unrestricted`) |
+| `policy` | the domain is not in the entry's list |
 
 The pre-unlock check reads the header **once**; the same bytes are then unlocked, so the policy
 that was checked is the policy the tag authenticates (ADR 0012 §4, one snapshot). A refusal
@@ -287,23 +295,28 @@ before unlock never releases anything.
 
 - **Every new entry states its policy.** `key add <name> <source>` and `keygen --store <name>`
   require exactly one of `--allow <context>` (repeatable) or `--unrestricted`. The writer sorts
-  the contexts and refuses a duplicate, an invalid domain, more than 16, and `--allow` mixed with
-  `--unrestricted`.
+  the contexts and refuses a duplicate, an invalid domain, a context the command would display
+  unfaithfully (the display-unsafe code points of `docs/login.md`), more than 16, and `--allow`
+  mixed with `--unrestricted`. Creating a key stays non-interactive-capable, as today.
 - **`key policy <name>`** prints the header's policy, labelled as a claim: it is read without the
   password and is only proven at unlock (§2).
-- **`key policy <name> (--allow <context>… | --unrestricted) [--yes]`** converts a version-1 entry
-  or changes a version-2 one. It is the only way a policy changes:
-  1. It reads the entry once and unlocks it (the password, §4). It re-checks the principal.
-  2. It prints the entry, the policy it has (*version 1, no policy* for a version-1 entry) and the
-     policy it will have.
-  3. It asks `change it? [y/N]` at the controlling terminal, unless `--yes`.
+- **`key policy <name> (--allow <context>… | --unrestricted)`** converts a version-1 entry or
+  changes a version-2 one. It is the only way a policy changes, and it is **always interactive**:
+  1. It reads the entry once and prints it, the policy the header claims (*version 1, no policy*
+     for a version-1 entry) and the policy it will have, **before asking for anything**.
+  2. It asks `change it? [y/N]` at the controlling terminal.
+  3. It asks for the password **at the controlling terminal only**: `ARCHON_KEY_PASSWORD` and
+     `--password-fd` are refused here, and there is no `--yes`. It unlocks the same bytes it read,
+     and re-checks the principal.
   4. It re-seals the seed under the same salt and parameters and a **fresh nonce**, and writes the
      file atomically (§1).
   5. It says: `changed the policy of <name> (<principal>) to <policy>; any copy of this key
      outside archon's store is untouched.`
 
-  The password holder is the policy's administrator. Nothing else changes a policy, and a
-  password or parameter change, should one exist, keeps it.
+  The password holder is the policy's administrator. Insisting on a person at the terminal is a
+  safeguard against a password a program inherited, not an authorization claim: whoever can
+  type the password can also decrypt the file (§8.5, ADR 0012 §6). Nothing else changes a
+  policy, and a password or parameter change, should one exist, keeps it.
 - **For thesmos's delegator keys** (thesmos#768) the policy is the fact domain of the thesmos
   version that uses the key: `--allow thesmos/fact/v1` for thesmos 0.27 and earlier,
   `--allow thesmos/fact/v2` from thesmos 0.28.0. Moving from one to the other is a `key policy`
@@ -311,14 +324,18 @@ before unlock never releases anything.
 
 ### 8.4 `key list`
 
-- **`--json` keeps its shape**: one row per entry `sign --key` can use, so a caller that finds a
-  principal by name is unaffected. Each row gains the header's policy, labelled as a claim:
+- **`--json` keeps its shape**, an array of rows a caller finds a principal in by name, with a row
+  for **every entry whose principal it can read**, so an entry awaiting conversion is reported as
+  that and not as absent. Each row gains a `status` and the header's policy, labelled as a claim:
 
-      {"name":"alice","principal":"ed25519:…","claimed_policy":{"mode":"allowlist","contexts":["thesmos/fact/v2"]}}
-      {"name":"bob","principal":"ed25519:…","claimed_policy":{"mode":"unrestricted"}}
+      {"name":"alice","principal":"ed25519:…","status":"usable","claimed_policy":{"mode":"allowlist","contexts":["thesmos/fact/v2"]}}
+      {"name":"bob","principal":"ed25519:…","status":"usable","claimed_policy":{"mode":"unrestricted"}}
+      {"name":"carol","principal":"ed25519:…","status":"usable","claimed_policy":{"mode":"allowlist","contexts":[]}}
+      {"name":"dave","principal":"ed25519:…","status":"migration-required","claimed_policy":null}
 
-- **Every entry it cannot use is named**, with the reason, on stderr (one line each, as since
-  0.11.0) and in the text listing, so a key never disappears without a word.
+- **An entry whose principal it cannot read** (`unsupported`, `malformed`) is named, with the
+  reason, on stderr (one line each, as since 0.11.0) and in the text listing, so a key never
+  disappears without a word.
 
 ### 8.5 What is not claimed
 
