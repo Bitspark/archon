@@ -2,6 +2,12 @@
 
 **Status:** **ACCEPTED** (2026-09-10) · **Type:** scope / tier
 
+> **Correction, 2026-10-05.** §B's shape row says the Rust lane is "a tower service". It is not.
+> `server/rs` has no HTTP framework: no axum, no tower, no hyper (`server/rs/Cargo.toml`).
+> `Handler::handle` is a plain function from the crate's own `Request` to its `Response`, with a
+> thin wire adapter in `server/rs/src/http.rs`. The decision, a mounted handler that opens no
+> socket, is unchanged; only the description of the Rust lane was wrong.
+
 > **Status note, 2026-10-04 — amended by [0009](0009-the-signing-boundary-and-the-signer-contract.md)
 > in two places, nothing else.** §A's refusal of a daemon **stands**, but its stated reason ("an
 > unlocked seed held by a process is an agent again, which is what cannot sign here") is replaced:

@@ -143,14 +143,22 @@ namespace with no scopes and the short `archon-*` names are not all available. I
 registry name only: the library target keeps its own name, so you write
 `use archon_core::…`, and the installed binary is `archon`.
 
-Runtime dependencies, in full: `ed25519-dalek` (Rust) · the standard library's
+The core's runtime dependencies, in full: `ed25519-dalek` (Rust) · the standard library's
 `crypto/ed25519` plus `filippo.io/edwards25519` for point validation only (Go — the
 published form of the implementation the standard library is maintained from; see ADR 0008
 §5 for why a blocklist was not enough) · `@noble/curves` and `@noble/hashes` (TypeScript,
 because noble v3 unbundles SHA-512 and makes you supply it) · PyCryptodome (Python, the one
 mainstream route to Ed25519ph with a context) · Bouncy Castle, `bcprov-jdk18on` (Java) ·
 OpenSSL ≥ 3.2 to sign and libsodium ≥ 1.0.21 to decide what is accepted (C++, Swift and
-Haskell — [why two](docs/languages.md)). Nothing else, in any language, at any version. Each core binds its language's Ed25519 and archon writes only the encodings and
+Haskell — [why two](docs/languages.md)). Nothing else, in any language, at any version. The
+tiers above add only what their job needs, and each tier's manifest is the full list:
+- the sdk, a hash and JSON for its transcripts;
+- the server, JSON and an entropy source (its Go and TypeScript lanes use only their standard
+  libraries);
+- the command, its HTTP client, Argon2id and XChaCha20-Poly1305 for the key store, Unicode
+  normalisation and a terminal prompt.
+
+Each core binds its language's Ed25519 and archon writes only the encodings and
 the checks on top; the curve arithmetic is not reimplemented here. What every core
 *accepts* is written down once, in [ADR 0008](docs/architecture/decisions/0008-the-ed25519-verification-profile.md),
 and checked ahead of the library rather than inherited from it.
