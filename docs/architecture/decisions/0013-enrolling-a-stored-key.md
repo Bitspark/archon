@@ -48,13 +48,16 @@ key holder can see what they are agreeing to.
 
 archon defines an intent format a service may choose to build
 ([`docs/enroll.md`](../../enroll.md) §2): a format byte; a **blind** of 16 to 64 random bytes; the
-service's **account reference**; an **account name** the person recognizes, with its namespace
-where that disambiguates; the **purpose**; and up to 32 **restrictions**. Every text field must be
-free of display-unsafe code points (0.12.0's set), and the sdk refuses anything else at encoding
-and at decoding.
+service's **account id**; the account's **unique name**, such as its sign-in handle, with its
+namespace where the handle is scoped to one; the **purpose**; and up to 32 **restrictions**. Every
+text field must be free of display-unsafe code points (0.12.0's set), and the sdk refuses anything
+else at encoding and at decoding.
 
-- **The reference is for precision and the name is for people.** An opaque reference alone repeats
-  today's problem. A name alone could be duplicated, or imitated by a look-alike.
+- **The id is for precision and the name is for people.** An opaque id alone repeats today's
+  problem. **The name must be unique to the account, never a display name its holder chooses
+  freely.** Otherwise an attacker names their own account after the victim, and the statement
+  shows the victim's name beside an id nobody checks. A unique name can still be imitated by a
+  look-alike, which is the residual risk below.
 - **The service builds it from its own records**, never from a label the browser sent, and keeps
   the exact bytes beside the record.
 - **Privacy, refined, not abandoned.** 0010 §7's rule exists because the digest travels to the
@@ -125,9 +128,11 @@ which completes. No transport acquires the browser's authority to enroll.
 ### 5. What services must do
 
 These are in [`docs/enroll.md`](../../enroll.md) §6. In brief:
-- **The intent's promise.** Build the intent from validated records and keep its bytes with the
-  record. Make completion do what the intent says, so the account, purpose and restrictions shown
-  describe the change made.
+- **The intent's promise.** Build the intent from validated records, with the account's unique
+  name, and keep its bytes with the record. Pass `Prepare` the intent's purpose. Make completion do
+  what the intent says, so the account, purpose and restrictions shown describe the change made.
+- **Time for the transfer.** The token's deadline is the record's expiry, rounded down to the
+  second. A by-hand flow needs a longer `TTL` than the adapter's five-minute default.
 - **Completion.** Take back only the page's own pending enrollment, and authorize completion from
   a credential validated then, never from a stored or client-supplied identifier.
 - **The key on the page.** Show the full key on the page. Name a policy for a key already enrolled
@@ -154,7 +159,7 @@ These are in [`docs/enroll.md`](../../enroll.md) §6. In brief:
 |---|---|
 | **A command-started rendezvous.** The command registers an offer, the signed-in page claims it once, the command fetches only that offer's challenge, reviews it, and stages its proof, and the page completes. It is the smoother flow, and it ties the page's enrollment to this invocation, which also closes the opposite error (an attacker's key pasted into a victim's page). It mirrors `login`'s offers form and needs its own capability rules: one claim, separate capabilities for claiming and staging, and confidentiality | a consumer for whom copying the tokens is the obstacle |
 | **An authenticated presentation** of an opaque intent, fetched from the configured audience and bound to the transaction, key, purpose and digest | the first service that cannot disclose its intent to the command |
-| **An automation mode** approved by a stated policy (the expected audience, account reference, purpose and restrictions), with an automatic refusal on mismatch | the first unattended consumer with a stored key |
+| **An automation mode** approved by a stated policy (the expected audience, account id, purpose and restrictions), with an automatic refusal on mismatch | the first unattended consumer with a stored key |
 | **Rendering `rotate` and `recover`.** Each needs a defined effect on existing keys: kept or disabled, and when | the first consumer that rotates or recovers through the command |
 | **A loopback transport**, which needs origin checks, capabilities and listener rules (RFC 8252's interception risks) | none yet |
 | **Seeds, key files and seed files** as the signing key | a consumer that needs them |

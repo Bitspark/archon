@@ -44,9 +44,10 @@ as the intent, and puts them in the challenge token. `Prepare` binds their SHA-2
 ```
 format          u8                        0x01
 blind           u16be length ‖ bytes      16..=64 bytes from a CSPRNG, fresh for every intent
-account ref     u16be length ‖ UTF-8      1..=255 bytes: the service's identifier for the account
-account name    u16be length ‖ UTF-8      1..=255 bytes: what the person recognizes, with its
-                                          organisation or namespace where that disambiguates
+account id      u16be length ‖ UTF-8      1..=255 bytes: the service's identifier for the account
+account name    u16be length ‖ UTF-8      1..=255 bytes: the account's unique name at the service,
+                                          such as its sign-in handle, with its namespace where
+                                          the handle is scoped to one
 purpose         u16be length ‖ UTF-8      1..=255 bytes: the binding's purpose
 restrictions    u8 count                  0..=32
                 count × (u16be length ‖ UTF-8)   each 1..=255 bytes
@@ -68,9 +69,15 @@ intent itself learns the account, and that is the person the command shows it to
 §7's rule from "guessable account data stays out of the intent" to "no intent has a guessable
 preimage".
 
+**The account name is unique to the account.** It is a name no other account at the service can
+hold, such as the handle the person signs in with. It is never a display name an account holder
+chooses freely. Otherwise an attacker names their own account after the victim, and the statement
+shows the victim's name beside an id nobody checks. The account id is for precision. The name is
+what the person reads, so the name is what must not be shared.
+
 **What the fields mean is the service's promise.** SHA-256 binds bytes, not meaning. The service
-builds the account reference and name from its own validated records, never from a label the
-browser sent, and completion does exactly what the intent says (§6).
+builds the account id and name from its own validated records, never from a label the browser
+sent, and completion does exactly what the intent says (§6).
 
 **Purposes.** Version 1 of the command renders `add-key`: *add this key to this account*. It
 refuses every other purpose by name, because `rotate` and `recover` change existing keys, and a
@@ -84,7 +91,8 @@ binary. A token has no fields to duplicate, nothing nested, and one parse in eve
 **The challenge token**, `archon-enroll-challenge-1:` followed by the hex of:
 
 ```
-audience        u16be length ‖ UTF-8      the service's audience, under the binding's audience rule
+audience        u16be length ‖ UTF-8      the service's audience: non-empty, with no display-unsafe
+                                          code point
 transaction     u16be length ‖ bytes      1..=255 bytes: the pending transaction's id
 nonce           u16be length ‖ bytes      16..=255 bytes: the record's nonce
 new key         32 bytes                  the key the record enrolls
@@ -94,7 +102,10 @@ deadline        u64be                     the record's expiry in Unix seconds, a
 ```
 
 The token's codec checks the token's own fields. The intent inside it is checked by the intent
-codec (§2) when the command decodes it.
+codec (§2) when the command decodes it. The audience rule is stricter than the binding's, which
+refuses only C0 and DEL. The command may print a token's audience when it refuses it (§4 step 4),
+so a C1 control or a bidirectional override is refused at decoding, before anything is printed.
+A canonical audience ([`login.md`](login.md) §2.1) never carries one.
 
 It carries no purpose and no digest: the command takes both from the intent it shows, so there is
 no second copy to disagree with the first. **The request a token yields** is the binding's request
@@ -128,6 +139,12 @@ archon enroll [--challenge-file <file>] [--audience <base>] [--key <name>] [--pa
   checks it ([`login.md`](login.md) §4.1 rule 1): it must be canonical. A token never supplies it.
 - **The token** is read from `--challenge-file`, or one line from stdin. It is never a
   command-line argument, which would put the intent into shell history and process listings.
+  - **A long token belongs in a file.** A terminal cuts a pasted line at its own limit: 1024 bytes
+    on macOS and 4095 on Linux. A token with restrictions can be longer, so the page offers the
+    token as a download as well as for copying. A token read from a terminal that fails to decode
+    is refused with a pointer to `--challenge-file`.
+  - **`--password-fd 0` is refused when the token comes from stdin.** Both would read the same
+    stream.
 - **The password** comes from the store's sources ([`keystore.md`](keystore.md) §4), but **the
   confirmation is always asked on the controlling terminal**: a password from
   `ARCHON_KEY_PASSWORD` or `--password-fd` does not answer it, and there is no `--yes`. Without a
@@ -136,19 +153,29 @@ archon enroll [--challenge-file <file>] [--audience <base>] [--key <name>] [--pa
 **The order is the security order:**
 
 1. The flags, and **the entry**. It must exist, be key-store version 2, and permit
-   `archon-enroll/1`. An *unrestricted* entry permits it. An *allowlist* entry must list it, and
-   the refusal prints the `archon key policy` command that adds it to the entry's current list,
-   because `key policy` replaces a list rather than adding to it. A key made for thesmos
-   delegation, for example, enrolls after
-   `archon key policy <name> --allow thesmos/fact/v2 --allow archon-enroll/1`.
+   `archon-enroll/1`. An *unrestricted* entry permits it. An *allowlist* entry must list it.
+   - **The refusal prints the command that adds it.** That is `archon key policy <name>`, then one
+     `--allow` for each context the entry already lists, in its order, then
+     `--allow archon-enroll/1`. Every context is listed because `key policy` replaces a list
+     rather than adding to it. A key made for thesmos delegation, for example, enrolls after
+     `archon key policy <name> --allow thesmos/fact/v2 --allow archon-enroll/1`.
+   - **Quoting.** A context made only of `A–Z a–z 0–9 . _ / : @ + = -` is printed as it is. Any
+     other context is printed in POSIX shell single quotes, with each `'` written as `'\''`. The
+     store's contexts hold no display-unsafe code point ([`keystore.md`](keystore.md) §8.1), so
+     what is printed is what the shell receives.
+   - **A full list.** An entry that already lists 16 contexts, the most a policy holds, cannot gain
+     another. The refusal says so and prints no command: drop a context, or keep a separate key
+     for enrollment.
 2. **The audience**, configured and canonical, and **a controlling terminal**.
 3. **The token**, read and decoded once (§3). From here on the command holds immutable values and
    never reads the file again.
 4. **The token's audience** must equal the configured audience, byte for byte. The refusal names
-   both.
+   both, each JSON-quoted. The token's audience is already display-safe (§3), and the quotes show
+   where it begins and ends.
 5. **The token's new key** must equal the entry's public key, as its header states it. Nothing is
    unlocked yet; a token for another key is refused before anything is shown.
-6. **The deadline** must not have passed.
+6. **The deadline** must be in the future: the command refuses when its clock's whole seconds are
+   at or past the deadline.
 7. **The intent** must decode as format 1 (§2), and its purpose must be `add-key`.
 8. **The statement** is written to the terminal, and the person is asked there. Any answer but `y`
    or `yes` refuses, and nothing is signed.
@@ -206,9 +233,15 @@ the record's expiry, as the token states it. It is not signed, and it is not the
 
 ## 6. What a service must do
 
-- **Build the intent from its records.** Take the account reference and name from the account the
-  validated session or credential authorizes. Never take a label from the browser and place it
-  beside a separately chosen account. Use a fresh blind every time.
+- **Build the intent from its records.** Take the account id and the account's unique name from
+  the account the validated session or credential authorizes (§2). Never take a label from the
+  browser and place it beside a separately chosen account. Use a fresh blind every time.
+- **Pass `Prepare` the intent's purpose.** The binding's purpose and the intent's must be the same
+  string, because the command binds the intent's. A record with any other purpose produces a proof
+  that never verifies. The server's helper that writes the challenge token refuses the mismatch.
+- **Write the record's expiry as the token's deadline, rounded down to the second.** Give the
+  record time for a by-hand transfer. The adapter's default of five minutes is tight for copying a
+  token to a terminal and back; fifteen minutes is a reasonable `TTL` for this flow.
 - **Keep the intent with the record.** Persist the exact intent bytes beside the pending record, so
   the token can be rebuilt, and never regenerate them from account data that may have changed. If
   the account changes in a way that makes the intent untrue, expire the record and begin again.
@@ -244,7 +277,7 @@ Each of these is deferred with the trigger that brings it ([ADR 0013](architectu
 |---|---|
 | A command-started **rendezvous**: the command registers an offer, the signed-in page claims it once, the command fetches only that offer's challenge and stages its proof, and the page completes. It is the smoother flow, and it ties the page's enrollment to this invocation | a consumer for whom copying the tokens is the obstacle |
 | An **authenticated presentation** of an opaque intent, fetched from the configured audience and bound to the transaction | the first service that cannot disclose its intent to the command |
-| An **automation mode** for unattended enrollment, approved by a stated policy (expected audience, account reference, purpose and restrictions) rather than by a person | the first unattended consumer with a stored key |
+| An **automation mode** for unattended enrollment, approved by a stated policy (expected audience, account id, purpose and restrictions) rather than by a person | the first unattended consumer with a stored key |
 | Rendering **`rotate` and `recover`**, with their effect on existing keys | the first consumer that rotates or recovers through the command |
 | A **loopback** transport | none yet; it needs its own origin, capability and listener rules |
 | Seeds, key files and seed files as the signing key | a consumer that needs them; the sdk proves with a seed today |
