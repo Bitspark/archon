@@ -1,6 +1,8 @@
 # archon login — the scheme
 
-**Status:** draft for review on [archon#16](https://github.com/Bitspark/archon/issues/16) ·
+**Status:** shipped — in every release since 0.3.0 (designed on
+[archon#16](https://github.com/Bitspark/archon/issues/16); the offers form since 0.5.0,
+`acceptedAt` since 0.11.0, the display rule since 0.12.0), in all three lanes ·
 **Layer:** `sdk/{rs,go,ts}/login` (ADR 0004; pinnable, tri-lane) · **Oracle:** `vectors/login.json`
 
 A person holds a key on their machine. A browser — or any client that wants to act but holds no
