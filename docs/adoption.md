@@ -3,7 +3,7 @@
 Which part of archon does which job, what it deliberately leaves to you, and what it will not
 interoperate with. Language coverage and the exact published versions are in
 [languages.md](languages.md) and are not repeated here; this page names the tier, and that
-page says which languages carry it. The current release is **0.10.1**.
+page says which languages carry it. The current release is **0.11.0**.
 
 ## Which part does which job
 
@@ -76,6 +76,11 @@ Decided in [ADR 0009](architecture/decisions/0009-the-signing-boundary-and-the-s
 **Changed in 0.9.0 for Go and Rust servers:** `AdmitAuthority` takes a fourth argument,
 `Admitted{id, scope, validFor}`, the request the proof covers. Every Go and Rust law gains the
 parameter. A TypeScript law written for three arguments keeps working.
+
+**Changed in 0.11.0:** `Admitted` also carries when the server accepted the answer (Go
+`AcceptedAt`, Rust `accepted_at`, TypeScript `acceptedAt`), and the delegation runs from that
+instant for `valid_for` seconds ([login.md](login.md) §4). Go and Rust code that constructs
+`Admitted` itself must set it; a law that only reads it needs no change.
 
 ## Request authentication and key enrollment (from 0.10.0)
 

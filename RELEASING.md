@@ -5,8 +5,14 @@ A release is one commit on `main`, one version in every manifest, five tags, one
 conformance and publication separately, because a tag does not claim an upload to every
 registry, and a registry step that did not run is not a registry that published.
 
-The current release is **0.10.1**, a patch on 0.10.0 with one security fix: the Rust CLI's
-`archon keygen --out` now creates the private-key file `0600`, as Go and TypeScript always did
+The current release is **0.11.0**. It is a minor release because it breaks Go and Rust code
+that constructs `Admitted` itself: the login delegation now starts when the server accepts the
+answer, and `Admitted` carries that instant (#97). It also makes `archon sign` refuse archon's
+own `archon-*` domains (#99), bounds the key store's Argon2id parameters at header parse in all
+three CLIs ([GHSA-7739-rxvj-hg74](https://github.com/Bitspark/archon/security/advisories/GHSA-7739-rxvj-hg74), #104),
+and fixes the TypeScript password prompt's decoding (#101).
+0.10.1 was a patch on 0.10.0 with one security fix: the Rust CLI's `archon keygen --out` creates
+the private-key file `0600`, as Go and TypeScript always did
 ([GHSA-32mc-pxw9-43jc](https://github.com/Bitspark/archon/security/advisories/GHSA-32mc-pxw9-43jc), #96).
 0.10.0 added request authentication and key enrollment (#48, ADR 0010), wire version 1, as new
 API only. 0.9.0 added signing with a stored key (`archon sign --key`), the sdk's signer
