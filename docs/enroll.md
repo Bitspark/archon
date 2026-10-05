@@ -15,7 +15,7 @@
   statement and the policy refusal byte-identically (`cli/testdata/enroll-statement.json`).
   `cli/smoke.mjs` pins every lane's refusals and, on Linux through a pseudo-terminal, the
   statement, the question, and a proof token the sdk verifies, identical across the lanes. It
-  ships in the release after 0.13.0.
+  ships in 0.14.0.
 
 Enrollment ([`request.md`](request.md) §6) has a new key prove its own possession while a signed-in
 session, or a bootstrap credential, says whose key it becomes. The proof binds the account only
