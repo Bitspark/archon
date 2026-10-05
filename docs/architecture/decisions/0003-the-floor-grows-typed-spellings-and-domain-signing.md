@@ -5,6 +5,12 @@
 subtraction. Ruled by the operator on 2026-09-09; the measurement and the reasoning are
 `docs/growth-plan.md` §2–§5.
 
+> **Status note, 2026-10-05: [0012](0012-a-stored-keys-signing-contexts.md).** *"archon neither knows nor
+> registers domains"* stands, with one reading made explicit: a store entry may carry a list of
+> opaque, byte-compared context strings as a local custody restriction (0012 §3). archon still
+> knows no domain's meaning and keeps no registry. That design is fixed and built on 0012 §5's
+> trigger.
+
 > **Amended 2026-09-21 by [0008](0008-the-ed25519-verification-profile.md).** Decision 2's
 > property was stated as holding "cryptographically, whatever the bytes". It does not hold for
 > a public key outside 0008's verification profile — for the identity point, one signature
