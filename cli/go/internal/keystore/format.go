@@ -31,6 +31,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/Bitspark/archon/core/go/crypto"
+	"github.com/Bitspark/archon/sdk/go/login"
 )
 
 const (
@@ -168,6 +169,15 @@ func checkContext(c []byte) error {
 	}
 	if !utf8.Valid(c) {
 		return errors.New("a context is well-formed UTF-8")
+	}
+	// A policy is shown to the person (`key policy`, `key list`, the refusals), so a context
+	// holds nothing a terminal would not show as itself (docs/login.md §5's set). Refused on
+	// write and on read, so nothing is written that cannot be read, and nothing read that cannot
+	// be shown.
+	for _, r := range string(c) {
+		if login.DisplayUnsafe(r) {
+			return fmt.Errorf("a context may not contain U+%04X: it would not be shown as itself", r)
+		}
 	}
 	return nil
 }

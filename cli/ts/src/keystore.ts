@@ -20,6 +20,7 @@
 import { argon2id } from "@noble/hashes/argon2.js";
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { getPublicKey } from "@bitspark/archon";
+import { displayUnsafe } from "@bitspark/archon-sdk";
 
 // Follows the envelope's "arcn" ‖ version (sdk/{go,rs,ts}). It is what stops a 134-byte
 // non-key file being LISTED as a key: `key list` reads the header without a password, so
@@ -141,10 +142,21 @@ function checkContext(c: Uint8Array): void {
   if (c.length < 1 || c.length > MAX_CONTEXT_SIZE) {
     throw new Error(`a context is 1 to ${MAX_CONTEXT_SIZE} bytes (got ${c.length})`);
   }
+  let text: string;
   try {
-    new TextDecoder("utf-8", { fatal: true }).decode(c);
+    text = new TextDecoder("utf-8", { fatal: true }).decode(c);
   } catch {
     throw new Error("a context is well-formed UTF-8");
+  }
+  // A policy is shown to the person (`key policy`, `key list`, the refusals), so a context holds
+  // nothing a terminal would not show as itself (docs/login.md §5's set), by code point. Refused
+  // on write and on read, so nothing is written that cannot be read, and nothing read that
+  // cannot be shown.
+  for (const ch of text) {
+    const cp = ch.codePointAt(0) as number;
+    if (displayUnsafe(cp)) {
+      throw new Error(`a context may not contain U+${cp.toString(16).toUpperCase().padStart(4, "0")}: it would not be shown as itself`);
+    }
   }
 }
 
