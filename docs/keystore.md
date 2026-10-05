@@ -209,8 +209,123 @@ could not read rather than pretending it knew.
 
 ## 7. What the store does not hold
 
-Seeds only. Grants stay the law's and are joined by principal text through
-`key list --json`; the store never interprets them, and there is no per-key attachment slot
-in v1 (ADR 0007 §A). A per-entry list of permitted signing contexts is designed in ADR 0012, which
-fixes its format and contract; it arrives with the store's next format version. Agents and CI stay on `--seed` / `--seed-file`, which keep working
-beside the store on every command that takes a key.
+Seeds, and from version 2 a context policy (§8). Grants stay the law's and are joined by
+principal text through `key list --json`; the store never interprets them, and there is no
+per-key attachment slot (ADR 0007 §A): §8's policy is one typed, authenticated field with one
+meaning. Agents and CI stay on `--seed` / `--seed-file`, which keep working beside the store on
+every command that takes a key.
+
+## 8. Version 2: a context policy
+
+**Status:** specified, being implemented ([ADR 0012](architecture/decisions/0012-a-stored-keys-signing-contexts.md)).
+From the release that ships it, the store **writes only version 2** and **signs only with version
+2**; a version-1 entry must be converted, once, with `key policy` (§8.3).
+
+What version 2 adds is a **context policy**: the set of domains (RFC 8032 contexts, ADR 0008 §2)
+the entry may sign in, authenticated together with the seed. What it promises is ADR 0012 §2's
+and nothing more: *the command refuses, through this entry, every context outside the entry's
+authenticated policy.* It is not caller authorization, not consent, not non-exportability, not
+rollback resistance, and it says nothing about another copy of the seed.
+
+### 8.1 The file
+
+    offset  size  field
+    ------  ----  --------------------------------------------------------------
+         0     4  magic = "arck"                       ─┐
+         4     1  version = 0x02                        │
+         5     4  argon2id memory, KiB                  │
+         9     4  argon2id iterations                   │
+        13     1  argon2id parallelism                  │  HEADER, H bytes,
+        14    16  salt                                  │  authenticated as the
+        30    32  public key                            │  AEAD's associated data
+        62     1  policy mode                           │
+        63     1  n, the number of contexts             │
+        64     …  n × ( u8 length ‖ that many bytes )  ─┘
+         H    24  nonce
+       H+24   48  ciphertext(32-byte seed) ‖ Poly1305 tag(16)
+    ------  ----
+       H+72       total, where H = 64 + Σ (1 + lengthᵢ): 136 to 4232 bytes
+
+Everything in §2 holds for version 2, with the header now `[0, H)`. And:
+
+- **The policy mode** is `0x00` *unrestricted* (then `n` must be 0) or `0x01` *allowlist*
+  (then `0 ≤ n ≤ 16`, and **`n = 0` denies every context**). Any other mode is refused. There
+  is no default: a missing, malformed or unknown policy never means unrestricted.
+- **Each context** is a domain by ADR 0008 §2: 1 to 255 bytes of well-formed UTF-8, compared byte
+  for byte, never normalised. There is no wildcard and no prefix match.
+- **The contexts are in strictly ascending byte order.** That refuses duplicates and makes the
+  encoding canonical: one policy has one header.
+- **The length is exact.** A file that is not `H + 72` bytes, for the `H` its own header implies,
+  is refused before any derivation, like every other header refusal.
+- **Version `0x01` files are still parsed** (§2), so that `key list`, `key rm` and `key policy`
+  can name and convert them. Nothing signs with them, logs in with them or exports them.
+
+Deriving and opening are §2's, with `aad = header[0, H)`. A changed policy byte fails the tag.
+
+### 8.2 What each command does with an entry
+
+| command | version 2, allowlist | version 2, unrestricted | version 1 | unknown version / malformed |
+|---|---|---|---|---|
+| `sign --key <n> --domain <d>` | signs only if `d` is in the list; otherwise refused as `policy`, **before the message or the password is read** | as before | refused: `migration-required` | refused: `unsupported` / `malformed` |
+| `login --key <n>` or the default key | needs `archon-login/1` in the list; otherwise refused **before contacting the server** | as before | refused before contacting the server | refused before contacting the server |
+| `key export <n> --reveal` | **refused**: an allowlisted entry's seed is not written out (a backup is the encrypted file) | as before | refused (convert first) | refused |
+| `key default <n>` | accepted | accepted | refused (convert first) | refused |
+| `key list` | listed, with its policy | listed | named, not listed: migration required | named, not listed |
+| `key rm <n>` | as before | as before | as before | needs `--force` |
+
+`sign` never signs in `archon-*` domains whatever the list holds (ADR 0009's note); `archon-login/1`
+in a list is for `login`.
+
+The machine-mode categories of `sign --key` (cli/README) gain four: **`policy`**, **`migration-required`**,
+**`unsupported`** and **`malformed`**. `no-key` now means only that no file has that name.
+
+The pre-unlock check reads the header **once**; the same bytes are then unlocked, so the policy
+that was checked is the policy the tag authenticates (ADR 0012 §4, one snapshot). A refusal
+before unlock never releases anything.
+
+### 8.3 Choosing and changing a policy
+
+- **Every new entry states its policy.** `key add <name> <source>` and `keygen --store <name>`
+  require exactly one of `--allow <context>` (repeatable) or `--unrestricted`. The writer sorts
+  the contexts and refuses a duplicate, an invalid domain, more than 16, and `--allow` mixed with
+  `--unrestricted`.
+- **`key policy <name>`** prints the header's policy, labelled as a claim: it is read without the
+  password and is only proven at unlock (§2).
+- **`key policy <name> (--allow <context>… | --unrestricted) [--yes]`** converts a version-1 entry
+  or changes a version-2 one. It is the only way a policy changes:
+  1. It reads the entry once and unlocks it (the password, §4). It re-checks the principal.
+  2. It prints the entry, the policy it has (*version 1, no policy* for a version-1 entry) and the
+     policy it will have.
+  3. It asks `change it? [y/N]` at the controlling terminal, unless `--yes`.
+  4. It re-seals the seed under the same salt and parameters and a **fresh nonce**, and writes the
+     file atomically (§1).
+  5. It says: `changed the policy of <name> (<principal>) to <policy>; any copy of this key
+     outside archon's store is untouched.`
+
+  The password holder is the policy's administrator. Nothing else changes a policy, and a
+  password or parameter change, should one exist, keeps it.
+- **For thesmos's delegator keys** (thesmos#768) the policy is the fact domain of the thesmos
+  version that uses the key: `--allow thesmos/fact/v1` for thesmos 0.27 and earlier,
+  `--allow thesmos/fact/v2` from thesmos 0.28.0. Moving from one to the other is a `key policy`
+  change. archon names no default.
+
+### 8.4 `key list`
+
+- **`--json` keeps its shape**: one row per entry `sign --key` can use, so a caller that finds a
+  principal by name is unaffected. Each row gains the header's policy, labelled as a claim:
+
+      {"name":"alice","principal":"ed25519:…","claimed_policy":{"mode":"allowlist","contexts":["thesmos/fact/v2"]}}
+      {"name":"bob","principal":"ed25519:…","claimed_policy":{"mode":"unrestricted"}}
+
+- **Every entry it cannot use is named**, with the reason, on stderr (one line each, as since
+  0.11.0) and in the text listing, so a key never disappears without a word.
+
+### 8.5 What is not claimed
+
+- **Rollback.** An older authentic file with a wider policy, put back in place, opens. Telling it
+  from the newest needs trusted state outside `$ARCHON_HOME`, and archon has none.
+- **Other copies.** The policy starts with this entry. A seed imported from elsewhere, or a
+  version-1 backup, is not bound by it. `--expect` pins the principal, not the policy.
+- **Anyone with the password and the file.** The format is public; they can decrypt the seed
+  without archon. The policy binds archon's binary, and through it callers that cannot supply the
+  password themselves.
