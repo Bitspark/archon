@@ -131,6 +131,24 @@ const REQUEST_FAMILIES = [
   { name: "request_verify", want: (c) => c.result, got: (l) => l.result },
 ];
 
+// `archon enroll`'s formats (vectors/enroll.json, docs/enroll.md, ADR 0013), driven by the
+// same three sdk CLIs: the intent a service builds and the command renders, the two tokens
+// carried by hand, and the request a challenge token yields — the one derivation of what is
+// bound, so no lane assembles it differently.
+const ENROLL_FAMILIES = [
+  // The intent in format 1, and every refusal: lengths, counts, display-unsafe text.
+  { name: "enroll_intent_encode", want: (c) => c.result, got: (l) => l.result },
+  { name: "enroll_intent_decode", want: (c) => c.result, got: (l) => l.result },
+  // The challenge token: its own fields only; the intent inside is the intent codec's.
+  { name: "enroll_challenge_encode", want: (c) => c.result, got: (l) => l.result },
+  { name: "enroll_challenge_decode", want: (c) => c.result, got: (l) => l.result },
+  // The token's nonce, transaction and key, the intent's purpose, SHA-256 of the intent bytes.
+  { name: "enroll_challenge_request", want: (c) => c.result, got: (l) => l.result },
+  // The proof token the command prints and the service reads.
+  { name: "enroll_proof_encode", want: (c) => c.result, got: (l) => l.result },
+  { name: "enroll_proof_decode", want: (c) => c.result, got: (l) => l.result },
+];
+
 // The command's own layer (vectors/keystore.json, ADR 0007 §A). Custody is the
 // CLI tier's, so this oracle is driven by the cli/* lanes rather than core/* or sdk/*.
 // Salt, nonce, password and parameters are case INPUTS - the randomness is the command's,
@@ -149,6 +167,7 @@ const TABLES = {
   "sdk.json": SDK_FAMILIES,
   "login.json": LOGIN_FAMILIES,
   "request.json": REQUEST_FAMILIES,
+  "enroll.json": ENROLL_FAMILIES,
   "keystore.json": KEYSTORE_FAMILIES,
 };
 const families = TABLES[oracleName];

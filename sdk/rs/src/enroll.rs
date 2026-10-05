@@ -25,6 +25,14 @@ use archon_core::crypto::{public_key_from_seed, PUBLIC_KEY_SIZE, SEED_SIZE, SIGN
 use crate::possession;
 use crate::signer::{sign_with, Signer, SigningRequest};
 
+mod token;
+pub use token::{
+    decode_challenge, decode_intent, decode_proof, encode_challenge, encode_intent, encode_proof,
+    Challenge, Intent, Proof, CHALLENGE_PREFIX, INTENT_FORMAT, MAX_BLIND_SIZE, MAX_DEADLINE,
+    MAX_INTENT_SIZE, MAX_NONCE_SIZE, MAX_RESTRICTIONS, MAX_TEXT_SIZE, MAX_TOKEN_SIZE,
+    MIN_BLIND_SIZE, PROOF_PREFIX, PROOF_SIZE,
+};
+
 /// The RFC 8032 context every enrollment proof is made in.
 pub const DOMAIN: &str = "archon-enroll/1";
 

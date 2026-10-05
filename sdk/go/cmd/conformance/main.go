@@ -26,6 +26,16 @@
 //	                 out {"name","result":{"ok":{"base","headers"}}|{"error":true}}
 //	request_verify : in {name, policy, now, request{method, request_target, headers, body}}
 //	                 out {"name","result":{"ok":{"principal","created","expires","nonce","target_uri"}}|{"error":true}}
+//
+// vectors/enroll.json (same protocol; text fields of an intent as hex):
+//
+//	enroll_intent_encode     : in {name, intent}      out {"name","result":{"ok":"<hex>"}|{"error":true}}
+//	enroll_intent_decode     : in {name, bytes}       out {"name","result":{"ok":{intent}}|{"error":true}}
+//	enroll_challenge_encode  : in {name, challenge}   out {"name","result":{"ok":"<token>"}|{"error":true}}
+//	enroll_challenge_decode  : in {name, text}        out {"name","result":{"ok":{challenge}}|{"error":true}}
+//	enroll_challenge_request : in {name, text}        out {"name","result":{"ok":{"audience","request"}}|{"error":true}}
+//	enroll_proof_encode      : in {name, proof_token} out {"name","result":{"ok":"<token>"}|{"error":true}}
+//	enroll_proof_decode      : in {name, text}        out {"name","result":{"ok":{proof_token}}|{"error":true}}
 package main
 
 import (
@@ -34,6 +44,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/Bitspark/archon/sdk/go/enroll"
 	"github.com/Bitspark/archon/sdk/go/envelope"
@@ -72,6 +83,56 @@ type kase struct {
 		MaxLifetime int64    `json:"max_lifetime"`
 		Skew        int64    `json:"skew"`
 	} `json:"policy"`
+	// vectors/enroll.json
+	Intent    *intentJSON `json:"intent"`
+	Bytes     string      `json:"bytes"`
+	Challenge *struct {
+		Audience    string `json:"audience"`
+		Transaction string `json:"transaction"`
+		Nonce       string `json:"nonce"`
+		NewKey      string `json:"new_key"`
+		Intent      string `json:"intent"`
+		Deadline    int64  `json:"deadline"`
+	} `json:"challenge"`
+	Text       string `json:"text"`
+	ProofToken *struct {
+		Transaction string `json:"transaction"`
+		NewKey      string `json:"new_key"`
+		Proof       string `json:"proof"`
+	} `json:"proof_token"`
+}
+
+// intentJSON is the oracle's spelling of enroll.Intent: every text field as hex, so non-UTF-8
+// text can be a case.
+type intentJSON struct {
+	Blind        string   `json:"blind"`
+	AccountID    string   `json:"account_id"`
+	AccountName  string   `json:"account_name"`
+	Purpose      string   `json:"purpose"`
+	Restrictions []string `json:"restrictions"`
+}
+
+func (j *intentJSON) intent() *enroll.Intent {
+	restrictions := make([]string, len(j.Restrictions))
+	for i, r := range j.Restrictions {
+		restrictions[i] = string(mustHex(r))
+	}
+	return &enroll.Intent{
+		Blind: mustHex(j.Blind), AccountID: string(mustHex(j.AccountID)), AccountName: string(mustHex(j.AccountName)),
+		Purpose: string(mustHex(j.Purpose)), Restrictions: restrictions,
+	}
+}
+
+func spellIntent(i *enroll.Intent) intentJSON {
+	restrictions := make([]string, len(i.Restrictions))
+	for n, r := range i.Restrictions {
+		restrictions[n] = hex.EncodeToString([]byte(r))
+	}
+	return intentJSON{
+		Blind: hex.EncodeToString(i.Blind), AccountID: hex.EncodeToString([]byte(i.AccountID)),
+		AccountName: hex.EncodeToString([]byte(i.AccountName)), Purpose: hex.EncodeToString([]byte(i.Purpose)),
+		Restrictions: restrictions,
+	}
 }
 
 // loginRequest is the oracle's spelling of login.Request: bytes as hex, scope entries as hex
@@ -227,6 +288,65 @@ func main() {
 				"principal": v.KeyText, "created": v.Created, "expires": v.Expires,
 				"nonce": hex.EncodeToString(v.Nonce), "target_uri": v.TargetURI,
 			}, err)
+		case "enroll_intent_encode":
+			b, err := enroll.EncodeIntent(c.Intent.intent())
+			out["result"] = resultOf(hex.EncodeToString(b), err)
+		case "enroll_intent_decode":
+			i, err := enroll.DecodeIntent(mustHex(c.Bytes))
+			if err != nil {
+				out["result"] = resultOf(nil, err)
+			} else {
+				out["result"] = resultOf(spellIntent(i), nil)
+			}
+		case "enroll_challenge_encode":
+			ch := c.Challenge
+			text, err := enroll.EncodeChallenge(&enroll.Challenge{
+				Audience: ch.Audience, Transaction: mustHex(ch.Transaction), Nonce: mustHex(ch.Nonce),
+				NewKey: mustHex(ch.NewKey), Intent: mustHex(ch.Intent), Deadline: time.Unix(ch.Deadline, 0),
+			})
+			out["result"] = resultOf(text, err)
+		case "enroll_challenge_decode":
+			ch, err := enroll.DecodeChallenge(c.Text)
+			if err != nil {
+				out["result"] = resultOf(nil, err)
+			} else {
+				out["result"] = resultOf(map[string]any{
+					"audience": ch.Audience, "transaction": hex.EncodeToString(ch.Transaction),
+					"nonce": hex.EncodeToString(ch.Nonce), "new_key": hex.EncodeToString(ch.NewKey),
+					"intent": hex.EncodeToString(ch.Intent), "deadline": ch.Deadline.Unix(),
+				}, nil)
+			}
+		case "enroll_challenge_request":
+			ch, err := enroll.DecodeChallenge(c.Text)
+			var r *enroll.Request
+			if err == nil {
+				r, _, err = ch.Request()
+			}
+			if err != nil {
+				out["result"] = resultOf(nil, err)
+			} else {
+				out["result"] = resultOf(map[string]any{"audience": ch.Audience, "request": map[string]string{
+					"nonce": hex.EncodeToString(r.Nonce), "transaction": hex.EncodeToString(r.Transaction),
+					"purpose": hex.EncodeToString([]byte(r.Purpose)), "new_key": hex.EncodeToString(r.NewKey),
+					"intent_digest": hex.EncodeToString(r.IntentDigest),
+				}}, nil)
+			}
+		case "enroll_proof_encode":
+			p := c.ProofToken
+			text, err := enroll.EncodeProof(&enroll.Proof{
+				Transaction: mustHex(p.Transaction), NewKey: mustHex(p.NewKey), Proof: mustHex(p.Proof),
+			})
+			out["result"] = resultOf(text, err)
+		case "enroll_proof_decode":
+			p, err := enroll.DecodeProof(c.Text)
+			if err != nil {
+				out["result"] = resultOf(nil, err)
+			} else {
+				out["result"] = resultOf(map[string]any{
+					"transaction": hex.EncodeToString(p.Transaction), "new_key": hex.EncodeToString(p.NewKey),
+					"proof": hex.EncodeToString(p.Proof),
+				}, nil)
+			}
 		default:
 			panic("unknown family: " + family)
 		}
