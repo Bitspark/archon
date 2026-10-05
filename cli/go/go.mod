@@ -15,8 +15,8 @@ go 1.26.0
 // XChaCha20-Poly1305, the NFC normaliser its password rule names, and a terminal prompt
 // that does not echo. keygen's CSPRNG is still the standard library's.
 require (
-	github.com/Bitspark/archon/core/go v0.10.0
-	github.com/Bitspark/archon/sdk/go v0.10.0
+	github.com/Bitspark/archon/core/go v0.10.1
+	github.com/Bitspark/archon/sdk/go v0.10.1
 	golang.org/x/crypto v0.57.0
 	golang.org/x/term v0.46.0
 	golang.org/x/text v0.42.0
