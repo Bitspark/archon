@@ -129,6 +129,19 @@
       "consequences",
       "not-decided-here"
     ],
+    "docs/architecture/decisions/0012-a-stored-keys-signing-contexts.md": [
+      "0012--a-stored-keys-signing-contexts-what-archon-can-promise-and-the-design-it-builds",
+      "context",
+      "decision",
+      "1-three-properties-kept-apart",
+      "2-what-archon-promises-and-what-it-does-not",
+      "3-scope-a-local-custody-restriction-is-archons",
+      "4-the-design",
+      "5-when-it-is-built-on-the-first-entry-that-needs-a-proper-subset-which-exists",
+      "6-what-is-not-adopted",
+      "for-thesmos",
+      "consequences"
+    ],
     "docs/architecture/decisions/README.md": [
       "architecture-decisions"
     ],

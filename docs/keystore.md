@@ -211,5 +211,6 @@ could not read rather than pretending it knew.
 
 Seeds only. Grants stay the law's and are joined by principal text through
 `key list --json`; the store never interprets them, and there is no per-key attachment slot
-in v1 (ADR 0007 §A). Agents and CI stay on `--seed` / `--seed-file`, which keep working
+in v1 (ADR 0007 §A). A per-entry list of permitted signing contexts is designed in ADR 0012, which
+fixes its format and contract; it arrives with the store's next format version. Agents and CI stay on `--seed` / `--seed-file`, which keep working
 beside the store on every command that takes a key.
