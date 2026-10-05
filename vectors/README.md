@@ -22,11 +22,11 @@ client and every signature from OpenSSL 3.2.4 — regenerate with
 `python vectors/tools/request-vectors.py > vectors/request.json`. Each verify refusal breaks exactly one
 rule and is otherwise signed correctly, so it can only be refused for that rule.
 
-`enroll.json` — 102 cases in 7 families, `archon enroll`'s formats ([docs/enroll.md](../docs/enroll.md)
+`enroll.json` — 106 cases in 7 families, `archon enroll`'s formats ([docs/enroll.md](../docs/enroll.md)
 §2–§3, [ADR 0013](../docs/architecture/decisions/0013-enrolling-a-stored-key.md)), for the same
-`sdk/{rs,go,ts}` CLIs: `enroll_intent_encode` · `enroll_intent_decode` (24 + 16, intent format 1 and
+`sdk/{rs,go,ts}` CLIs: `enroll_intent_encode` · `enroll_intent_decode` (24 + 18, intent format 1 and
 every refusal: lengths, counts, display-unsafe text, a leading byte-order mark, trailing bytes),
-`enroll_challenge_encode` · `enroll_challenge_decode` (18 + 23, the challenge token: its prefix,
+`enroll_challenge_encode` · `enroll_challenge_decode` (18 + 25, the challenge token: its prefix,
 lowercase hex, the whitespace it ignores and the whitespace it does not, the 65536-byte bound, the
 deadline's bound, a display-unsafe audience), `enroll_challenge_request` (7, the request a token
 yields: the intent's purpose and SHA-256 of its bytes), and `enroll_proof_encode` ·
