@@ -220,13 +220,21 @@ export function openControllingTerminal(): ControllingTerminal {
   };
 }
 
+const utf8Strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
 /** A prompt that does not echo. Node has no rpassword, so raw mode is done by hand. The
- *  terminal is the prompt's own, opened in cooked mode, so cooked is what it is left in. */
+ *  terminal is the prompt's own, opened in cooked mode, so cooked is what it is left in.
+ *
+ *  It collects BYTES and decodes them as UTF-8 once, at the end: a terminal sends a
+ *  non-ASCII character as several bytes, and the password is the characters (docs/keystore.md
+ *  §3: UTF-8, then NFC), which is what the Go and Rust prompts read. Before 0.11.0 this
+ *  prompt turned each byte into its own character, so a non-ASCII password derived a key no
+ *  other lane derives; `openEntered` still opens keys sealed that way, and re-seals them. */
 export function promptHidden(label: string, io: HiddenPromptIo): string {
   io.write(label);
   const wasRaw = false;
   io.setRawMode(true);
-  const buf: string[] = [];
+  const bytes: number[] = [];
   for (;;) {
     const c = io.readByte();
     if (c < 0 || c === 0x0d || c === 0x0a) break;
@@ -236,14 +244,32 @@ export function promptHidden(label: string, io: HiddenPromptIo): string {
       throw new Error("interrupted");
     }
     if (c === 0x7f || c === 0x08) {
-      buf.pop();
+      // Backspace erases one CHARACTER: its UTF-8 continuation bytes, then its first byte.
+      for (;;) {
+        const last = bytes[bytes.length - 1];
+        if (last === undefined || (last & 0xc0) !== 0x80) break;
+        bytes.pop();
+      }
+      bytes.pop();
       continue;
     }
-    buf.push(String.fromCharCode(c));
+    bytes.push(c);
   }
   io.setRawMode(wasRaw);
   io.write("\n");
-  return buf.join("");
+  try {
+    return utf8Strict.decode(new Uint8Array(bytes));
+  } catch {
+    throw new Error("the password is not valid UTF-8; set the terminal's encoding to UTF-8");
+  }
+}
+
+/** What the prompt before 0.11.0 made of the same keystrokes: each UTF-8 byte of `password`
+ *  as a character of its own. undefined for an ASCII password, where both readings agree. */
+export function legacyPromptDecoding(password: string): string | undefined {
+  const bytes = new TextEncoder().encode(password);
+  if (bytes.every((b) => b < 0x80)) return undefined;
+  return String.fromCharCode(...bytes);
 }
 
 /**
@@ -253,12 +279,23 @@ export function promptHidden(label: string, io: HiddenPromptIo): string {
  * shown on that terminal before the prompt, and only when there is a prompt.
  */
 export function readPassword(fd: number | undefined, confirm: boolean, preamble = ""): string {
+  return readPasswordEntry(fd, confirm, preamble).password;
+}
+
+/** A password, and whether it was typed at the prompt: only the prompt ever misread one. */
+export interface PasswordEntry {
+  password: string;
+  prompted: boolean;
+}
+
+/** `readPassword`, also saying where the password came from, for `openEntered`. */
+export function readPasswordEntry(fd: number | undefined, confirm: boolean, preamble = ""): PasswordEntry {
   if (fd !== undefined) {
     refuseLoosePasswordFile(fd);
-    return trimNewline(readFileSync(fd, "utf8"));
+    return { password: trimNewline(readFileSync(fd, "utf8")), prompted: false };
   }
   const env = process.env["ARCHON_KEY_PASSWORD"];
-  if (env !== undefined) return env;
+  if (env !== undefined) return { password: env, prompted: false };
   const terminal = openControllingTerminal();
   try {
     if (preamble !== "") terminal.io.write(preamble);
@@ -267,9 +304,37 @@ export function readPassword(fd: number | undefined, confirm: boolean, preamble 
       const second = promptHidden("password (again): ", terminal.io);
       if (first !== second) throw new Error("the two passwords differ");
     }
-    return first;
+    return { password: first, prompted: true };
   } finally {
     terminal.close();
+  }
+}
+
+/**
+ * Opens the sealed key `name` with an entered password. A key sealed through the prompt
+ * before 0.11.0 under a non-ASCII password opens only under that prompt's byte-by-byte
+ * reading (`legacyPromptDecoding`), and in no other lane. So when a PROMPTED password fails
+ * and its old reading opens the key, the key is re-sealed under the password as typed —
+ * once, and saying so — after which every lane opens it. Any other failure is the first one.
+ */
+export function openEntered(name: string, file: Uint8Array, entry: PasswordEntry): Uint8Array {
+  try {
+    return keystore.open(file, entry.password);
+  } catch (first) {
+    const legacy = entry.prompted ? legacyPromptDecoding(entry.password) : undefined;
+    if (legacy === undefined) throw first;
+    let seed: Uint8Array;
+    try {
+      seed = keystore.open(file, legacy);
+    } catch {
+      throw first;
+    }
+    sealAndWrite(keyPath(name), seed, entry.password);
+    process.stderr.write(
+      `re-sealed key ${name}: archon's TS prompt before 0.11.0 misread its non-ASCII password; ` +
+        "it is now sealed under the password as typed, which every lane reads the same way\n",
+    );
+    return seed;
   }
 }
 
@@ -312,7 +377,8 @@ export function readDefaultKeyName(): string | undefined {
  * for a password differently.
  */
 export function unlockNamedKey(name: string, fd: number | undefined): Uint8Array {
-  return keystore.open(readNamedKey(name).file, readPassword(fd, false));
+  const { file } = readNamedKey(name);
+  return openEntered(name, file, readPasswordEntry(fd, false));
 }
 
 /**
