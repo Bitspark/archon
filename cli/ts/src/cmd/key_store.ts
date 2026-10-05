@@ -264,6 +264,17 @@ export function promptHidden(label: string, io: HiddenPromptIo): string {
   }
 }
 
+/** One visible line from the controlling terminal, in cooked mode: `key policy`'s y/N. */
+function readTerminalLine(terminal: ControllingTerminal): string {
+  const bytes: number[] = [];
+  for (;;) {
+    const c = terminal.io.readByte();
+    if (c < 0 || c === 0x0a) break;
+    if (c !== 0x0d) bytes.push(c);
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
 /** What the prompt before 0.11.0 made of the same keystrokes: each UTF-8 byte of `password`
  *  as a character of its own. undefined for an ASCII password, where both readings agree. */
 export function legacyPromptDecoding(password: string): string | undefined {
@@ -323,13 +334,18 @@ export function openEntered(name: string, file: Uint8Array, entry: PasswordEntry
   } catch (first) {
     const legacy = entry.prompted ? legacyPromptDecoding(entry.password) : undefined;
     if (legacy === undefined) throw first;
+    // The re-seal keeps the entry's own policy (docs/keystore.md §8.3: nothing else changes a
+    // policy). A version-1 file has none and is never converted as a side effect: that is
+    // `key policy`'s, explicitly.
+    const policy = keystore.parseHeader(file).policy;
+    if (policy === null) throw first;
     let seed: Uint8Array;
     try {
       seed = keystore.open(file, legacy);
     } catch {
       throw first;
     }
-    sealAndWrite(keyPath(name), seed, entry.password);
+    sealAndWrite(keyPath(name), seed, entry.password, policy);
     process.stderr.write(
       `re-sealed key ${name}: archon's TS prompt before 0.11.0 misread its non-ASCII password; ` +
         "it is now sealed under the password as typed, which every lane reads the same way\n",
@@ -343,13 +359,19 @@ export function openEntered(name: string, file: Uint8Array, entry: PasswordEntry
 // ---------------------------------------------------------------------------
 
 /**
- * The store's own "is there a key called that": a validated name, then a stat — opening
- * nothing, asking for no password. Shared by `key default <name>` and by `login`'s
- * pre-network check, so both refuse a missing key with one wording.
+ * The store's own "is there a key called that, and can it be used": a validated name and a
+ * header read — opening nothing, asking for no password. Shared by `key default <name>` and by
+ * `login`'s pre-network check, so both refuse a missing, unreadable or version-1 key with one
+ * wording (docs/keystore.md §8.2).
  */
-export function requireNamedKey(name: string): void {
-  if (!existsSync(keyPath(name))) {
-    throw new Error(`no key named ${JSON.stringify(name)} in archon's store`);
+export function requireNamedKey(name: string): keystore.KeyHeader {
+  return usableKey(name).header;
+}
+
+/** A refusal of a named entry with its machine-mode category (§8.2). */
+export class StoreRefusal extends Error {
+  constructor(readonly category: string, message: string) {
+    super(message);
   }
 }
 
@@ -377,25 +399,91 @@ export function readDefaultKeyName(): string | undefined {
  * for a password differently.
  */
 export function unlockNamedKey(name: string, fd: number | undefined): Uint8Array {
-  const { file } = readNamedKey(name);
+  const { file } = usableKey(name);
   return openEntered(name, file, readPasswordEntry(fd, false));
 }
 
 /**
- * A stored key's file and the public key its header CLAIMS, opening nothing and asking for
- * no password. The claim is what `sign --key --expect` checks before the prompt; it is proven
- * only when the seal opens, because `keystore.open` refuses a seed that does not derive it.
+ * A stored key's file and its header as the header CLAIMS it — public key, version, policy —
+ * opening nothing and asking for no password. The claim is what `sign --key --expect` checks
+ * before the prompt; it is proven only when the seal opens, because `keystore.open` verifies the
+ * tag over the header and refuses a seed that does not derive the public key.
+ *
+ * Every refusal is a StoreRefusal: no-key when no file has that name, else the header's kind.
  */
-export function readNamedKey(name: string): { file: Uint8Array; publicKey: Uint8Array } {
-  const path = keyPath(name);
+export function readNamedKey(name: string): { file: Uint8Array; header: keystore.KeyHeader } {
+  let path: string;
+  try {
+    path = keyPath(name);
+  } catch (e) {
+    throw new StoreRefusal("no-key", e instanceof Error ? e.message : String(e));
+  }
   let file: Uint8Array;
   try {
     file = new Uint8Array(readFileSync(path));
   } catch {
-    throw new Error(`no key named ${JSON.stringify(name)} in archon's store`);
+    throw new StoreRefusal("no-key", `no key named ${JSON.stringify(name)} in archon's store`);
   }
-  return { file, publicKey: keystore.parseHeader(file).publicKey };
+  try {
+    return { file, header: keystore.parseHeader(file) };
+  } catch (e) {
+    const kind = e instanceof keystore.FormatError ? e.kind : "malformed";
+    throw new StoreRefusal(kind, `${name}: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
+
+/**
+ * readNamedKey for a command that will sign, log in, export or make a key the default: only a
+ * version-2 entry may (§8.2). A version-1 entry is refused with the command that converts it,
+ * named in full, so a person can act on the line they read.
+ */
+export function usableKey(name: string): { file: Uint8Array; header: keystore.KeyHeader } {
+  const read = readNamedKey(name);
+  if (read.header.version !== keystore.VERSION_2) {
+    throw new StoreRefusal(
+      "migration-required",
+      `${name} is a version-1 key file, which this archon no longer uses: convert it once with ` +
+        `\`archon key policy ${name} --allow <context>\` (repeatable), or \`--unrestricted\``,
+    );
+  }
+  return read;
+}
+
+/**
+ * Removes --allow <context> (repeatable) and --unrestricted from args and returns the policy
+ * they name (docs/keystore.md §8.3). There is no default: undefined when neither appears, and
+ * the caller decides whether that is allowed.
+ */
+export function takePolicyFlags(args: string[]): { rest: string[]; policy: keystore.Policy | undefined } {
+  const rest: string[] = [];
+  const allow: string[] = [];
+  let unrestricted = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] as string;
+    if (a === "--allow") {
+      const c = args[i + 1];
+      if (c === undefined) throw new Error("--allow needs a context");
+      allow.push(c);
+      i++;
+    } else if (a === "--unrestricted") {
+      unrestricted = true;
+    } else {
+      rest.push(a);
+    }
+  }
+  if (unrestricted && allow.length > 0) throw new Error("--allow and --unrestricted are mutually exclusive");
+  if (unrestricted) return { rest, policy: keystore.unrestricted() };
+  if (allow.length === 0) return { rest, policy: undefined };
+  try {
+    return { rest, policy: keystore.allowlist(allow) };
+  } catch (e) {
+    throw new Error(`--allow: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/** The refusal for a new key that names no policy: there is no default. */
+export const policyNeeded = (name: string): Error =>
+  new Error(`say which contexts ${name} may sign in: --allow <context> (repeatable), or --unrestricted`);
 
 // ---------------------------------------------------------------------------
 // The commands.
@@ -406,16 +494,16 @@ export function readNamedKey(name: string): { file: Uint8Array; publicKey: Uint8
  * cannot drift apart. Salt and nonce are drawn HERE, in the command: the format takes them
  * as arguments and never sources randomness, which is what makes it pinnable.
  */
-export function sealAndWrite(path: string, seed: Uint8Array, password: string): string {
+export function sealAndWrite(path: string, seed: Uint8Array, password: string, policy: keystore.Policy): string {
   const salt = new Uint8Array(randomBytes(keystore.SALT_SIZE));
   const nonce = new Uint8Array(randomBytes(keystore.NONCE_SIZE));
-  const blob = keystore.seal(seed, password, salt, nonce, keystore.defaultParams());
+  const blob = keystore.seal(seed, password, salt, nonce, keystore.defaultParams(), policy);
   writeKeyFile(path, blob);
   return encodeKey(getPublicKey(seed));
 }
 
 /** `keygen --store <name>`: the same seal path as `key add`. */
-export function storeGenerated(name: string, seed: Uint8Array, fd: number | undefined): void {
+export function storeGenerated(name: string, seed: Uint8Array, fd: number | undefined, policy: keystore.Policy): void {
   keystore.validateName(name);
   const path = keyPath(name);
   if (existsSync(path)) {
@@ -424,7 +512,7 @@ export function storeGenerated(name: string, seed: Uint8Array, fd: number | unde
     );
   }
   const password = readPassword(fd, true);
-  const principal = sealAndWrite(path, seed, password);
+  const principal = sealAndWrite(path, seed, password, policy);
   process.stdout.write(`generated and stored ${name} (${principal}).\n`);
 }
 
@@ -457,7 +545,9 @@ export function runAdd(args: string[]): void {
   const name = args[0];
   if (name === undefined) throw new Error(USAGE);
   keystore.validateName(name);
-  const { rest, fd } = takePasswordFd(args.slice(1));
+  const { rest: afterFd, fd } = takePasswordFd(args.slice(1));
+  const { rest, policy } = takePolicyFlags(afterFd);
+  if (policy === undefined) throw policyNeeded(name);
 
   let seedHex: string | undefined;
   let seedFile: string | undefined;
@@ -501,7 +591,7 @@ export function runAdd(args: string[]): void {
   }
 
   const password = readPassword(fd, true);
-  const principal = sealAndWrite(path, seed, password);
+  const principal = sealAndWrite(path, seed, password, policy);
   if (from === undefined) {
     process.stdout.write(`generated and stored ${name} (${principal}).\n`);
   } else {
@@ -521,24 +611,122 @@ export function runList(args: string[]): void {
     if (a !== "--json") throw new Error(`unknown flag ${JSON.stringify(a)}\n${USAGE}`);
     asJson = true;
   }
-  const rows: { name: string; principal: string }[] = [];
-  // An entry that is not listed is named on stderr, one line each, so a key never vanishes
-  // from the list without a word; stdout, and with it --json, carries only usable keys.
+  // A row for every entry whose principal can be read (docs/keystore.md §8.4), so an entry
+  // awaiting conversion is reported as that and not as absent. The policy is the header's
+  // CLAIM, read without the password, and named as such. An entry whose principal cannot be
+  // read is named on stderr, one line each, so a key never vanishes without a word.
+  const rows: { name: string; principal: string; status: string; claimed_policy: unknown; text: string }[] = [];
   for (const name of listKeyNames()) {
+    let h: keystore.KeyHeader;
     try {
-      const raw = new Uint8Array(readFileSync(keyPath(name)));
       // The magic is what keeps a stray file out of this list.
-      const h = keystore.parseHeader(raw);
-      rows.push({ name, principal: encodeKey(h.publicKey) });
+      h = readNamedKey(name).header;
     } catch (e) {
       process.stderr.write(`archon key list: skipped ${name}: ${e instanceof Error ? e.message : String(e)}\n`);
+      continue;
+    }
+    const principal = encodeKey(h.publicKey);
+    if (h.version === keystore.VERSION_2 && h.policy !== null) {
+      const claimed = h.policy.unrestricted
+        ? { mode: "unrestricted" }
+        : h.policy.contexts.length === 0
+          ? { mode: "allowlist" }
+          : { mode: "allowlist", contexts: h.policy.contexts };
+      rows.push({ name, principal, status: "usable", claimed_policy: claimed, text: keystore.describePolicy(h.policy) });
+    } else {
+      rows.push({
+        name,
+        principal,
+        status: "migration-required",
+        claimed_policy: null,
+        text: `version 1: convert with \`archon key policy ${name}\``,
+      });
     }
   }
   if (asJson) {
-    process.stdout.write(`${JSON.stringify(rows)}\n`);
+    const out = rows.map(({ name, principal, status, claimed_policy }) => ({ name, principal, status, claimed_policy }));
+    process.stdout.write(`${JSON.stringify(out)}\n`);
     return;
   }
-  for (const r of rows) process.stdout.write(`${r.name}\t${r.principal}\n`);
+  for (const r of rows) process.stdout.write(`${r.name}\t${r.principal}\t${r.text}\n`);
+}
+
+/**
+ * Shows an entry's policy, or converts a version-1 entry or changes a version-2 one
+ * (docs/keystore.md §8.3). The change form is ALWAYS interactive: it shows the old and the new
+ * policy before asking for anything, asks y/N at the controlling terminal, and takes the
+ * password from that terminal only — no --yes, no ARCHON_KEY_PASSWORD, no --password-fd. That
+ * is a safeguard against a password a program inherited, not an authorization claim (ADR 0012
+ * §6): whoever can type the password can also decrypt the file.
+ */
+export function runPolicy(args: string[]): void {
+  const name = args[0];
+  if (name === undefined) throw new Error(USAGE);
+  const { rest, policy } = takePolicyFlags(args.slice(1));
+  if (rest.length > 0) throw new Error(`unknown flag ${JSON.stringify(rest[0])}\n${USAGE}`);
+  const path = keyPath(name);
+  // One read: the bytes shown are the bytes unlocked and replaced (ADR 0012 §4).
+  const { file, header } = readNamedKey(name);
+  const principal = encodeKey(header.publicKey);
+  const current =
+    header.version === keystore.VERSION_2 && header.policy !== null
+      ? keystore.describePolicy(header.policy)
+      : "version 1, no policy";
+  if (policy === undefined) {
+    process.stdout.write(`${name} (${principal}): ${current} (claimed by the header; proven only at unlock)\n`);
+    return;
+  }
+  let terminal: ControllingTerminal;
+  try {
+    terminal = openControllingTerminal();
+  } catch {
+    throw new Error(
+      "changing a key's policy needs a person at the controlling terminal: there is none, and " +
+        "ARCHON_KEY_PASSWORD and --password-fd are not accepted here",
+    );
+  }
+  let blob: Uint8Array;
+  try {
+    terminal.io.write(
+      `${name} (${principal})\n  policy:  ${current}\n  becomes: ${keystore.describePolicy(policy)}\nchange it? [y/N] `,
+    );
+    const answer = readTerminalLine(terminal).trim().toLowerCase();
+    if (answer !== "y" && answer !== "yes") throw new Error("not changed");
+    const password = promptHidden("password: ", terminal.io);
+    // A key sealed through this lane's prompt before 0.11.0 opens only under the old reading
+    // of its password; it is re-sealed under the password as typed (openEntered's rule).
+    let seed: Uint8Array;
+    try {
+      seed = keystore.open(file, password);
+    } catch (first) {
+      const legacy = legacyPromptDecoding(password);
+      if (legacy === undefined) throw first;
+      try {
+        seed = keystore.open(file, legacy);
+      } catch {
+        throw first;
+      }
+    }
+    try {
+      blob = keystore.seal(
+        seed,
+        password,
+        header.salt,
+        new Uint8Array(randomBytes(keystore.NONCE_SIZE)),
+        header.params,
+        policy,
+      );
+    } finally {
+      seed.fill(0);
+    }
+  } finally {
+    terminal.close();
+  }
+  writeKeyFile(path, blob);
+  process.stdout.write(
+    `changed the policy of ${name} (${principal}) to ${keystore.describePolicy(policy)}; ` +
+      "any copy of this key outside archon's store is untouched.\n",
+  );
 }
 
 /**
@@ -625,6 +813,15 @@ export function runExport(args: string[]): void {
   if (!reveal) throw new Error("refusing to export a seed without --reveal");
   if (out === "") {
     throw new Error("refusing to write a seed to stdout: pass --out <file>, or --out - to mean it");
+  }
+  // An allowlisted entry's seed is not written out (§8.2): its policy would not travel with it.
+  // A backup is the encrypted file itself. Refused from the header, before the password.
+  const policy = usableKey(name).header.policy;
+  if (policy !== null && !policy.unrestricted) {
+    throw new Error(
+      `refusing to export ${name}: its policy allows only listed contexts (${keystore.describePolicy(policy)}), ` +
+        "and a plaintext seed would carry none of it; back up the encrypted file instead",
+    );
   }
   const seed = unlockNamedKey(name, fd);
   const pem = seedToPkcs8Pem(seed);

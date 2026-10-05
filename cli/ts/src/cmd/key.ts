@@ -64,6 +64,9 @@ export function run(args: string[]): void {
     case "export":
       store.runExport(rest);
       return;
+    case "policy":
+      store.runPolicy(rest);
+      return;
     case "encode":
       if (rest.length !== 1) throw new Error(USAGE);
       process.stdout.write(`${encodeKey(pubkeyFromHex(rest[0]!))}\n`);

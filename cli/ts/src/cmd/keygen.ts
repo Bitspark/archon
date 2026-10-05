@@ -37,9 +37,16 @@ export function run(args: string[]): void {
     return;
   }
   const { rest: afterStore, store: storeName } = takeStoreFlag(args);
-  const { rest: parsedArgs, fd: pwFd } = store.takePasswordFd(afterStore);
-  // Validated before anything is generated or printed: a bad name should cost nothing.
-  if (storeName !== undefined) keystore.validateName(storeName);
+  const { rest: afterFd, fd: pwFd } = store.takePasswordFd(afterStore);
+  const { rest: parsedArgs, policy } = store.takePolicyFlags(afterFd);
+  // Validated before anything is generated or printed: a bad name, or a stored key with no
+  // policy (docs/keystore.md §8.3), should cost nothing.
+  if (storeName !== undefined) {
+    keystore.validateName(storeName);
+    if (policy === undefined) throw store.policyNeeded(storeName);
+  } else if (policy !== undefined) {
+    throw new Error("--allow and --unrestricted apply only with --store: a key written to a file carries no policy");
+  }
   const opts = parseOpts(parsedArgs);
   if (storeName !== undefined && opts.out !== undefined) {
     throw new Error(
@@ -50,8 +57,8 @@ export function run(args: string[]): void {
   process.stdout.write(`${encodeKey(pub)}\n`);
   // --store: the seed stays in the store and no PEM is produced at all. Same seal path
   // `key add` uses (sealAndWrite), reached from the command that owns the CSPRNG.
-  if (storeName !== undefined) {
-    store.storeGenerated(storeName, opts.seed, pwFd);
+  if (storeName !== undefined && policy !== undefined) {
+    store.storeGenerated(storeName, opts.seed, pwFd, policy);
     if (opts.pubOut !== undefined) {
       writeFileSync(opts.pubOut, renderPub(pub, opts.pubFormat));
       process.stderr.write(`wrote public key (${opts.pubFormat}) to ${opts.pubOut}\n`);

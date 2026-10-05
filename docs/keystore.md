@@ -217,7 +217,7 @@ every command that takes a key.
 
 ## 8. Version 2: a context policy
 
-**Status:** specified, being implemented ([ADR 0012](architecture/decisions/0012-a-stored-keys-signing-contexts.md)).
+**Status:** specified and implemented in all three command implementations, pinned by `vectors/keystore.json`; ships in the release after 0.11.0 ([ADR 0012](architecture/decisions/0012-a-stored-keys-signing-contexts.md)).
 From the release that ships it, the store **writes only version 2** and **signs only with version
 2**; a version-1 entry must be converted, once, with `key policy` (§8.3).
 

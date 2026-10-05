@@ -50,6 +50,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         [op, rest @ ..] if op == "rm" => key_store::run_rm(rest),
         [op, rest @ ..] if op == "default" => key_store::run_default(rest),
         [op, rest @ ..] if op == "export" => key_store::run_export(rest),
+        [op, rest @ ..] if op == "policy" => key_store::run_policy(rest),
         [op] if op == "list" => key_store::run_list(&[]),
         [op] if op == "default" => key_store::run_default(&[]),
         [op, value] if op == "encode" => {

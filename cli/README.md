@@ -23,22 +23,39 @@ archon <keygen|key|login|sign|verify|version> [args]
 | `verify --pubkey <ed25519:…\|hex> --sig <hex> [--domain <d>] [--in <file>]` | `valid` (exit 0) / `invalid` (exit 1) |
 | `login <url> [--key <name>\|--seed <hex>\|--key-file <pem>\|--seed-file <file>] [--authority-file <f>] [--yes]` | prove possession to a service so a browser key may act for you, within a scope you are shown first; with no key flag, the store's default key signs |
 | `login --audience <base> [--scope <entry>]... --valid-for <seconds> [--key <name>\|--seed <hex>\|--key-file <pem>\|--seed-file <file>] [--authority-file <f>]` | the offers form ([§4.1](../docs/login.md)): with no URL, *you* start and the page finishes — the code and the page address on stderr, no confirmation, the ledger on stdout after the service answers |
-| `key add <name> [--seed <hex>\|--seed-file <file>\|--pkcs8 <file>]` | keep a seed under a name in the password-protected store; generates one when no source is given, and refuses an existing name |
-| `key list [--json]` | every stored key as `{name, principal}` — read from each file's header, so it never asks for a password |
+| `key add <name> [--seed <hex>\|--seed-file <file>\|--pkcs8 <file>] (--allow <context>…\|--unrestricted)` | keep a seed under a name in the password-protected store, with the contexts it may sign in; generates one when no source is given, and refuses an existing name |
+| `key list [--json]` | every stored key as `{name, principal, status, claimed_policy}` — read from each file's header, so it never asks for a password |
 | `key rm <name> [--force]` | remove a key and say what was removed and from where; a file that is not an archon key is refused unless `--force` |
 | `key default [<name>]` | set or show the default key, by name |
 | `key export <name> --reveal --out <file>` | write the seed out as a PKCS#8 PEM; refuses without `--reveal`, and refuses stdout unless `--out -` says so |
-| `keygen --store <name>` | generate straight into the store instead of writing a PEM |
+| `key policy <name> [--allow <context>…\|--unrestricted]` | show a key's policy, or change it (or convert a version-1 key), at the terminal only |
+| `keygen --store <name> (--allow <context>…\|--unrestricted)` | generate straight into the store instead of writing a PEM |
 
 Every hex input goes through the floor's typed decoders: a 31-byte "public key" is refused
 here exactly as the library refuses it.
 
 ## The key store
 
-`key add|list|rm|default|export` and `keygen --store` are the password-protected seed
+`key add|list|rm|default|export|policy` and `keygen --store` are the password-protected seed
 store of [ADR 0007](../docs/architecture/decisions/0007-custody-in-the-command-and-the-login-server-tier.md) §A. Keys live in `$ARCHON_HOME/keys` (default `~/.archon`), one
-fixed 134-byte file each; [`docs/keystore.md`](../docs/keystore.md) is the byte contract and
+file each; [`docs/keystore.md`](../docs/keystore.md) is the byte contract and
 `vectors/keystore.json` pins it across the three binaries.
+
+**Every key names the contexts it may sign in** ([ADR 0012](../docs/architecture/decisions/0012-a-stored-keys-signing-contexts.md),
+`docs/keystore.md` §8). `--allow <context>` (repeatable) lists them, `--unrestricted` allows any;
+there is no default. The policy is sealed with the seed, so `sign --key` refuses any other
+context, `login` needs `archon-login/1` in the list, and `key export` refuses an allowlisted key.
+For a thesmos delegator key, name the fact domain of the thesmos version that uses it:
+
+```
+archon key add alice --seed-file alice.seed --allow thesmos/fact/v1   # thesmos 0.27 and earlier
+archon key add alice --seed-file alice.seed --allow thesmos/fact/v2   # thesmos 0.28.0 and later
+```
+
+A key stored before this version (a version-1 file) is listed as `migration-required` and does
+nothing else until it is converted, once: `archon key policy <name> --allow <context>`. Changing
+a policy is the one operation that insists on a person at the terminal: it shows the old and new
+policy, asks y/N, and takes the password from the terminal only.
 
 Passwords come from an interactive prompt **on the controlling terminal** (`/dev/tty`, or the
 Windows console — never stdin, which may be carrying a message to sign), or from
@@ -80,7 +97,9 @@ archon sign --key alice --domain thesmos/fact/v1 --expect ed25519:… < bytes > 
 - **What comes back.** Without `--json`, stdout is the signature alone: 128 hex digits. With
   `--json`, stdout is one record, `{"version":1,"principal":…,"scheme":"ed25519ph-context","domain":…,"signature":…}`,
   or on failure `{"version":1,"error":"<category>"}`. The categories are `usage`, `domain`,
-  `no-key`, `key-mismatch`, `password`, `cancelled`, `unlock-failed`, `input` and `internal`.
+  `no-key` (no such file), `malformed`, `unsupported` (an unknown file version), `migration-required`
+  (a version-1 file), `key-mismatch`, `policy` (the domain is not in the key's list), `password`,
+  `cancelled`, `unlock-failed`, `input` and `internal`.
   The sentence on stderr is for people and may change.
 - **Every signature is verified before it is printed**, against the key, domain and bytes that
   were asked for. That holds for `--seed` and `--key-file` too.

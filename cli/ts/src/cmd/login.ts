@@ -30,6 +30,7 @@ import { encodeKey, decodeKey, getPublicKey } from "@bitspark/archon";
 // (strings, snake_case, straight off the JSON). Keeping both names visible and distinct is
 // the point — converting between them is this seam's entire job.
 import {
+  LOGIN_DOMAIN,
   MIN_NONCE_SIZE as SCHEME_MIN_NONCE_SIZE,
   deriveAudience,
   displayUnsafe,
@@ -38,6 +39,7 @@ import {
 } from "@bitspark/archon-sdk";
 
 import { jsonString, resolveSeed, shown, wantsHelp } from "../io.js";
+import * as keystore from "../keystore.js";
 import * as store from "./key_store.js";
 
 const USAGE =
@@ -141,7 +143,18 @@ export function decideLoginSource(src: LoginSource): void {
     }
     src.storeKey = name;
   }
-  if (src.storeKey !== undefined) store.requireNamedKey(src.storeKey);
+  if (src.storeKey !== undefined) {
+    // A version-1, unreadable or missing entry, or one whose policy does not list the login
+    // domain, is refused here, before any request is made (docs/keystore.md §8.2).
+    const name = src.storeKey;
+    const policy = store.requireNamedKey(name).policy;
+    if (policy !== null && !keystore.permits(policy, LOGIN_DOMAIN)) {
+      throw new Error(
+        `key ${name} may not sign in ${LOGIN_DOMAIN}: its policy is ${keystore.describePolicy(policy)} ` +
+          `(change it with \`archon key policy ${name}\`)`,
+      );
+    }
+  }
 }
 
 /** Entry point. The order is the security order and is not an accident: derive the

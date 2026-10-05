@@ -17,7 +17,8 @@ import { decodeKey, encodeKey, getPublicKey, sign, signInDomain, toHex, verify, 
   from "@bitspark/archon";
 
 import { jsonString, readBytes, resolveSeed, wantsHelp } from "../io.js";
-import { openEntered, readNamedKey, readPasswordEntry, takePasswordFd, type PasswordEntry } from "./key_store.js";
+import { openEntered, readPasswordEntry, StoreRefusal, takePasswordFd, usableKey, type PasswordEntry } from "./key_store.js";
+import { describePolicy, type KeyHeader, permits } from "../keystore.js";
 
 const USAGE =
   "usage: archon sign (--key-file <pkcs8.pem> | --seed <hex> | --key <name> --domain <d>) " +
@@ -150,11 +151,27 @@ function runSign(argv: string[], json: boolean): void {
   let principal: Uint8Array;
   if (keyName !== undefined && expected !== undefined && domain !== undefined) {
     const name = keyName;
-    const stored = as("no-key", () => readNamedKey(name));
-    if (!same(stored.publicKey, expected)) {
+    // One read of the file: the header checked here is the header the tag authenticates at
+    // unlock, policy included (docs/keystore.md §8.2, ADR 0012 §4).
+    let stored: { file: Uint8Array; header: KeyHeader };
+    try {
+      stored = usableKey(name);
+    } catch (e) {
+      if (e instanceof StoreRefusal) throw new SignFailure(e.category, e.message);
+      throw new SignFailure("no-key", e instanceof Error ? e.message : String(e));
+    }
+    if (!same(stored.header.publicKey, expected)) {
       throw new SignFailure(
         "key-mismatch",
-        `key ${name} is ${encodeKey(stored.publicKey)}, not the expected ${encodeKey(expected)}; refusing to sign`,
+        `key ${name} is ${encodeKey(stored.header.publicKey)}, not the expected ${encodeKey(expected)}; refusing to sign`,
+      );
+    }
+    // Refused before the message is read or a password is asked for.
+    const policy = stored.header.policy;
+    if (policy !== null && !permits(policy, domain)) {
+      throw new SignFailure(
+        "policy",
+        `key ${name} may not sign in domain ${jsonString(domain)}: its policy is ${describePolicy(policy)}`,
       );
     }
     const message = as("input", () => readBytes(inFile));

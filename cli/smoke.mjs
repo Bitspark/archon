@@ -222,7 +222,7 @@ const scrub = (text) => text.split(join(storeHome, "keys")).join("<store>");
 const writer = lanes[0];
 expect(
   `key store: ${writer.name} writes the shared key`,
-  runStore(writer, ["key", "add", "shared", "--seed", SEED]).stdout,
+  runStore(writer, ["key", "add", "shared", "--seed", SEED, "--unrestricted"]).stdout,
   `stored shared (${TEXT}) from --seed; the source file is untouched.\n`,
 );
 
@@ -231,7 +231,7 @@ for (const lane of lanes) {
   expect(
     `key store: ${lane.name} lists the shared key`,
     runStore(lane, ["key", "list", "--json"]).stdout,
-    `[{"name":"shared","principal":"${TEXT}"}]\n`,
+    `[{"name":"shared","principal":"${TEXT}","status":"usable","claimed_policy":{"mode":"unrestricted"}}]\n`,
   );
 }
 
@@ -647,11 +647,11 @@ for (const lane of lanes) {
     String(runStore(lane, ["key", "export", "shared", "--reveal", "--out", join(tmp, "no.pem")],
       { ARCHON_KEY_PASSWORD: "not the password" }).code), "1");
   expect(`key store: ${lane.name} refuses a duplicate name`,
-    String(runStore(lane, ["key", "add", "shared", "--seed", SEED]).code), "1");
+    String(runStore(lane, ["key", "add", "shared", "--seed", SEED, "--unrestricted"]).code), "1");
   expect(`key store: ${lane.name} refuses a trailing dot`,
-    String(runStore(lane, ["key", "add", "alice.", "--seed", SEED]).code), "1");
+    String(runStore(lane, ["key", "add", "alice.", "--seed", SEED, "--unrestricted"]).code), "1");
   expect(`key store: ${lane.name} refuses CON.key`,
-    String(runStore(lane, ["key", "add", "CON.key", "--seed", SEED]).code), "1");
+    String(runStore(lane, ["key", "add", "CON.key", "--seed", SEED, "--unrestricted"]).code), "1");
 }
 
 // 5. A file that is not a key is never LISTED as one (that is what the magic buys), is
@@ -660,7 +660,7 @@ writeFileSync(join(storeHome, "keys", "stray"), "this is not a key file");
 for (const lane of lanes) {
   expect(`key store: ${lane.name} does not list a stray file`,
     runStore(lane, ["key", "list", "--json"]).stdout,
-    `[{"name":"shared","principal":"${TEXT}"}]\n`);
+    `[{"name":"shared","principal":"${TEXT}","status":"usable","claimed_policy":{"mode":"unrestricted"}}]\n`);
   expect(`key store: ${lane.name} refuses to rm a stray file`,
     String(runStore(lane, ["key", "rm", "stray"]).code), "1");
 }
@@ -690,7 +690,7 @@ for (const lane of lanes) {
   };
   for (const [name, bytes] of Object.entries(edges)) writeFileSync(join(storeHome, "keys", name), bytes);
   const listed = ["edge-m-floor", "edge-m-max", "edge-t-max", "shared"]
-    .map((name) => `{"name":"${name}","principal":"${TEXT}"}`).join(",");
+    .map((name) => `{"name":"${name}","principal":"${TEXT}","status":"usable","claimed_policy":{"mode":"unrestricted"}}`).join(",");
   const skipped = ["edge-m-over", "edge-m-under", "edge-p4-under", "edge-t-over", "stray"];
   for (const lane of lanes) {
     const r = runStore(lane, ["key", "list", "--json"]);
@@ -705,6 +705,149 @@ expect("key store: rm --force says what it could not read",
   scrub(runStore(lanes[lanes.length - 1], ["key", "rm", "stray", "--force"]).stdout),
   "removed stray (unreadable header: not 134 bytes (got 22)) from archon's store at " +
     `${join("<store>", "stray")}; any copy of this key outside it is untouched.\n`);
+
+// 5c. Version 2's context policy (docs/keystore.md §8), in every lane, on files one lane wrote.
+{
+  const noPassword = (({ ARCHON_KEY_PASSWORD, ...rest }) => ({ ...rest, ARCHON_HOME: storeHome }))(process.env);
+  const run = (lane, args, { env, detached } = {}) => {
+    const [program, ...pre] = lane.argv;
+    const r = spawnSync(program, [...pre, ...args], {
+      encoding: "utf8",
+      shell: false,
+      detached: detached === true,
+      env: env ?? { ...process.env, ARCHON_HOME: storeHome, ARCHON_KEY_PASSWORD: PASSWORD },
+    });
+    return { out: `${r.stdout ?? ""}[${r.status}]`, stderr: r.stderr ?? "" };
+  };
+  const refused = (category) => `{"version":1,"error":"${category}"}\n[1]`;
+  const keyFile = (name) => join(storeHome, "keys", name);
+
+  // There is no default policy: a new key names one, or nothing is written.
+  for (const lane of lanes) {
+    expect(`key policy: ${lane.name} key add refuses a key with no policy`,
+      run(lane, ["key", "add", "nopolicy", "--seed", SEED]).out.endsWith("[1]") && !existsSync(keyFile("nopolicy"))
+        ? "refused" : "written", "refused");
+    expect(`key policy: ${lane.name} keygen --store refuses a key with no policy`,
+      run(lane, ["keygen", "--seed", SEED, "--store", "nopolicy"]).out.endsWith("[1]") && !existsSync(keyFile("nopolicy"))
+        ? "refused" : "written", "refused");
+  }
+
+  // One lane seals two allowlisted keys; the contexts are given out of order and listed sorted.
+  const writer = lanes[0];
+  run(writer, ["key", "add", "limited", "--seed", SEED, "--allow", "archon/test/v1"]);
+  run(writer, ["key", "add", "twoctx", "--seed", SEED, "--allow", "archon/test/v2", "--allow", "archon/test/v1"]);
+  // A version-1 file (vectors/keystore.json), a version-3 one, and a malformed version-2 one.
+  const oracle = JSON.parse(readFileSync(join(root, "vectors", "keystore.json"), "utf8"));
+  const v1 = Buffer.from(oracle.keystore_open.find((c) => c.name === "v1-basic").file, "hex");
+  const v1Password = oracle.keystore_open.find((c) => c.name === "v1-basic").password;
+  const V1_TEXT = "ed25519:" + v1.subarray(30, 62).toString("hex");
+  writeFileSync(keyFile("legacy"), v1);
+  writeFileSync(keyFile("future"), Buffer.concat([v1.subarray(0, 4), Buffer.from([3]), v1.subarray(5)]));
+  const v2 = readFileSync(keyFile("limited"));
+  writeFileSync(keyFile("broken"), Buffer.concat([v2.subarray(0, 62), Buffer.from([2]), v2.subarray(63)]));
+
+  const row = (name, principal, status, policy) =>
+    `{"name":"${name}","principal":"${principal}","status":"${status}","claimed_policy":${policy}}`;
+  const listed = "[" + [
+    row("legacy", V1_TEXT, "migration-required", "null"),
+    row("limited", TEXT, "usable", '{"mode":"allowlist","contexts":["archon/test/v1"]}'),
+    row("shared", TEXT, "usable", '{"mode":"unrestricted"}'),
+    row("twoctx", TEXT, "usable", '{"mode":"allowlist","contexts":["archon/test/v1","archon/test/v2"]}'),
+  ].join(",") + "]\n[0]";
+  const signIn = (key, domain, expectText = TEXT) =>
+    ["sign", "--key", key, "--domain", domain, "--expect", expectText, "--in", msgPath, "--json"];
+  for (const lane of lanes) {
+    const list = run(lane, ["key", "list", "--json"]);
+    expect(`key policy: ${lane.name} lists every readable entry, with its status and claimed policy`, list.out, listed);
+    expect(`key policy: ${lane.name} names the unreadable entries on stderr`,
+      ["broken", "future"].every((n) => list.stderr.includes(`archon key list: skipped ${n}: `)) ? "named" : list.stderr, "named");
+    expect(`key policy: ${lane.name} signs inside the list (OpenSSL reference)`,
+      run(lane, signIn("limited", "archon/test/v1")).out,
+      `{"version":1,"principal":"${TEXT}","scheme":"ed25519ph-context","domain":"archon/test/v1","signature":"${HELLO_V1}"}\n[0]`);
+    // With no password and no terminal: a refusal after the header would read `password`.
+    expect(`key policy: ${lane.name} refuses outside the list, before any password`,
+      run(lane, signIn("limited", "archon/test/v2"), { env: noPassword, detached: true }).out, refused("policy"));
+    expect(`key policy: ${lane.name} refuses a version-1 entry as migration-required`,
+      run(lane, signIn("legacy", "archon/test/v1", V1_TEXT), { env: noPassword, detached: true }).out, refused("migration-required"));
+    expect(`key policy: ${lane.name} refuses an unknown version as unsupported`,
+      run(lane, signIn("future", "archon/test/v1"), { env: noPassword, detached: true }).out, refused("unsupported"));
+    expect(`key policy: ${lane.name} refuses a broken policy as malformed`,
+      run(lane, signIn("broken", "archon/test/v1"), { env: noPassword, detached: true }).out, refused("malformed"));
+    const exported = join(tmp, `limited-${lane.name}.pem`);
+    expect(`key policy: ${lane.name} refuses to export an allowlisted entry`,
+      run(lane, ["key", "export", "limited", "--reveal", "--out", exported]).out.endsWith("[1]") && !existsSync(exported)
+        ? "refused" : "exported", "refused");
+    expect(`key policy: ${lane.name} refuses to make a version-1 entry the default`,
+      run(lane, ["key", "default", "legacy"]).out, "[1]");
+    const login = run(lane, ["login", "https://h.example/login/1", "--key", "limited", "--yes"]);
+    expect(`key policy: ${lane.name} refuses a login the policy does not list, before any request`,
+      login.out === "[1]" && login.stderr.includes("may not sign in archon-login/1") ? "refused" : login.stderr, "refused");
+    expect(`key policy: ${lane.name} shows the claimed policy`,
+      run(lane, ["key", "policy", "twoctx"]).out,
+      `twoctx (${TEXT}): allow archon/test/v1, archon/test/v2 (claimed by the header; proven only at unlock)\n[0]`);
+    const before = readFileSync(keyFile("limited"));
+    expect(`key policy: ${lane.name} refuses to change a policy with no person at a terminal`,
+      run(lane, ["key", "policy", "limited", "--unrestricted"], { env: noPassword, detached: true }).out.endsWith("[1]") &&
+        readFileSync(keyFile("limited")).equals(before) ? "refused, file untouched" : "changed",
+      "refused, file untouched");
+  }
+
+  // Converting, on Linux where a pseudo-terminal can be driven unattended: each lane converts its
+  // own copy of the version-1 file, answering y and typing the password at the terminal; then
+  // every lane signs with every converted copy, and the signatures verify and agree.
+  if (process.platform === "linux") {
+    const PTY = [
+      "import os, pty, sys",
+      "password, argv = sys.argv[1], sys.argv[2:]",
+      "pid, fd = pty.fork()",
+      "if pid == 0:",
+      "    os.execv(argv[0], argv)",
+      "seen, answered, typed = b'', False, False",
+      "while True:",
+      "    try:",
+      "        chunk = os.read(fd, 1024)",
+      "    except OSError:",
+      "        break",
+      "    if not chunk:",
+      "        break",
+      "    seen += chunk",
+      "    if not answered and seen.endswith(b'[y/N] '):",
+      "        os.write(fd, b'y' + bytes([13]))",
+      "        answered = True",
+      "    if answered and not typed and seen.endswith(b'password: '):",
+      "        os.write(fd, password.encode() + bytes([13]))",
+      "        typed = True",
+      "_, status = os.waitpid(pid, 0)",
+      "sys.stdout.buffer.write(str(os.waitstatus_to_exitcode(status)).encode() + bytes([10]) + seen)",
+    ].join("\n");
+    for (const lane of lanes) {
+      const name = `converted-${lane.name}`;
+      writeFileSync(keyFile(name), v1);
+      const r = spawnSync("python3", ["-c", PTY, v1Password, ...lane.argv, "key", "policy", name, "--allow", "archon/test/v1"], {
+        encoding: "utf8",
+        shell: false,
+        env: noPassword,
+        timeout: 120_000,
+      });
+      const [code, ...transcript] = (r.stdout ?? "").split("\n");
+      const shown = transcript.join("\n");
+      expect(`key policy: ${lane.name} converts a version-1 entry at the terminal`,
+        code === "0" && shown.includes("policy:  version 1, no policy") && shown.includes("becomes: allow archon/test/v1") &&
+          readFileSync(keyFile(name))[4] === 2 ? "converted" : `${code} ${shown}`, "converted");
+    }
+    for (const converter of lanes) {
+      const signatures = lanes.map((lane) => run(lane, signIn(`converted-${converter.name}`, "archon/test/v1", V1_TEXT)).out);
+      const sig = /"signature":"([0-9a-f]{128})"/u.exec(signatures[0] ?? "")?.[1] ?? "";
+      expect(`key policy: what ${converter.name} converted signs in every lane, identically`,
+        signatures.every((s) => s === signatures[0] && s.endsWith("[0]")) ? "agree" : signatures.join(" | "), "agree");
+      expect(`key policy: what ${converter.name} converted verifies`,
+        run(lanes[0], ["verify", "--pubkey", V1_TEXT, "--sig", sig, "--domain", "archon/test/v1", "--in", msgPath]).out,
+        "valid\n[0]");
+      rmSync(keyFile(`converted-${converter.name}`));
+    }
+  }
+  for (const name of ["limited", "twoctx", "legacy", "future", "broken"]) rmSync(keyFile(name));
+}
 
 // 6. The removal line itself, from the last lane, and then the store is empty for all.
 expect("key store: rm names what it removed, and its scope",
@@ -729,7 +872,7 @@ if (process.platform !== "win32") {
   writeFileSync(tight, `${PASSWORD}\n`, { mode: 0o600 });
 
   // The store needs a key to try to open; write one with the first lane.
-  runStore(writer, ["key", "add", "moded", "--seed", SEED]);
+  runStore(writer, ["key", "add", "moded", "--seed", SEED, "--unrestricted"]);
 
   // On fd 3 AND on fd 0: `--password-fd 0 < pw.txt` is the same regular file arriving on
   // stdin, and the rule must not depend on which descriptor carries it. The Rust lane used

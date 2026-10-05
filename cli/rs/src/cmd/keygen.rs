@@ -39,10 +39,27 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     let (args, store_name) = take_store_flag(args)?;
     let (args, pw_fd) = key_store::take_password_fd(&args)?;
-    // Validated before anything is generated or printed: a bad name should cost nothing.
-    if let Some(name) = store_name.as_deref() {
-        crate::keystore::validate_name(name)?;
-    }
+    let (args, policy) = key_store::take_policy_flags(&args)?;
+    // Validated before anything is generated or printed: a bad name, or a stored key with no
+    // policy (docs/keystore.md §8.3), should cost nothing.
+    let policy = match (store_name.as_deref(), policy) {
+        (Some(name), None) => {
+            crate::keystore::validate_name(name)?;
+            return Err(key_store::policy_needed(name));
+        }
+        (Some(name), Some(p)) => {
+            crate::keystore::validate_name(name)?;
+            Some(p)
+        }
+        (None, Some(_)) => {
+            return Err(
+                "--allow and --unrestricted apply only with --store: a key written to a \
+file carries no policy"
+                    .to_string(),
+            )
+        }
+        (None, None) => None,
+    };
     let opts = Opts::parse(&args)?;
     if store_name.is_some() && opts.out.is_some() {
         return Err(
@@ -56,8 +73,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     // --store: the seed stays in the store and no PEM is produced at all. Same seal path
     // `key add` uses (seal_and_write), reached from the command that owns the CSPRNG.
-    if let Some(name) = store_name.as_deref() {
-        key_store::store_generated(name, &opts.seed, pw_fd)?;
+    if let (Some(name), Some(policy)) = (store_name.as_deref(), policy.as_ref()) {
+        key_store::store_generated(name, &opts.seed, pw_fd, policy)?;
         if let Some(path) = opts.pub_out.as_deref() {
             let rendered = render_pubkey(&pubkey, &opts.pub_format)?;
             fs::write(path, &rendered)
