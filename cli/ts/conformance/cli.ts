@@ -3,10 +3,10 @@
 // whole vectors/keystore.json on stdin, selects its family, recomputes each result from
 // the case INPUTS, and writes one NDJSON line per case to stdout in input order.
 //
-//   keystore_seal : in {name, seed, password, salt, nonce, m_kib, t, p}
+//   keystore_seal : in {name, seed, password, salt, nonce, m_kib, t, p, policy}
 //                   out {"name","result":{"ok":{"file","public_key"}}|{"error":true}}
 //   keystore_open : in {name, file, password}
-//                   out {"name","result":{"ok":{"seed"}}|{"error":true}}
+//                   out {"name","result":{"ok":{"seed","version","policy"}}|{"error":<category>}}
 //   keystore_name : in {name, input}
 //                   out {"name","result":{"ok":<bool>}}
 //
@@ -14,7 +14,7 @@
 // its oracle is driven by the command's lane, not by core/ or sdk/.
 import { readFileSync } from "node:fs";
 
-import { isValidName, type KeyParams, open, seal } from "../src/keystore.js";
+import { FormatError, isValidName, type KeyParams, open, parseHeader, type Policy, seal } from "../src/keystore.js";
 
 const hexDecode = (s: string): Uint8Array => {
   const out = new Uint8Array(s.length / 2);
@@ -28,6 +28,14 @@ const hexEncode = (b: Uint8Array): string =>
 type Case = Record<string, unknown>;
 const str = (c: Case, k: string): string => (typeof c[k] === "string" ? (c[k] as string) : "");
 const num = (c: Case, k: string): number => (typeof c[k] === "number" ? (c[k] as number) : 0);
+
+const casePolicy = (c: Case): Policy => {
+  const p = c["policy"] as { mode?: string; contexts?: string[] } | undefined;
+  if (p?.mode !== "unrestricted" && p?.mode !== "allowlist") {
+    throw new Error(`${str(c, "name")}: unknown policy mode in a case`);
+  }
+  return { unrestricted: p.mode === "unrestricted", contexts: [...(p.contexts ?? [])] };
+};
 
 const family = process.argv[2];
 if (family === undefined) {
@@ -55,6 +63,8 @@ for (const c of cases) {
           hexDecode(str(c, "salt")),
           hexDecode(str(c, "nonce")),
           params,
+          // Passed as given, unsorted included, so that a vector can pin what the writer refuses.
+          casePolicy(c),
         );
         result = { ok: { file: hexEncode(blob), public_key: hexEncode(blob.slice(30, 62)) } };
       } catch {
@@ -63,10 +73,21 @@ for (const c of cases) {
       break;
     }
     case "keystore_open": {
+      // A refusal carries the category the command would report (§8.2): the header's own
+      // kind, or unlock-failed for anything the seal refused.
+      const file = hexDecode(str(c, "file"));
       try {
-        result = { ok: { seed: hexEncode(open(hexDecode(str(c, "file")), str(c, "password"))) } };
-      } catch {
-        result = { error: true };
+        const h = parseHeader(file);
+        const seed = open(file, str(c, "password"));
+        const policy =
+          h.policy === null
+            ? null
+            : h.policy.unrestricted
+              ? { mode: "unrestricted" }
+              : { mode: "allowlist", contexts: h.policy.contexts };
+        result = { ok: { seed: hexEncode(seed), version: h.version, policy } };
+      } catch (e) {
+        result = { error: e instanceof FormatError ? e.kind : "unlock-failed" };
       }
       break;
     }

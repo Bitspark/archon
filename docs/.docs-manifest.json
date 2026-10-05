@@ -154,7 +154,13 @@
       "4-passwords",
       "5-names",
       "6-saying-what-was-done",
-      "7-what-the-store-does-not-hold"
+      "7-what-the-store-does-not-hold",
+      "8-version-2-a-context-policy",
+      "81-the-file",
+      "82-what-each-command-does-with-an-entry",
+      "83-choosing-and-changing-a-policy",
+      "84-key-list",
+      "85-what-is-not-claimed"
     ],
     "docs/languages.md": [
       "languages",

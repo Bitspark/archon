@@ -26,7 +26,7 @@ use archon_core::hexbytes::to_hex;
 use archon_core::keytext::{decode_key, encode_key};
 use sha2::{Digest, Sha256};
 
-use crate::cmd::key_store::{read_named_key, read_password, take_password_fd};
+use crate::cmd::key_store::{read_password, take_password_fd, usable_key};
 use crate::cmd::resolve_seed;
 use crate::io::{json_string, read_bytes, wants_help};
 use crate::keystore;
@@ -169,8 +169,11 @@ archon's own commands, which show what they sign",
     if let (Some(name), Some(expected), Some(d)) =
         (key_name.as_deref(), expected.as_deref(), domain.as_deref())
     {
-        let (file, claimed) = as_("no-key", read_named_key(name))?;
-        if claimed != expected {
+        // One read of the file: the header checked here is the header the tag authenticates at
+        // unlock, policy included (docs/keystore.md §8.2, ADR 0012 §4).
+        let (file, header) = usable_key(name).map_err(|r| refuse(r.category, r.message))?;
+        let claimed = header.public_key;
+        if claimed[..] != expected[..] {
             return Err(refuse(
                 "key-mismatch",
                 format!(
@@ -179,6 +182,27 @@ archon's own commands, which show what they sign",
                     encode_key(expected)
                 ),
             ));
+        }
+        // Refused before the message is read or a password is asked for.
+        // Fails closed on its own: an entry without a policy is refused here, whatever
+        // usable_key already refused.
+        match &header.policy {
+            Some(p) if p.permits(d) => {}
+            Some(p) => {
+                return Err(refuse(
+                    "policy",
+                    format!(
+                        "key {name} may not sign in domain {}: its policy is {p}",
+                        json_string(d)
+                    ),
+                ))
+            }
+            None => {
+                return Err(refuse(
+                    "policy",
+                    format!("key {name} carries no policy; refusing to sign"),
+                ))
+            }
         }
         let message = as_("input", read_bytes(in_path.as_deref()))?;
         let preamble = format!(

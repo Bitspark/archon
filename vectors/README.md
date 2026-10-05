@@ -95,14 +95,16 @@ nothing breaks until someone deletes the original.
 
 ## `keystore.json`
 
-46 cases in 3 families (`keystore_seal` · `keystore_open` · `keystore_name`) — the
+81 cases in 3 families (`keystore_seal` · `keystore_open` · `keystore_name`) — the
 password-protected seed store of [ADR 0007](../docs/architecture/decisions/0007-custody-in-the-command-and-the-login-server-tier.md) §A,
-for `cli/{rs,go,ts}`. The layout is [`docs/keystore.md`](../docs/keystore.md).
+with the context policy of [ADR 0012](../docs/architecture/decisions/0012-a-stored-keys-signing-contexts.md),
+for `cli/{rs,go,ts}`. The layout is [`docs/keystore.md`](../docs/keystore.md): version 2 (§8) is
+the only one written, version 1 (§2) is still read.
 
 | family | cases | what it pins |
 |---|---|---|
-| `keystore_seal` | 9 | the 134-byte file as a deterministic function of (seed, password, salt, nonce, m, t, p) — including a non-ASCII password, a case at the shipping parameters, the empty-password refusal, and the Argon2id floor `m = 8p` at p=1 and p=4 (sealed) and below it (refused) |
-| `keystore_open` | 23 | 7 round-trips and **16 refusals**: wrong password, bad magic, unknown version, tampered salt / memory-cost / public-key / nonce / ciphertext, short file, long file, an empty-password file, a file whose tag verifies but whose header names a public key the sealed seed does not derive, and the parameter bounds of `docs/keystore.md` §2 — genuine `m < 8p` seals at p=1 and p=4 (written by `golang.org/x/crypto/argon2`, which the reference implementation refuses to compute), `m` above 2 GiB and `t` above 10, all refused at parse |
+| `keystore_seal` | 19 | the version-2 file as a deterministic function of (seed, password, salt, nonce, m, t, p, policy) — unrestricted, one context, two, a multibyte context, sixteen, a 255-byte context, an empty list (deny all), the shipping parameters, the Argon2id floor `m = 8p` at p=1 and p=4; and the writer's refusals: an empty password, `m < 8p`, seventeen contexts, unsorted, duplicate, an empty context, a 256-byte context, an unrestricted policy that lists one, a context holding a display-unsafe code point (U+202E) |
+| `keystore_open` | 48 | every seal opens, with its version and policy; **the version-1 files still open** (renamed `v1-…`), so `key policy` can convert them; and every refusal **with its category** (`malformed`, `unsupported`, `unlock-failed`, as `sign --key` reports it): the version-1 tampers, truncations and parameter bounds; an unknown version (3); a version-2 file the length of a version-1 one; and for version 2 a tampered context (tag), an unrestricted policy listing a context, an unknown mode, seventeen contexts, an empty context, a context that is not UTF-8, a policy running past the header, a trailing byte, a missing one, unsorted and duplicate contexts, a file too short to be version 2, and a genuine seal (tag valid) whose context holds U+202E, refused at parse |
 | `keystore_name` | 14 | the name rules as pure string cases — 3 accepted, 11 refused (empty, leading and trailing dot, both separators, colon, a control character, reserved device names bare and with an extension, over-length) |
 
 **Oracles**, both outside all three cores, both validated before use — the same discipline as
@@ -120,6 +122,10 @@ for `cli/{rs,go,ts}`. The layout is [`docs/keystore.md`](../docs/keystore.md).
   oracles and are byte-identical to what `golang.org/x/crypto/argon2` writes. The `m < 8p` files
   can only come from x/crypto, which raises `m` to `8p` silently; the reference implementation
   refuses to compute them, and that refusal is checked before the cases are written.
+- The version-2 cases (2026-10-05) were computed with the same two oracles, the policy bytes laid
+  out by hand from `docs/keystore.md` §8.1, and the writer's refusals decided by an independent
+  statement of §8.1's rules. Go, Rust and TypeScript each passed all of them as written,
+  before any lane saw another's output.
 
 Most cases run at cheap Argon2id parameters **on purpose**: the header carries `m`/`t`/`p` and a
 reader must *read* them, so a 1 MiB case pins the format exactly as a 64 MiB one does while

@@ -144,7 +144,20 @@ or choose one with: archon key default <name>"
             self.store_key = Some(name);
         }
         if let Some(name) = &self.store_key {
-            require_named_key(name)?;
+            // A version-1, unreadable or missing entry, or one whose policy does not list the
+            // login domain, is refused here, before any request is made (docs/keystore.md §8.2).
+            let header = require_named_key(name)?;
+            // Fails closed on its own: an entry without a policy is refused here too.
+            match header.policy {
+                Some(p) if p.permits(archon_sdk::login::DOMAIN) => {}
+                Some(p) => {
+                    return Err(format!(
+                        "key {name} may not sign in {}: its policy is {p} (change it with `archon key policy {name}`)",
+                        archon_sdk::login::DOMAIN
+                    ))
+                }
+                None => return Err(format!("key {name} carries no policy; refusing to sign")),
+            }
         }
         Ok(())
     }
@@ -1799,6 +1812,7 @@ Connection: close
             &home.join("keys").join("julia"),
             &seed,
             PASSWORD.as_bytes(),
+            &crate::keystore::Policy::allowlist(&[login::DOMAIN.to_string()]).expect("policy"),
         )
         .expect("seal");
 
@@ -2159,6 +2173,7 @@ Connection: close
             &home.join("keys").join("julia"),
             &seed,
             PASSWORD.as_bytes(),
+            &crate::keystore::Policy::allowlist(&[login::DOMAIN.to_string()]).expect("policy"),
         )
         .expect("seal");
         let mut browser_seed = [0u8; SEED_SIZE];

@@ -20,10 +20,71 @@ use crate::keystore;
 use zeroize::Zeroizing;
 
 pub const USAGE: &str =
-    "usage: archon key <add <name> [--seed <hex>|--seed-file <file>|--pkcs8 <file>]|\
-list [--json]|rm <name> [--force]|default [<name>]|export <name> --reveal --out <file>>\n  \
+    "usage: archon key <add <name> [--seed <hex>|--seed-file <file>|--pkcs8 <file>] \
+(--allow <context>...|--unrestricted)|list [--json]|rm <name> [--force]|default [<name>]|\
+export <name> --reveal --out <file>|policy <name> [--allow <context>...|--unrestricted]>\n  \
 the password-protected seed store; keys live in $ARCHON_HOME/keys (default ~/.archon). \
-Password: interactive prompt, or ARCHON_KEY_PASSWORD / --password-fd <n>, never argv.";
+Every key names the contexts it may sign in (--allow, repeatable) or --unrestricted. \
+Password: interactive prompt, or ARCHON_KEY_PASSWORD / --password-fd <n>, never argv; \
+changing a policy takes the terminal only.";
+
+/// Removes `--allow <context>` (repeatable) and `--unrestricted` from `args` and returns the
+/// policy they name (`docs/keystore.md` §8.3). There is no default: `None` when neither
+/// appears, and the caller decides whether that is allowed.
+pub fn take_policy_flags(
+    args: &[String],
+) -> Result<(Vec<String>, Option<keystore::Policy>), String> {
+    let (mut rest, mut allow, mut unrestricted) = (Vec::new(), Vec::new(), false);
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--allow" => {
+                let c = args
+                    .get(i + 1)
+                    .ok_or_else(|| "--allow needs a context".to_string())?;
+                allow.push(c.clone());
+                i += 2;
+            }
+            "--unrestricted" => {
+                unrestricted = true;
+                i += 1;
+            }
+            _ => {
+                rest.push(args[i].clone());
+                i += 1;
+            }
+        }
+    }
+    match (unrestricted, allow.is_empty()) {
+        (true, false) => Err("--allow and --unrestricted are mutually exclusive".to_string()),
+        (true, true) => Ok((rest, Some(keystore::Policy::unrestricted()))),
+        (false, true) => Ok((rest, None)),
+        (false, false) => Ok((
+            rest,
+            Some(keystore::Policy::allowlist(&allow).map_err(|e| format!("--allow: {e}"))?),
+        )),
+    }
+}
+
+/// The refusal for a new key that names no policy: there is no default.
+pub fn policy_needed(name: &str) -> String {
+    format!(
+        "say which contexts {name} may sign in: --allow <context> (repeatable), or --unrestricted"
+    )
+}
+
+/// A refusal of a named entry with its machine-mode category (§8.2).
+#[derive(Debug)]
+pub struct StoreRefusal {
+    pub category: &'static str,
+    pub message: String,
+}
+
+impl From<StoreRefusal> for String {
+    fn from(r: StoreRefusal) -> String {
+        r.message
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Where the store lives — docs/keystore.md §1.
@@ -258,15 +319,12 @@ fn read_from_fd(n: i32, buf: &mut Vec<u8>) -> Result<(), String> {
 // What the store lets another command ask of it — `login --key`'s seams.
 // ---------------------------------------------------------------------------
 
-/// The store's own "is there a key called that": a validated name, then a stat — opening
-/// nothing, asking for no password. Shared by `key default <name>` and by `login`'s
-/// pre-network check, so both refuse a missing key with one wording.
-pub fn require_named_key(name: &str) -> Result<(), String> {
-    let path = key_path(name)?;
-    if !path.exists() {
-        return Err(format!("no key named {name:?} in archon's store"));
-    }
-    Ok(())
+/// The store's own "is there a key called that, and can it be used": a validated name and a
+/// header read — opening nothing, asking for no password. Shared by `key default <name>` and by
+/// `login`'s pre-network check, so both refuse a missing, unreadable or version-1 key with one
+/// wording (§8.2).
+pub fn require_named_key(name: &str) -> Result<keystore::KeyHeader, String> {
+    Ok(usable_key(name)?.1)
 }
 
 /// The ONE reader of the default pointer (`$ARCHON_HOME/default`), shared by `key default`
@@ -290,19 +348,47 @@ pub fn read_default_key_name() -> Result<Option<String>, String> {
 /// the ONE unlock path, shared by `key export` and `login --key`, so no two commands can
 /// ask for a password differently.
 pub fn unlock_named_key(name: &str, fd: Option<i32>) -> Result<Zeroizing<[u8; SEED_SIZE]>, String> {
-    let (raw, _) = read_named_key(name)?;
+    let (raw, _) = usable_key(name)?;
     let password = read_password(fd, false, "")?;
     keystore::open(&raw, &password)
 }
 
-/// A stored key's file and the public key its header CLAIMS, opening nothing and asking for
-/// no password. The claim is what `sign --key --expect` checks before the prompt; it is proven
-/// only when the seal opens, because `keystore::open` refuses a seed that does not derive it.
-pub fn read_named_key(name: &str) -> Result<(Vec<u8>, Vec<u8>), String> {
-    let path = key_path(name)?;
-    let raw = fs::read(&path).map_err(|_| format!("no key named {name:?} in archon's store"))?;
-    let public_key = keystore::parse_header(&raw)?.public_key.to_vec();
-    Ok((raw, public_key))
+/// A stored key's file and its header as the header CLAIMS it — public key, version, policy —
+/// opening nothing and asking for no password. The claim is what `sign --key --expect` checks
+/// before the prompt; it is proven only when the seal opens, because `keystore::open` verifies
+/// the tag over the header and refuses a seed that does not derive the public key.
+///
+/// Every refusal carries its category: `no-key` when no file has that name, else the header's.
+pub fn read_named_key(name: &str) -> Result<(Vec<u8>, keystore::KeyHeader), StoreRefusal> {
+    let no_key = |message: String| StoreRefusal {
+        category: "no-key",
+        message,
+    };
+    let path = key_path(name).map_err(no_key)?;
+    let raw =
+        fs::read(&path).map_err(|_| no_key(format!("no key named {name:?} in archon's store")))?;
+    let header = keystore::parse_header(&raw).map_err(|e| StoreRefusal {
+        category: e.kind,
+        message: format!("{name}: {e}"),
+    })?;
+    Ok((raw, header))
+}
+
+/// [`read_named_key`] for a command that will sign, log in, export or make a key the default:
+/// only a version-2 entry may (§8.2). A version-1 entry is refused with the command that
+/// converts it, named in full, so a person can act on the line they read.
+pub fn usable_key(name: &str) -> Result<(Vec<u8>, keystore::KeyHeader), StoreRefusal> {
+    let (raw, header) = read_named_key(name)?;
+    if header.version != keystore::VERSION_2 {
+        return Err(StoreRefusal {
+            category: "migration-required",
+            message: format!(
+                "{name} is a version-1 key file, which this archon no longer uses: convert it once \
+with `archon key policy {name} --allow <context>` (repeatable), or `--unrestricted`"
+            ),
+        });
+    }
+    Ok((raw, header))
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +398,12 @@ pub fn read_named_key(name: &str) -> Result<(Vec<u8>, Vec<u8>), String> {
 /// The one place a key is written, shared by `key add` and `keygen --store` so the two
 /// cannot drift apart. Salt and nonce are drawn HERE, in the command: the format takes
 /// them as arguments and never sources randomness, which is what makes it pinnable.
-pub fn seal_and_write(path: &Path, seed: &[u8], password: &[u8]) -> Result<String, String> {
+pub fn seal_and_write(
+    path: &Path,
+    seed: &[u8],
+    password: &[u8],
+    policy: &keystore::Policy,
+) -> Result<String, String> {
     let mut salt = [0u8; keystore::SALT_SIZE];
     let mut nonce = [0u8; keystore::NONCE_SIZE];
     getrandom::fill(&mut salt).map_err(|e| format!("could not read OS randomness: {e}"))?;
@@ -323,6 +414,7 @@ pub fn seal_and_write(path: &Path, seed: &[u8], password: &[u8]) -> Result<Strin
         &salt,
         &nonce,
         keystore::KeyParams::default(),
+        policy,
     )?;
     write_key_file(path, &blob)?;
     let mut fixed = Zeroizing::new([0u8; SEED_SIZE]);
@@ -332,7 +424,12 @@ pub fn seal_and_write(path: &Path, seed: &[u8], password: &[u8]) -> Result<Strin
 
 /// `keygen --store <name>`: the same seal path as `key add`, reached from the command that
 /// already owns the CSPRNG.
-pub fn store_generated(name: &str, seed: &[u8], fd: Option<i32>) -> Result<(), String> {
+pub fn store_generated(
+    name: &str,
+    seed: &[u8],
+    fd: Option<i32>,
+    policy: &keystore::Policy,
+) -> Result<(), String> {
     keystore::validate_name(name)?;
     let path = key_path(name)?;
     if path.exists() {
@@ -341,7 +438,7 @@ pub fn store_generated(name: &str, seed: &[u8], fd: Option<i32>) -> Result<(), S
         ));
     }
     let password = read_password(fd, true, "")?;
-    let principal = seal_and_write(&path, seed, &password)?;
+    let principal = seal_and_write(&path, seed, &password, policy)?;
     println!("generated and stored {name} ({principal}).");
     Ok(())
 }
@@ -375,6 +472,8 @@ pub fn run_add(args: &[String]) -> Result<(), String> {
     let name = args.first().ok_or_else(|| USAGE.to_string())?.clone();
     keystore::validate_name(&name)?;
     let (rest, fd) = take_password_fd(&args[1..])?;
+    let (rest, policy) = take_policy_flags(&rest)?;
+    let policy = policy.ok_or_else(|| policy_needed(&name))?;
 
     let (mut seed_hex, mut seed_file, mut pkcs8_file) = (None, None, None);
     let mut i = 0;
@@ -442,7 +541,7 @@ pub fn run_add(args: &[String]) -> Result<(), String> {
     };
 
     let password = read_password(fd, true, "")?;
-    let principal = seal_and_write(&path, &seed[..], &password)?;
+    let principal = seal_and_write(&path, &seed[..], &password, &policy)?;
     match from {
         None => println!("generated and stored {name} ({principal})."),
         Some(src) => {
@@ -462,42 +561,125 @@ pub fn run_list(args: &[String]) -> Result<(), String> {
         }
         as_json = true;
     }
-    let mut rows: Vec<(String, String)> = Vec::new();
-    // An entry that is not listed is named on stderr, one line each, so a key never vanishes
-    // from the list without a word; stdout, and with it --json, carries only usable keys.
-    let skip = |n: &str, e: &dyn std::fmt::Display| eprintln!("archon key list: skipped {n}: {e}");
+    // A row for every entry whose principal can be read (`docs/keystore.md` §8.4), so an entry
+    // awaiting conversion is reported as that and not as absent. The policy is the header's
+    // CLAIM, read without the password, and named as such. An entry whose principal cannot be
+    // read is named on stderr, one line each, so a key never vanishes without a word.
+    let mut json_rows: Vec<String> = Vec::new();
+    let mut text_rows: Vec<String> = Vec::new();
     for n in list_key_names()? {
-        let path = match key_path(&n) {
-            Ok(path) => path,
-            Err(e) => {
-                skip(&n, &e);
-                continue;
-            }
-        };
-        let raw = match fs::read(&path) {
-            Ok(raw) => raw,
-            Err(e) => {
-                skip(&n, &e);
-                continue;
-            }
-        };
         // The magic is what keeps a stray file out of this list.
-        match keystore::parse_header(&raw) {
-            Ok(h) => rows.push((n, encode_key(&h.public_key))),
-            Err(e) => skip(&n, &e),
-        }
+        let h = match read_named_key(&n) {
+            Ok((_, h)) => h,
+            Err(e) => {
+                eprintln!("archon key list: skipped {n}: {}", e.message);
+                continue;
+            }
+        };
+        let principal = encode_key(&h.public_key);
+        let (status, claimed, text) = match &h.policy {
+            Some(p) if h.version == keystore::VERSION_2 => {
+                ("usable", policy_json(p), p.to_string())
+            }
+            _ => (
+                "migration-required",
+                "null".to_string(),
+                format!("version 1: convert with `archon key policy {n}`"),
+            ),
+        };
+        json_rows.push(format!(
+            "{{\"name\":{},\"principal\":\"{principal}\",\"status\":\"{status}\",\"claimed_policy\":{claimed}}}",
+            json_string(&n)
+        ));
+        text_rows.push(format!("{n}\t{principal}\t{text}"));
     }
     if as_json {
-        let body: Vec<String> = rows
-            .iter()
-            .map(|(n, p)| format!("{{\"name\":{},\"principal\":\"{p}\"}}", json_string(n)))
-            .collect();
-        println!("[{}]", body.join(","));
+        println!("[{}]", json_rows.join(","));
         return Ok(());
     }
-    for (n, p) in rows {
-        println!("{n}\t{p}");
+    for row in text_rows {
+        println!("{row}");
     }
+    Ok(())
+}
+
+/// A policy as `key list --json` spells it (§8.4).
+fn policy_json(p: &keystore::Policy) -> String {
+    if p.unrestricted {
+        return "{\"mode\":\"unrestricted\"}".to_string();
+    }
+    if p.contexts.is_empty() {
+        return "{\"mode\":\"allowlist\"}".to_string();
+    }
+    let contexts: Vec<String> = p.contexts.iter().map(|c| json_string(c)).collect();
+    format!(
+        "{{\"mode\":\"allowlist\",\"contexts\":[{}]}}",
+        contexts.join(",")
+    )
+}
+
+/// Shows an entry's policy, or converts a version-1 entry or changes a version-2 one
+/// (`docs/keystore.md` §8.3). The change form is ALWAYS interactive: it shows the old and the
+/// new policy before asking for anything, asks y/N at the controlling terminal, and takes the
+/// password from that terminal only — no `--yes`, no `ARCHON_KEY_PASSWORD`, no `--password-fd`.
+/// That is a safeguard against a password a program inherited, not an authorization claim
+/// (ADR 0012 §6): whoever can type the password can also decrypt the file.
+pub fn run_policy(args: &[String]) -> Result<(), String> {
+    let name = args.first().ok_or_else(|| USAGE.to_string())?.clone();
+    let (rest, policy) = take_policy_flags(&args[1..])?;
+    if let Some(flag) = rest.first() {
+        return Err(format!("unknown flag {flag:?}\n{USAGE}"));
+    }
+    let path = key_path(&name)?;
+    // One read: the bytes shown are the bytes unlocked and replaced (ADR 0012 §4).
+    let (file, header) = read_named_key(&name)?;
+    let principal = encode_key(&header.public_key);
+    let current = match &header.policy {
+        Some(p) if header.version == keystore::VERSION_2 => p.to_string(),
+        _ => "version 1, no policy".to_string(),
+    };
+    let Some(policy) = policy else {
+        println!("{name} ({principal}): {current} (claimed by the header; proven only at unlock)");
+        return Ok(());
+    };
+    let refusal = "changing a key's policy needs a person at the controlling terminal: there is \
+none, and ARCHON_KEY_PASSWORD and --password-fd are not accepted here";
+    if !has_terminal() {
+        return Err(refusal.to_string());
+    }
+    let (input, output) = if cfg!(windows) {
+        ("CONIN$", "CONOUT$")
+    } else {
+        ("/dev/tty", "/dev/tty")
+    };
+    let mut tty_out = fs::OpenOptions::new()
+        .write(true)
+        .open(output)
+        .map_err(|_| refusal.to_string())?;
+    write!(
+        tty_out,
+        "{name} ({principal})\n  policy:  {current}\n  becomes: {policy}\nchange it? [y/N] "
+    )
+    .map_err(|e| format!("could not write to the terminal: {e}"))?;
+    let tty_in = fs::File::open(input).map_err(|_| refusal.to_string())?;
+    let mut answer = String::new();
+    std::io::BufRead::read_line(&mut std::io::BufReader::new(tty_in), &mut answer)
+        .map_err(|e| format!("could not read the answer: {e}"))?;
+    if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") {
+        return Err("not changed".to_string());
+    }
+    let password = Zeroizing::new(
+        rpassword::prompt_password("password: ")
+            .map_err(|e| format!("could not read the password: {e}"))?
+            .into_bytes(),
+    );
+    let mut nonce = [0u8; keystore::NONCE_SIZE];
+    getrandom::fill(&mut nonce).map_err(|e| format!("could not read OS randomness: {e}"))?;
+    let blob = keystore::reseal(&file, &password, &nonce, &policy)?;
+    write_key_file(&path, &blob)?;
+    println!(
+        "changed the policy of {name} ({principal}) to {policy}; any copy of this key outside archon's store is untouched."
+    );
     Ok(())
 }
 
@@ -613,6 +795,19 @@ pub fn run_export(args: &[String]) -> Result<(), String> {
             "refusing to write a seed to stdout: pass --out <file>, or --out - to mean it"
                 .to_string(),
         );
+    }
+    // An allowlisted entry's seed is not written out (§8.2): its policy would not travel with
+    // it. A backup is the encrypted file itself. Refused from the header, before the password.
+    // Fails closed on its own: only an entry whose policy is unrestricted is exported.
+    match usable_key(&name)?.1.policy {
+        Some(p) if p.unrestricted => {}
+        Some(p) => {
+            return Err(format!(
+                "refusing to export {name}: its policy allows only listed contexts ({p}), and a \
+plaintext seed would carry none of it; back up the encrypted file instead"
+            ))
+        }
+        None => return Err(format!("refusing to export {name}: it carries no policy")),
     }
     let seed = unlock_named_key(&name, fd)?;
     let pem = Zeroizing::new(seed_to_pkcs8_pem(&seed[..])?);

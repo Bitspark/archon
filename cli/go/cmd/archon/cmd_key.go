@@ -80,6 +80,8 @@ func runKey(args []string) error {
 		return runKeyDefault(args[1:])
 	case "export":
 		return runKeyExport(args[1:])
+	case "policy":
+		return runKeyPolicy(args[1:])
 	default:
 		return fmt.Errorf("%s", keyUsage)
 	}

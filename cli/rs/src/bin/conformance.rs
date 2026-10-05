@@ -4,10 +4,10 @@
 //! the case INPUTS, and writes one NDJSON line per case to stdout in input order.
 //!
 //! ```text
-//! keystore_seal : in {name, seed, password, salt, nonce, m_kib, t, p}
+//! keystore_seal : in {name, seed, password, salt, nonce, m_kib, t, p, policy}
 //!                 out {"name","result":{"ok":{"file","public_key"}}|{"error":true}}
 //! keystore_open : in {name, file, password}
-//!                 out {"name","result":{"ok":{"seed"}}|{"error":true}}
+//!                 out {"name","result":{"ok":{"seed","version","policy"}}|{"error":<category>}}
 //! keystore_name : in {name, input}
 //!                 out {"name","result":{"ok":<bool>}}
 //! ```
@@ -17,6 +17,7 @@
 //! it. That keeps the store out of anyone's dependency graph.
 
 #[path = "../keystore.rs"]
+#[allow(dead_code)] // the command uses the rest of the module; this bin needs the format only
 mod keystore;
 
 use serde_json::{json, Value};
@@ -67,12 +68,31 @@ fn main() {
                     time: c["t"].as_u64().unwrap_or(0) as u32,
                     parallelism: c["p"].as_u64().unwrap_or(0) as u8,
                 };
+                // The policy is passed as given, unsorted included, so that a vector can pin
+                // what the writer refuses.
+                let pol = &c["policy"];
+                let policy = keystore::Policy {
+                    unrestricted: match pol["mode"].as_str() {
+                        Some("unrestricted") => true,
+                        Some("allowlist") => false,
+                        other => panic!("{name}: unknown policy mode in a case: {other:?}"),
+                    },
+                    contexts: pol["contexts"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .map(|v| v.as_str().unwrap_or_default().to_string())
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                };
                 match keystore::seal(
                     &hex_decode(&str_of(c, "seed")),
                     str_of(c, "password").as_bytes(),
                     &hex_decode(&str_of(c, "salt")),
                     &hex_decode(&str_of(c, "nonce")),
                     p,
+                    &policy,
                 ) {
                     Ok(blob) => json!({"ok": {
                         "file": hex_encode(&blob),
@@ -81,13 +101,26 @@ fn main() {
                     Err(_) => json!({ "error": true }),
                 }
             }
-            "keystore_open" => match keystore::open(
-                &hex_decode(&str_of(c, "file")),
-                str_of(c, "password").as_bytes(),
-            ) {
-                Ok(seed) => json!({ "ok": { "seed": hex_encode(&seed[..]) } }),
-                Err(_) => json!({ "error": true }),
-            },
+            // A refusal carries the category the command would report (§8.2): the header's own
+            // kind, or unlock-failed for anything the seal refused.
+            "keystore_open" => {
+                let file = hex_decode(&str_of(c, "file"));
+                match keystore::parse_header(&file) {
+                    Err(e) => json!({ "error": e.kind }),
+                    Ok(h) => match keystore::open(&file, str_of(c, "password").as_bytes()) {
+                        Err(_) => json!({ "error": "unlock-failed" }),
+                        Ok(seed) => json!({ "ok": {
+                            "seed": hex_encode(&seed[..]),
+                            "version": h.version,
+                            "policy": match &h.policy {
+                                None => Value::Null,
+                                Some(p) if p.unrestricted => json!({ "mode": "unrestricted" }),
+                                Some(p) => json!({ "mode": "allowlist", "contexts": p.contexts }),
+                            },
+                        }}),
+                    },
+                }
+            }
             "keystore_name" => {
                 json!({ "ok": keystore::validate_name(&str_of(c, "input")).is_ok() })
             }

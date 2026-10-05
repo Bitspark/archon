@@ -30,6 +30,7 @@ import {
   type LoginSource,
 } from "../src/cmd/login.js";
 import { sealAndWrite } from "../src/cmd/key_store.js";
+import { allowlist } from "../src/keystore.js";
 import { encodeKey, getPublicKey } from "@bitspark/archon";
 import { deriveAudience, verifyLogin, type LoginRequest as SchemeRequest } from "@bitspark/archon-sdk";
 
@@ -402,7 +403,7 @@ test("logs in from a sealed store key", async () => {
   for (let i = 0; i < seed.length; i++) seed[i] = i + 9;
   const pub = getPublicKey(seed);
   const principal = encodeKey(pub);
-  sealAndWrite(join(home, "keys", "julia"), seed, PASSWORD);
+  sealAndWrite(join(home, "keys", "julia"), seed, PASSWORD, allowlist(["archon-login/1"]));
 
   const wire = validRequest();
   const seen: { method: string; verified: boolean }[] = [];
@@ -603,7 +604,7 @@ test("offers from a sealed store key", async () => {
   for (let i = 0; i < seed.length; i++) seed[i] = i + 9;
   const pub = getPublicKey(seed);
   const principal = encodeKey(pub);
-  sealAndWrite(join(home, "keys", "julia"), seed, PASSWORD);
+  sealAndWrite(join(home, "keys", "julia"), seed, PASSWORD, allowlist(["archon-login/1"]));
   const browserSeed = new Uint8Array(32);
   for (let i = 0; i < browserSeed.length; i++) browserSeed[i] = 0x40 + i;
   const K = encodeKey(getPublicKey(browserSeed));

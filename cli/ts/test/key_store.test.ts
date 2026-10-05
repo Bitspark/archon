@@ -122,7 +122,7 @@ test("a key sealed under the old reading opens, and is re-sealed under the passw
     const seed = new Uint8Array(32).fill(7);
     const typed = "pässwörd";
     const old = legacyPromptDecoding(typed) as string;
-    sealAndWrite(join(home, "keys", "legacy"), seed, old); // what the old prompt sealed
+    sealAndWrite(join(home, "keys", "legacy"), seed, old, keystore.unrestricted()); // what the old prompt sealed
 
     // Not prompted (a password file, the environment): no fallback, the plain failure.
     assert.throws(() => openEntered("legacy", readNamedKey("legacy").file, { password: typed, prompted: false }));
