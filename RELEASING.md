@@ -5,8 +5,13 @@ A release is one commit on `main`, one version in every manifest, five tags, one
 conformance and publication separately, because a tag does not claim an upload to every
 registry, and a registry step that did not run is not a registry that published.
 
-The current release is **0.11.0**. It is a minor release because it breaks Go and Rust code
-that constructs `Admitted` itself: the login delegation now starts when the server accepts the
+The current release is **0.13.0**. Its key store is version 2: every stored key names the
+contexts it may sign in (ADR 0012, #105). That is a minor, because a version-1 key must be
+converted once with `archon key policy` before it can be used again. 0.12.0 made `archon login`
+refuse, before display, scope entries and offers page addresses carrying display-unsafe code
+points (#107, [GHSA-cqvg-hgp6-whpv](https://github.com/Bitspark/archon/security/advisories/GHSA-cqvg-hgp6-whpv)).
+That narrowed what login accepts, so it was a minor too.
+0.11.0 was a minor release because it broke Go and Rust code that constructs `Admitted` itself: the login delegation now starts when the server accepts the
 answer, and `Admitted` carries that instant (#97). It also makes `archon sign` refuse archon's
 own `archon-*` domains (#99), bounds the key store's Argon2id parameters at header parse in all
 three CLIs ([GHSA-7739-rxvj-hg74](https://github.com/Bitspark/archon/security/advisories/GHSA-7739-rxvj-hg74), #104),

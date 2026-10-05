@@ -33,41 +33,69 @@ TypeScript carry every sdk oracle; an sdk marked *possession + envelope* conform
 and does not implement the login scheme at all — which is a different claim from
 implementing it badly.
 
-## Current state — 0.11.0
+## Current state — 0.13.0
 
 | Language | core | sdk | cli | server | Coordinates | Conforming | Published |
 |---|---|---|---|---|---|---|---|
-| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ proxy + checksum db — **0.11.0**, and automatically (see below) |
-| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.11.0** |
-| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.11.0**, all four (`-server` carries its code from 0.8.2 on; every version through 0.8.1 was published without it, [#55](https://github.com/Bitspark/archon/issues/55)) |
-| **Python** | ✅ | ✅ possession + envelope | — | — | `bitspark-archon-{core,sdk}` (import `archon_{core,sdk}`) | 105/105; sdk 38/38 | ✅ PyPI — core and sdk **0.11.0**, wheel + sdist |
-| **Java** | ✅ | ✅ possession + envelope | — | — | `dev.bitspark:archon-{core,sdk}` | 105/105; sdk 38/38 | ✅ Maven Central — core and sdk **0.11.0**, signed |
-| **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | ✅ consumed from the tag — **v0.11.0**, `verify-source` green (see below) |
-| **Swift** | ✅ | — | — | — | SwiftPM product `ArchonCore` (git URL + tag) | 105/105 | ✅ consumed from the tag — **v0.11.0**, `verify-source` green |
-| **Haskell** | ✅ | — | — | — | `bitspark-archon-core` (module `Archon.Core`), Cabal via Git | 105/105 | ✅ consumed from the tag — **v0.11.0**, `verify-source` green |
+| **Go** | ✅ | ✅ | ✅ | ✅ | `github.com/Bitspark/archon/{core,sdk,cli,server}/go` | 105/105 | ✅ proxy + checksum db — **0.13.0**, and automatically (see below) |
+| **Rust** | ✅ | ✅ | ✅ | ✅ | `bitspark-archon-{core,sdk,cli,server}` | 105/105 | ✅ crates.io — **0.13.0** |
+| **TypeScript** | ✅ | ✅ | ✅ | ✅ | `@bitspark/archon{,-sdk,-cli,-server}` | 105/105 | ✅ npmjs, with provenance — **0.13.0**, all four (`-server` carries its code from 0.8.2 on; every version through 0.8.1 was published without it, [#55](https://github.com/Bitspark/archon/issues/55)) |
+| **Python** | ✅ | ✅ possession + envelope | — | — | `bitspark-archon-{core,sdk}` (import `archon_{core,sdk}`) | 105/105; sdk 38/38 | ✅ PyPI — core and sdk **0.13.0**, wheel + sdist |
+| **Java** | ✅ | ✅ possession + envelope | — | — | `dev.bitspark:archon-{core,sdk}` | 105/105; sdk 38/38 | ✅ Maven Central — core and sdk **0.13.0**, signed |
+| **C++** | ✅ | — | — | — | CMake package (`archon::core`) | 105/105 | ✅ consumed from the tag — **v0.13.0**, `verify-source` green (see below) |
+| **Swift** | ✅ | — | — | — | SwiftPM product `ArchonCore` (git URL + tag) | 105/105 | ✅ consumed from the tag — **v0.13.0**, `verify-source` green |
+| **Haskell** | ✅ | — | — | — | `bitspark-archon-core` (module `Archon.Core`), Cabal via Git | 105/105 | ✅ consumed from the tag — **v0.13.0**, `verify-source` green |
 
 A published version is a version that was published — which is not the same as a version that
-was tagged. **Snapshot taken 2026-10-05 05:07Z**, and dated because an earlier version of
+was tagged. **Snapshot taken 2026-10-05 06:28Z**, and dated because an earlier version of
 this table went stale within the hour: it is a fact about the world, not about this
 repository, so re-measure rather than trust it.
 
-**0.11.0 is on every armed registry**, each verified by an outside consumer that installed it
+**0.13.0 is on every armed registry**, each verified by an outside consumer that installed it
 from the public registry with no source tree reachable: all but Central in
-[release run 37265291866](https://github.com/Bitspark/archon/actions/runs/37265291866), and
+[release run 37271230726](https://github.com/Bitspark/archon/actions/runs/37271230726), and
 Central in its second act:
 
 | registry | has | proof |
 |---|---|---|
-| Go proxy + `sum.golang.org` | **v0.11.0** (`@latest`), all four modules at `a8b232b` | the Go consumer, including `go install …/cli/go/cmd/archon@v0.11.0` under `-mod=readonly`, which printed `archon 0.11.0`, and a whole login through the published `server/go` |
-| npm | **0.11.0** (`latest`), all four packages, each with a provenance attestation: 16, 25, 34 and 16 files | the npm consumer. The sdk names its floor as `^0.11.0`, and a whole login through the published `@bitspark/archon-server` printed `begin 201, fetch 200, answer 204, collect 200; login verified=true`. `npm install -g @bitspark/archon-cli@0.11.0` printed `archon 0.11.0` |
-| crates.io | **0.11.0**, all four crates | the crates.io consumer, a whole login through the published `bitspark-archon-server`, and `cargo install bitspark-archon-cli@0.11.0`, which printed `archon 0.11.0` |
-| PyPI | **0.11.0**, core and sdk, wheel + sdist | the Python round trips. The sdk resolved its floor through `bitspark-archon-core~=0.11.0` |
-| Maven Central | **0.11.0**, core and sdk, signed | the Central consumers, in the second act Central's asynchronous serving requires (below): [`verify_only` run 37266147566](https://github.com/Bitspark/archon/actions/runs/37266147566), each resolved jar byte-identical to what Central serves (core `4a2069f7…`, sdk `c15f185f…`) |
+| Go proxy + `sum.golang.org` | **v0.13.0**, all four modules at `aaeec7e` | the Go consumer, including `go install …/cli/go/cmd/archon@v0.13.0` under `-mod=readonly`, which printed `archon 0.13.0`, and a whole login through the published `server/go` |
+| npm | **0.13.0** (`latest`), all four packages, each with a provenance attestation: 16, 28, 34 and 16 files (the sdk grew by the display rule in 0.12.0) | the npm consumer. The sdk names its floor as `^0.13.0`, and a whole login through the published `@bitspark/archon-server` printed `begin 201, fetch 200, answer 204, collect 200; login verified=true`. `npm install -g @bitspark/archon-cli@0.13.0` printed `archon 0.13.0` |
+| crates.io | **0.13.0**, all four crates | the crates.io consumer, a whole login through the published `bitspark-archon-server`, and `cargo install bitspark-archon-cli@0.13.0`, which printed `archon 0.13.0` |
+| PyPI | **0.13.0**, core and sdk, wheel + sdist | the Python round trips. The sdk resolved its floor through `bitspark-archon-core~=0.13.0` |
+| Maven Central | **0.13.0**, core and sdk, signed | the Central consumers, in the second act Central's asynchronous serving requires (below): [`verify_only` run 37272180813](https://github.com/Bitspark/archon/actions/runs/37272180813), each resolved jar byte-identical to what Central serves (core `3b1b96ff…`, sdk `a85c37b9…`) |
 
-0.10.1 was verified the same way, by [release run 37260712970](https://github.com/Bitspark/archon/actions/runs/37260712970)
-and [`verify_only` run 37261605673](https://github.com/Bitspark/archon/actions/runs/37261605673), and 0.10.0 by
-[release run 37258198965](https://github.com/Bitspark/archon/actions/runs/37258198965) and
-[`verify_only` run 37259276545](https://github.com/Bitspark/archon/actions/runs/37259276545).
+The earlier releases of this series were verified the same way:
+
+| release | publishing run | verify run |
+|---|---|---|
+| 0.12.0 | [37269344394](https://github.com/Bitspark/archon/actions/runs/37269344394) | [37270190828](https://github.com/Bitspark/archon/actions/runs/37270190828) |
+| 0.11.0 | [37265291866](https://github.com/Bitspark/archon/actions/runs/37265291866) | [37266147566](https://github.com/Bitspark/archon/actions/runs/37266147566) |
+| 0.10.1 | [37260712970](https://github.com/Bitspark/archon/actions/runs/37260712970) | [37261605673](https://github.com/Bitspark/archon/actions/runs/37261605673) |
+| 0.10.0 | [37258198965](https://github.com/Bitspark/archon/actions/runs/37258198965) | [37259276545](https://github.com/Bitspark/archon/actions/runs/37259276545) |
+
+**0.13.0 bounds what a stored key may sign** (ADR 0012, #105). Every key in archon's store names
+the contexts it may sign in. The list is sealed together with the seed, so `archon sign --key`
+refuses any other context before it reads the message or asks for the password.
+- **Key files are now version 2** ([keystore.md](keystore.md) §8), and this breaks anyone with
+  stored keys. A version-1 entry is `migration-required` and unusable until it is converted, once,
+  at a terminal: `archon key policy <name> --allow <context>` (or `--unrestricted`).
+- `key add` and `keygen --store` require `--allow` or `--unrestricted`.
+- Upgrade every archon binary that uses the store before converting: older ones can't read
+  version 2.
+- The [v0.13.0 release](https://github.com/Bitspark/archon/releases/tag/v0.13.0) lists every
+  changed `--json` category and command.
+
+No library API changed; the change is in the CLI tier.
+
+**0.12.0 refuses what login cannot show safely** (#107,
+[GHSA-cqvg-hgp6-whpv](https://github.com/Bitspark/archon/security/advisories/GHSA-cqvg-hgp6-whpv)).
+- `archon login` refuses a scope entry, or an offers page address, that carries a display-unsafe
+  code point (bidi controls, zero-width characters, C1 controls, tags and the rest of one set
+  pinned by `vectors/display-unsafe.json`) before anything is shown or signed.
+- `sign`, `key list --json` and the service's error text escape such code points.
+- It is a minor because it narrows what login accepts.
+- The sdk gains `login.DisplayUnsafe` (Go), `display_unsafe` (Rust) and `displayUnsafe`
+  (TypeScript), for tools that show scope entries themselves.
 
 **0.11.0 starts the login delegation when the server accepts the answer** (#97), and that is
 breaking for Go and Rust code that constructs `Admitted` itself. `Admitted` gains the instant:
@@ -123,7 +151,7 @@ To re-measure, ask each registry rather than reading the tag list:
 curl -s https://registry.npmjs.org/@bitspark/archon | jq '.["dist-tags"], (.versions|keys)'
 curl -s https://crates.io/api/v1/crates/bitspark-archon-core/versions | jq '[.versions[].num]'
 curl -s https://proxy.golang.org/github.com/!bitspark/archon/core/go/@latest
-curl -so /dev/null -w '%{http_code}\n' https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/0.11.0/archon-core-0.11.0.pom
+curl -so /dev/null -w '%{http_code}\n' https://repo.maven.apache.org/maven2/dev/bitspark/archon-core/0.13.0/archon-core-0.13.0.pom
 ```
 
 **Go is the asymmetry to keep in mind:** nobody publishes it, and nothing gates it. Pushing a
@@ -154,7 +182,9 @@ three against `f02de05`, `v0.9.0` by
 `v0.10.0` by [run 37259118634](https://github.com/Bitspark/archon/actions/runs/37259118634) against
 `395d731`, `v0.10.1` by [run 37261496682](https://github.com/Bitspark/archon/actions/runs/37261496682)
 against `fe7634e`, and `v0.11.0` by [run 37265970603](https://github.com/Bitspark/archon/actions/runs/37265970603)
-against `a8b232b`.
+against `a8b232b`, `v0.12.0` by [run 37269113318](https://github.com/Bitspark/archon/actions/runs/37269113318)
+against `6f28359`, and `v0.13.0` by [run 37270914634](https://github.com/Bitspark/archon/actions/runs/37270914634)
+against `aaeec7e`.
 
 **Maven Central is the other one.** It accepts and validates in seconds and serves much
 later — **44 minutes** for archon-core 0.7.0, validated 15:15:38Z and served 15:59:40Z, past
@@ -164,7 +194,9 @@ for 0.8.2 about 7 (`PUBLISHING` at 00:56:05Z, both poms and jars served by 01:03
 for 0.9.0 about 10 (`PUBLISHING` at 14:18:01Z, both poms served by 14:28:15Z), for 0.10.0
 about 10 (`PUBLISHING` at 03:12:48Z, both jars served by 03:22:28Z), and for 0.10.1 about 9
 (`PUBLISHING` at 03:49:11Z, both jars served by 03:57:53Z), and for 0.11.0 about 8
-(`PUBLISHING` at 04:55:12Z, both jars served by 05:03:32Z). So
+(`PUBLISHING` at 04:55:12Z, both jars served by 05:03:32Z), for 0.12.0 about 8 (`PUBLISHING` at
+05:50:56Z, both jars served by 05:58:40Z), and for 0.13.0 about 7 (`PUBLISHING` at 06:15:43Z,
+both jars served by 06:22:18Z). So
 the delay is not a constant to wait out. A green publish run proves the upload, not the
 availability. Java counts as published when a consumer resolves it from the public
 repository — which happens in a **later** run, not the one that published it. Either a

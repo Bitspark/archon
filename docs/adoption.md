@@ -3,7 +3,7 @@
 Which part of archon does which job, what it deliberately leaves to you, and what it will not
 interoperate with. Language coverage and the exact published versions are in
 [languages.md](languages.md) and are not repeated here; this page names the tier, and that
-page says which languages carry it. The current release is **0.11.0**.
+page says which languages carry it. The current release is **0.13.0**.
 
 ## Which part does which job
 
@@ -17,7 +17,7 @@ page says which languages carry it. The current release is **0.11.0**.
 | let a person's key authorize a key-less client (a browser, a CI job) for a stated scope and time | the login scheme ([login.md](login.md)), `archon login`, and the mounted login handler | `sdk`, `cli`, `server` | Go, Rust and TypeScript; Python and Java have possession and envelope but not login |
 | authenticate an ordinary API request: which key sent it, to this service, not replayed | the request profile ([request.md](request.md)): the sdk signs and verifies, the server's verifier keeps the replay store | `sdk`, `server` | Go, Rust and TypeScript, from 0.10.0; a narrow RFC 9421 application profile, wire version 1 ([ADR 0010](architecture/decisions/0010-request-authentication-and-key-enrollment-profiles.md)); whether the key may do the thing is still yours |
 | enroll a new key under an account the service already authenticated | key enrollment: `prove_enroll` / `verify_enroll`, and the server's enroller | `sdk`, `server` | Go, Rust and TypeScript, from 0.10.0; the enrollment statement in ADR 0010 |
-| keep a person's key on their machine under a name and a password | `archon key`, `keygen --store`, `login --key` | `cli` | [ADR 0007](architecture/decisions/0007-custody-in-the-command-and-the-login-server-tier.md) §A; for people — agents and CI use seed files |
+| keep a person's key on their machine under a name and a password | `archon key`, `keygen --store`, `login --key` | `cli` | [ADR 0007](architecture/decisions/0007-custody-in-the-command-and-the-login-server-tier.md) §A; for people — agents and CI use seed files. From 0.13.0 each key names the contexts it may sign in (`--allow`, `archon key policy`; [ADR 0012](architecture/decisions/0012-a-stored-keys-signing-contexts.md)) |
 | decide what a key is allowed to do | **not archon** — a grant layer such as thesmos | — | the login handler passes the authority payload, as opaque bytes, to an `AdmitAuthority` callback you supply, and never reads it |
 
 ## What each tier owns
@@ -81,6 +81,12 @@ parameter. A TypeScript law written for three arguments keeps working.
 `AcceptedAt`, Rust `accepted_at`, TypeScript `acceptedAt`), and the delegation runs from that
 instant for `valid_for` seconds ([login.md](login.md) §4). Go and Rust code that constructs
 `Admitted` itself must set it; a law that only reads it needs no change.
+
+**Changed in 0.13.0:** a stored key names the contexts it may sign in, sealed with the seed
+(ADR 0012), and `sign --key` refuses any other context before asking for the password. A key
+stored before 0.13.0 is `migration-required` until `archon key policy <name> --allow <context>`
+(or `--unrestricted`) converts it, once, at a terminal. Upgrade every archon binary that uses
+the store first: older binaries can't read the new key-file version.
 
 ## Request authentication and key enrollment (from 0.10.0)
 
