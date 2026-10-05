@@ -15,7 +15,9 @@ stop this, because the attacker's own session begins and completes it.
 So `archon enroll` makes an enrollment proof with a key in archon's store only when it can show the
 person **which account** the key joins, decoded from the very bytes whose digest it binds. A
 service opts in by building its intent in **format 1** (§2). The proof's binding stays version 1:
-archon's sdk and server still bind the digest and never read the intent.
+the proof binds only the intent's digest. Verification and completion never read the intent. The
+sdk's format-1 codec reads it for the command, and for the server's token helper, which checks
+that the purpose given to `Prepare` is the intent's (§6).
 
 ## 1. The flow
 

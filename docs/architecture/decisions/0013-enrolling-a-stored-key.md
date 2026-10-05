@@ -39,8 +39,10 @@ account. Nothing the person could read would tell the two accounts apart.
 ### 1. The proof and the authority stay where they are
 
 The binding stays version 1, and its wire is unchanged. Authority stays in the service's validated,
-immutable pending record, and completion stays the service's atomic operation. The sdk and server
-still bind the intent's digest and never interpret the intent. What is added is the **third**
+immutable pending record, and completion stays the service's atomic operation. The proof still
+binds only the intent's digest, and verification and completion never read the intent. Format 1
+(§2) is read only by the command, and by the server's helper that writes a challenge token, to
+check the purpose given to `Prepare`. What is added is the **third**
 thing an enrollment needs, beside the possession proof and the service's authorization: that the
 key holder can see what they are agreeing to.
 
