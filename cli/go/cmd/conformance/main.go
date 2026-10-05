@@ -17,6 +17,7 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,6 +36,26 @@ type kase struct {
 	Parallel uint8  `json:"p"`
 	File     string `json:"file"`
 	Input    string `json:"input"`
+	// Policy is a keystore_seal input (docs/keystore.md §8.1), passed as given, unsorted
+	// included, so that a vector can pin what the writer refuses.
+	Policy *casePolicy `json:"policy"`
+}
+
+type casePolicy struct {
+	Mode     string   `json:"mode"`
+	Contexts []string `json:"contexts"`
+}
+
+// policyJSON is a parsed header's policy as the vectors spell it: null for version 1.
+func policyJSON(p *keystore.Policy) any {
+	switch {
+	case p == nil:
+		return nil
+	case p.Unrestricted:
+		return map[string]any{"mode": "unrestricted"}
+	default:
+		return map[string]any{"mode": "allowlist", "contexts": p.Contexts}
+	}
 }
 
 func mustHex(s string) []byte {
@@ -73,7 +94,19 @@ func main() {
 		switch family {
 		case "keystore_seal":
 			p := keystore.Params{MemoryKiB: c.MemKiB, Time: c.Time, Parallelism: c.Parallel}
-			blob, err := keystore.Seal(mustHex(c.Seed), []byte(c.Password), mustHex(c.Salt), mustHex(c.Nonce), p)
+			var pol keystore.Policy
+			if c.Policy == nil {
+				panic("keystore_seal case without a policy: " + c.Name)
+			}
+			switch c.Policy.Mode {
+			case "unrestricted":
+				pol = keystore.Policy{Unrestricted: true, Contexts: c.Policy.Contexts}
+			case "allowlist":
+				pol = keystore.Policy{Contexts: append([]string{}, c.Policy.Contexts...)}
+			default:
+				panic("unknown policy mode in a case: " + c.Policy.Mode)
+			}
+			blob, err := keystore.Seal(mustHex(c.Seed), []byte(c.Password), mustHex(c.Salt), mustHex(c.Nonce), p, pol)
 			if err != nil {
 				out["result"] = map[string]any{"error": true}
 			} else {
@@ -83,11 +116,26 @@ func main() {
 				}}
 			}
 		case "keystore_open":
-			seed, err := keystore.Open(mustHex(c.File), []byte(c.Password))
-			if err != nil {
-				out["result"] = map[string]any{"error": true}
-			} else {
-				out["result"] = map[string]any{"ok": map[string]any{"seed": hex.EncodeToString(seed)}}
+			// A refusal carries the category the command would report (§8.2): the header's own
+			// kind, or unlock-failed for anything the seal refused.
+			file := mustHex(c.File)
+			h, err := keystore.ParseHeader(file)
+			var seed []byte
+			if err == nil {
+				seed, err = keystore.Open(file, []byte(c.Password))
+			}
+			var fe *keystore.FormatError
+			switch {
+			case errors.As(err, &fe):
+				out["result"] = map[string]any{"error": fe.Kind}
+			case err != nil:
+				out["result"] = map[string]any{"error": "unlock-failed"}
+			default:
+				out["result"] = map[string]any{"ok": map[string]any{
+					"seed":    hex.EncodeToString(seed),
+					"version": h.Version,
+					"policy":  policyJSON(h.Policy),
+				}}
 			}
 		case "keystore_name":
 			out["result"] = map[string]any{"ok": keystore.ValidateName(c.Input) == nil}

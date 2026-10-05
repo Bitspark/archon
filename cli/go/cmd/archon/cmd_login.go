@@ -135,7 +135,16 @@ func (s *loginSource) decide() error {
 		s.storeKey = name
 	}
 	if s.storeKey != "" {
-		return requireNamedKey(s.storeKey)
+		// A version-1, unreadable or missing entry, or one whose policy does not list the login
+		// domain, is refused here, before any request is made (docs/keystore.md §8.2).
+		h, err := requireNamedKey(s.storeKey)
+		if err != nil {
+			return err
+		}
+		if !h.Policy.Permits(login.Domain) {
+			return fmt.Errorf("key %s may not sign in %s: its policy is %s (change it with `archon key policy %s`)",
+				s.storeKey, login.Domain, h.Policy, s.storeKey)
+		}
 	}
 	return nil
 }

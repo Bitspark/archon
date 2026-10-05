@@ -41,11 +41,21 @@ func runKeygen(args []string) error {
 	if err != nil {
 		return err
 	}
-	// Validated before anything is generated or printed: a bad name should cost nothing.
+	args, pol, havePolicy, err := takePolicyFlags(args)
+	if err != nil {
+		return err
+	}
+	// Validated before anything is generated or printed: a bad name, or a stored key with no
+	// policy (docs/keystore.md §8.3), should cost nothing.
 	if storeName != "" {
 		if err := keystore.ValidateName(storeName); err != nil {
 			return err
 		}
+		if !havePolicy {
+			return policyNeeded(storeName)
+		}
+	} else if havePolicy {
+		return fmt.Errorf("--allow and --unrestricted apply only with --store: a key written to a file carries no policy")
 	}
 	seed, out, pubOut, pubFormat, err := parseKeygen(args)
 	if err != nil {
@@ -60,7 +70,7 @@ func runKeygen(args []string) error {
 	// --store: the seed stays in the store and no PEM is produced at all. Same seal path
 	// `key add` uses (sealAndWrite), reached from the command that owns the CSPRNG.
 	if storeName != "" {
-		if err := storeGenerated(storeName, seed, pwFD); err != nil {
+		if err := storeGenerated(storeName, seed, pwFD, pol); err != nil {
 			return err
 		}
 		if pubOut != "" {

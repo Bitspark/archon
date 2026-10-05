@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Bitspark/archon/cli/go/internal/keystore"
 	"github.com/Bitspark/archon/core/go/crypto"
 	"github.com/Bitspark/archon/core/go/keytext"
 	"github.com/Bitspark/archon/sdk/go/login"
@@ -869,7 +870,7 @@ func TestOffersFromASealedStoreKey(t *testing.T) {
 	}
 	pubkey := crypto.PublicKeyFromSeed(seed)
 	principal := keytext.EncodeKey(pubkey)
-	if _, err := sealAndWrite(filepath.Join(home, "keys", "julia"), seed, []byte(password)); err != nil {
+	if _, err := sealAndWrite(filepath.Join(home, "keys", "julia"), seed, []byte(password), keystore.Policy{Contexts: []string{login.Domain}}); err != nil {
 		t.Fatalf("sealAndWrite: %v", err)
 	}
 	browserSeed := make([]byte, 32)
@@ -1154,7 +1155,7 @@ func TestLoginFromASealedStoreKey(t *testing.T) {
 	}
 	pubkey := crypto.PublicKeyFromSeed(seed)
 	principal := keytext.EncodeKey(pubkey)
-	if _, err := sealAndWrite(filepath.Join(home, "keys", "julia"), seed, []byte(password)); err != nil {
+	if _, err := sealAndWrite(filepath.Join(home, "keys", "julia"), seed, []byte(password), keystore.Policy{Contexts: []string{login.Domain}}); err != nil {
 		t.Fatalf("sealAndWrite: %v", err)
 	}
 

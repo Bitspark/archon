@@ -10,6 +10,7 @@ package main
 // pinned in cli/smoke.mjs.
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -29,10 +30,54 @@ import (
 	"github.com/Bitspark/archon/core/go/keytext"
 )
 
-const keyStoreUsage = "usage: archon key <add <name> [--seed <hex>|--seed-file <file>|--pkcs8 <file>]|" +
-	"list [--json]|rm <name> [--force]|default [<name>]|export <name> --reveal --out <file>>\n  " +
+const keyStoreUsage = "usage: archon key <add <name> [--seed <hex>|--seed-file <file>|--pkcs8 <file>] " +
+	"(--allow <context>...|--unrestricted)|list [--json]|rm <name> [--force]|default [<name>]|" +
+	"export <name> --reveal --out <file>|policy <name> [--allow <context>...|--unrestricted]>\n  " +
 	"the password-protected seed store; keys live in $ARCHON_HOME/keys (default ~/.archon). " +
-	"Password: interactive prompt, or ARCHON_KEY_PASSWORD / --password-fd <n>, never argv."
+	"Every key names the contexts it may sign in (--allow, repeatable) or --unrestricted. " +
+	"Password: interactive prompt, or ARCHON_KEY_PASSWORD / --password-fd <n>, never argv; " +
+	"changing a policy takes the terminal only."
+
+// takePolicyFlags removes --allow <context> (repeatable) and --unrestricted from args and
+// returns the policy they name (docs/keystore.md §8.3). There is no default: given is false
+// when neither appears, and the caller decides whether that is allowed.
+func takePolicyFlags(args []string) (rest []string, pol keystore.Policy, given bool, err error) {
+	var allow []string
+	unrestricted := false
+	rest = make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--allow":
+			if i+1 >= len(args) {
+				return nil, keystore.Policy{}, false, fmt.Errorf("--allow needs a context")
+			}
+			allow = append(allow, args[i+1])
+			i++
+		case "--unrestricted":
+			unrestricted = true
+		default:
+			rest = append(rest, args[i])
+		}
+	}
+	switch {
+	case unrestricted && len(allow) > 0:
+		return nil, keystore.Policy{}, false, fmt.Errorf("--allow and --unrestricted are mutually exclusive")
+	case unrestricted:
+		return rest, keystore.Policy{Unrestricted: true}, true, nil
+	case len(allow) == 0:
+		return rest, keystore.Policy{}, false, nil
+	}
+	pol, err = keystore.NewAllowlist(allow)
+	if err != nil {
+		return nil, keystore.Policy{}, false, fmt.Errorf("--allow: %w", err)
+	}
+	return rest, pol, true, nil
+}
+
+// policyNeeded is the refusal for a new key that names no policy: there is no default.
+func policyNeeded(name string) error {
+	return fmt.Errorf("say which contexts %s may sign in: --allow <context> (repeatable), or --unrestricted", name)
+}
 
 // runKeyAdd stores a seed under a name, generating one when no source is given.
 func runKeyAdd(args []string) error {
@@ -47,6 +92,13 @@ func runKeyAdd(args []string) error {
 	rest, pwFD, err := takePasswordFD(args[1:])
 	if err != nil {
 		return err
+	}
+	rest, pol, havePolicy, err := takePolicyFlags(rest)
+	if err != nil {
+		return err
+	}
+	if !havePolicy {
+		return policyNeeded(name)
 	}
 	for i := 0; i < len(rest); i += 2 {
 		if i+1 >= len(rest) {
@@ -123,7 +175,7 @@ func runKeyAdd(args []string) error {
 	}
 	defer keystore.Zeroise(password)
 
-	principal, err := sealAndWrite(path, seed, password)
+	principal, err := sealAndWrite(path, seed, password, pol)
 	if err != nil {
 		return err
 	}
@@ -149,31 +201,33 @@ func runKeyList(args []string) error {
 	if err != nil {
 		return err
 	}
+	// A row for every entry whose principal can be read (docs/keystore.md §8.4), so an entry
+	// awaiting conversion is reported as that and not as absent. The policy is the header's
+	// CLAIM, read without the password, and named as such.
 	type row struct {
-		Name      string `json:"name"`
-		Principal string `json:"principal"`
+		Name          string      `json:"name"`
+		Principal     string      `json:"principal"`
+		Status        string      `json:"status"`
+		ClaimedPolicy *policyJSON `json:"claimed_policy"`
+		text          string
 	}
 	rows := make([]row, 0, len(names))
-	// An entry that is not listed is named on stderr, one line each, so a key never vanishes
-	// from the list without a word; stdout, and with it --json, carries only usable keys.
+	// An entry whose principal cannot be read is named on stderr, one line each, so a key never
+	// vanishes from the list without a word.
 	skip := func(n string, err error) { fmt.Fprintf(os.Stderr, "archon key list: skipped %s: %v\n", n, err) }
 	for _, n := range names {
-		path, err := keystore.Path(n)
-		if err != nil {
-			skip(n, err) // a file the store cannot name is not a key; `rm --force` deals with it
-			continue
-		}
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			skip(n, err)
-			continue
-		}
-		h, err := keystore.ParseHeader(raw)
+		_, h, err := readNamedKey(n)
 		if err != nil {
 			skip(n, err) // the magic is what keeps a stray file out of this list
 			continue
 		}
-		rows = append(rows, row{Name: n, Principal: keytext.EncodeKey(h.PublicKey)})
+		r := row{Name: n, Principal: keytext.EncodeKey(h.PublicKey)}
+		if h.Version == keystore.Version2 {
+			r.Status, r.ClaimedPolicy, r.text = "usable", newPolicyJSON(*h.Policy), h.Policy.String()
+		} else {
+			r.Status, r.text = "migration-required", "version 1: convert with `archon key policy "+n+"`"
+		}
+		rows = append(rows, r)
 	}
 	if asJSON {
 		out, err := json.Marshal(rows)
@@ -184,8 +238,99 @@ func runKeyList(args []string) error {
 		return nil
 	}
 	for _, r := range rows {
-		fmt.Printf("%s\t%s\n", r.Name, r.Principal)
+		fmt.Printf("%s\t%s\t%s\n", r.Name, r.Principal, r.text)
 	}
+	return nil
+}
+
+// policyJSON is a policy as `key list --json` spells it (§8.4).
+type policyJSON struct {
+	Mode     string   `json:"mode"`
+	Contexts []string `json:"contexts,omitempty"`
+}
+
+func newPolicyJSON(p keystore.Policy) *policyJSON {
+	if p.Unrestricted {
+		return &policyJSON{Mode: "unrestricted"}
+	}
+	return &policyJSON{Mode: "allowlist", Contexts: p.Contexts}
+}
+
+// runKeyPolicy shows an entry's policy, or converts a version-1 entry or changes a version-2
+// one (docs/keystore.md §8.3). The change form is ALWAYS interactive: it shows the old and the
+// new policy before asking for anything, asks y/N at the controlling terminal, and takes the
+// password from that terminal only — no --yes, no ARCHON_KEY_PASSWORD, no --password-fd. That
+// is a safeguard against a password a program inherited, not an authorization claim (ADR 0012
+// §6): whoever can type the password can also decrypt the file.
+func runKeyPolicy(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("%s", keyStoreUsage)
+	}
+	name := args[0]
+	rest, pol, change, err := takePolicyFlags(args[1:])
+	if err != nil {
+		return err
+	}
+	if len(rest) > 0 {
+		return fmt.Errorf("unknown flag %q\n%s", rest[0], keyStoreUsage)
+	}
+	path, err := keystore.Path(name)
+	if err != nil {
+		return err
+	}
+	// One read: the bytes shown are the bytes unlocked and replaced (ADR 0012 §4).
+	file, h, err := readNamedKey(name)
+	if err != nil {
+		return err
+	}
+	principal := keytext.EncodeKey(h.PublicKey)
+	current := "version 1, no policy"
+	if h.Version == keystore.Version2 {
+		current = h.Policy.String()
+	}
+	if !change {
+		fmt.Printf("%s (%s): %s (claimed by the header; proven only at unlock)\n", name, principal, current)
+		return nil
+	}
+	in, out, err := openTerminal()
+	if err != nil || !term.IsTerminal(int(in.Fd())) {
+		return errors.New("changing a key's policy needs a person at the controlling terminal: " +
+			"there is none, and ARCHON_KEY_PASSWORD and --password-fd are not accepted here")
+	}
+	defer func() {
+		if out != in {
+			out.Close()
+		}
+		in.Close()
+	}()
+	fmt.Fprintf(out, "%s (%s)\n  policy:  %s\n  becomes: %s\nchange it? [y/N] ", name, principal, current, pol)
+	answer, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && answer == "" {
+		return fmt.Errorf("could not read the answer: %w", err)
+	}
+	if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
+		return errors.New("not changed")
+	}
+	fmt.Fprint(out, "password: ")
+	password, err := term.ReadPassword(int(in.Fd()))
+	fmt.Fprintln(out)
+	if err != nil {
+		return fmt.Errorf("could not read the password: %w", err)
+	}
+	defer keystore.Zeroise(password)
+	nonce := make([]byte, keystore.NonceSize)
+	if _, err := rand.Read(nonce); err != nil {
+		return fmt.Errorf("could not read OS randomness: %w", err)
+	}
+	blob, err := keystore.Reseal(file, password, nonce, pol)
+	if err != nil {
+		return err
+	}
+	if err := keystore.WriteFile(path, blob); err != nil {
+		return err
+	}
+	fmt.Printf("changed the policy of %s (%s) to %s; any copy of this key outside archon's store is untouched.\n",
+		name, principal, pol)
 	return nil
 }
 
@@ -251,7 +396,7 @@ func runKeyDefault(args []string) error {
 		return fmt.Errorf("%s", keyStoreUsage)
 	}
 	name := args[0]
-	if err := requireNamedKey(name); err != nil {
+	if _, err := requireNamedKey(name); err != nil {
 		return err
 	}
 	if err := os.WriteFile(pointer, []byte(name+"\n"), 0o600); err != nil {
@@ -261,18 +406,13 @@ func runKeyDefault(args []string) error {
 	return nil
 }
 
-// requireNamedKey is the store's own "is there a key called that": a validated name, then a
-// stat — opening nothing, asking for no password. Shared by `key default <name>` and by
-// `login`'s pre-network check, so both refuse a missing key with one wording.
-func requireNamedKey(name string) error {
-	path, err := keystore.Path(name)
-	if err != nil {
-		return err
-	}
-	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("no key named %q in archon's store", name)
-	}
-	return nil
+// requireNamedKey is the store's own "is there a key called that, and can it be used": a
+// validated name and a header read — opening nothing, asking for no password. Shared by
+// `key default <name>` and by `login`'s pre-network check, so both refuse a missing,
+// unreadable or version-1 key with one wording (§8.2).
+func requireNamedKey(name string) (keystore.Header, error) {
+	_, h, err := usableKey(name)
+	return h, err
 }
 
 // defaultPointerPath is $ARCHON_HOME/default: BESIDE keys/, never inside it, so the pointer
@@ -334,6 +474,14 @@ func runKeyExport(args []string) error {
 	if out == "" {
 		return fmt.Errorf("refusing to write a seed to stdout: pass --out <file>, or --out - to mean it")
 	}
+	// An allowlisted entry's seed is not written out (§8.2): its policy would not travel with
+	// it. A backup is the encrypted file itself. Refused from the header, before the password.
+	if _, h, err := usableKey(name); err != nil {
+		return err
+	} else if !h.Policy.Unrestricted {
+		return fmt.Errorf("refusing to export %s: its policy allows only listed contexts (%s), and a "+
+			"plaintext seed would carry none of it; back up the encrypted file instead", name, h.Policy)
+	}
 	seed, err := unlockNamedKey(name, pwFD)
 	if err != nil {
 		return err
@@ -360,7 +508,7 @@ func runKeyExport(args []string) error {
 // It is the ONE unlock path, shared by `key export` and `login --key`, so no two commands
 // can ask for a password differently. The caller owns the seed and must Zeroise it.
 func unlockNamedKey(name string, pwFD int) ([]byte, error) {
-	raw, _, err := readNamedKey(name)
+	raw, _, err := usableKey(name)
 	if err != nil {
 		return nil, err
 	}
@@ -376,21 +524,53 @@ func unlockNamedKey(name string, pwFD int) ([]byte, error) {
 // nothing and asking for no password. The claim is what `sign --key --expect` checks before
 // the prompt; it is proven only when the seal opens, because keystore.Open refuses a seed
 // that does not derive it.
-func readNamedKey(name string) (file, publicKey []byte, err error) {
+//
+// Every refusal is a *storeRefusal carrying its machine-mode category (docs/keystore.md
+// §8.2): no-key when no file has that name, else the header's own kind.
+func readNamedKey(name string) (file []byte, h keystore.Header, err error) {
 	path, err := keystore.Path(name)
 	if err != nil {
-		return nil, nil, err
+		return nil, keystore.Header{}, &storeRefusal{"no-key", err}
 	}
 	file, err = os.ReadFile(path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("no key named %q in archon's store", name)
+		return nil, keystore.Header{}, &storeRefusal{"no-key", fmt.Errorf("no key named %q in archon's store", name)}
 	}
-	h, err := keystore.ParseHeader(file)
+	h, err = keystore.ParseHeader(file)
 	if err != nil {
-		return nil, nil, err
+		var fe *keystore.FormatError
+		if errors.As(err, &fe) {
+			return nil, keystore.Header{}, &storeRefusal{fe.Kind, fmt.Errorf("%s: %w", name, err)}
+		}
+		return nil, keystore.Header{}, &storeRefusal{"malformed", fmt.Errorf("%s: %w", name, err)}
 	}
-	return file, h.PublicKey, nil
+	return file, h, nil
 }
+
+// usableKey is readNamedKey for a command that will sign, log in, export or make a key the
+// default: only a version-2 entry may (§8.2). A version-1 entry is refused with the command
+// that converts it, named in full, so a person can act on the line they read.
+func usableKey(name string) (file []byte, h keystore.Header, err error) {
+	file, h, err = readNamedKey(name)
+	if err != nil {
+		return nil, keystore.Header{}, err
+	}
+	if h.Version != keystore.Version2 {
+		return nil, keystore.Header{}, &storeRefusal{"migration-required", fmt.Errorf(
+			"%s is a version-1 key file, which this archon no longer uses: convert it once with "+
+				"`archon key policy %s --allow <context>` (repeatable), or `--unrestricted`", name, name)}
+	}
+	return file, h, nil
+}
+
+// storeRefusal is a refusal of a named entry with its machine-mode category (§8.2).
+type storeRefusal struct {
+	category string
+	err      error
+}
+
+func (r *storeRefusal) Error() string { return r.err.Error() }
+func (r *storeRefusal) Unwrap() error { return r.err }
 
 // seedFromHexish accepts the two shapes ADR 0007 §A names: a 32-byte seed as 64 hex, and
 // the first consumer's ed25519.PrivateKey shape as 128 hex (seed ‖ public key). The public half is
@@ -516,7 +696,7 @@ func trimNewline(b []byte) []byte {
 // `keygen --store` so the two can never drift apart. The salt and nonce are drawn here,
 // in the command: the format takes them as arguments and never sources randomness, which
 // is what makes it pinnable by vectors/keystore.json.
-func sealAndWrite(path string, seed, password []byte) (string, error) {
+func sealAndWrite(path string, seed, password []byte, pol keystore.Policy) (string, error) {
 	salt := make([]byte, keystore.SaltSize)
 	nonce := make([]byte, keystore.NonceSize)
 	if _, err := rand.Read(salt); err != nil {
@@ -525,7 +705,7 @@ func sealAndWrite(path string, seed, password []byte) (string, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("could not read OS randomness: %w", err)
 	}
-	blob, err := keystore.Seal(seed, password, salt, nonce, keystore.DefaultParams())
+	blob, err := keystore.Seal(seed, password, salt, nonce, keystore.DefaultParams(), pol)
 	if err != nil {
 		return "", err
 	}
@@ -554,7 +734,7 @@ func takeStoreFlag(args []string) (rest []string, name string, err error) {
 
 // storeGenerated is `keygen --store <name>`: the same seal path as `key add`, reached from
 // the command that already owns the CSPRNG.
-func storeGenerated(name string, seed []byte, pwFD int) error {
+func storeGenerated(name string, seed []byte, pwFD int, pol keystore.Policy) error {
 	if err := keystore.ValidateName(name); err != nil {
 		return err
 	}
@@ -570,7 +750,7 @@ func storeGenerated(name string, seed []byte, pwFD int) error {
 		return err
 	}
 	defer keystore.Zeroise(password)
-	principal, err := sealAndWrite(path, seed, password)
+	principal, err := sealAndWrite(path, seed, password, pol)
 	if err != nil {
 		return err
 	}

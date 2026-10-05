@@ -161,13 +161,24 @@ func signWith(argv []string, json bool) error {
 	}
 
 	if haveKey {
-		file, claimed, err := readNamedKey(keyName)
+		// One read of the file: the header checked here is the header the tag authenticates at
+		// unlock, policy included (docs/keystore.md §8.2, ADR 0012 §4).
+		file, h, err := usableKey(keyName)
 		if err != nil {
+			var sr *storeRefusal
+			if errors.As(err, &sr) {
+				return refuse(sr.category, "%v", sr.err)
+			}
 			return as("no-key", err)
 		}
-		if !bytes.Equal(claimed, expected) {
+		if !bytes.Equal(h.PublicKey, expected) {
 			return refuse("key-mismatch", "key %s is %s, not the expected %s; refusing to sign",
-				keyName, keytext.EncodeKey(claimed), keytext.EncodeKey(expected))
+				keyName, keytext.EncodeKey(h.PublicKey), keytext.EncodeKey(expected))
+		}
+		// Refused before the message is read or a password is asked for.
+		if !h.Policy.Permits(domain) {
+			return refuse("policy", "key %s may not sign in domain %s: its policy is %s",
+				keyName, jsonString(domain), h.Policy)
 		}
 		message, err := readInput(inPath)
 		if err != nil {
