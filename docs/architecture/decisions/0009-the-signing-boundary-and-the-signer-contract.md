@@ -8,6 +8,15 @@ operator on 2026-10-04 on external advice taken in the form of
 [archon#47](https://github.com/Bitspark/archon/issues/47). The companion request and enrollment
 profiles ([archon#48](https://github.com/Bitspark/archon/issues/48)) are separate decisions.
 
+> **Status note, 2026-10-05 — archon's own domains are reserved from `sign`.** `archon sign`
+> refuses every domain whose bytes begin with `archon-` (today `archon-login/1`,
+> `archon-request/1`, `archon-enroll/1`), for every key source, with the category `domain`,
+> before the key file is read or a password is sought. Those signatures are made only by the
+> commands that show the person what they mean; `sign` shows a length and a digest. The
+> comparison is byte for byte, like the domain itself (ADR 0008 §2), so `Archon-x` is an ordinary
+> domain. Nothing else in §5 changes. From the consultation on
+> [archon#91](https://github.com/Bitspark/archon/issues/91) (`research-docs/0005-*`, internal).
+
 ## Context
 
 Two needs met here.

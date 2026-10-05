@@ -129,6 +129,10 @@ const cases = [
   { name: "sign --seed --domain (OpenSSL reference)", args: ["sign", "--seed", SEED, "--domain", "archon/test/v1", "--in", msgPath], want: `${HELLO_V1}\n`, code: 0 },
   { name: "sign --key-file --domain (stdin message)", args: ["sign", "--key-file", pemPath, "--domain", "archon/test/v1"], stdin: Buffer.from(V1_VERIFY.message, "hex"), want: `${HELLO_V1}\n`, code: 0 },
   { name: "sign refuses empty --domain", args: ["sign", "--seed", SEED, "--domain", "", "--in", msgPath], want: "", code: 1 },
+  // archon's own protocol domains are signed only by the commands that show what they mean.
+  { name: "sign --seed refuses archon's own domain", args: ["sign", "--seed", SEED, "--domain", "archon-login/1", "--in", msgPath], want: "", code: 1 },
+  { name: "sign --key-file refuses any archon- domain (--json)", args: ["sign", "--key-file", pemPath, "--domain", "archon-enroll/1", "--in", msgPath, "--json"],
+    want: '{"version":1,"error":"domain"}\n', code: 1 },
   { name: "sign needs a key", args: ["sign", "--in", msgPath], want: "", code: 1 },
   { name: "verify in domain (key text)", args: ["verify", "--pubkey", TEXT, "--sig", HELLO_V1, "--domain", "archon/test/v1", "--in", msgPath], want: "valid\n", code: 0 },
   { name: "verify in domain (hex key)", args: ["verify", "--pubkey", PUB, "--sig", HELLO_V1, "--domain", "archon/test/v1", "--in", msgPath], want: "valid\n", code: 0 },
@@ -524,6 +528,13 @@ for (const lane of lanes) {
       { env: noPassword, detached: true }, refused("key-mismatch")],
     ["with no password given, finds no terminal and signs nothing", [...storeSign, "--in", msgPath, "--json"],
       { env: noPassword, detached: true }, refused("password")],
+    ["refuses archon's own domain, with the password at hand",
+      ["sign", "--key", "shared", "--domain", "archon-request/1", "--expect", TEXT, "--in", msgPath, "--json"], {}, refused("domain")],
+    // A key the store lacks and no password: a refusal from the header read would be `no-key`,
+    // from the password `password`, so `domain` proves the reservation is checked first.
+    ["refuses archon's own domain before the header or a password",
+      ["sign", "--key", "nobody", "--domain", "archon-login/1", "--expect", TEXT, "--in", msgPath, "--json"],
+      { env: noPassword, detached: true }, refused("domain")],
   ];
   for (const lane of lanes) {
     for (const [label, args, opts, want] of cases) {
@@ -542,6 +553,17 @@ for (const lane of lanes) {
     const shaped = out.startsWith(oddPrefix) && /^[0-9a-f]{128}"\}\n\[0\]$/u.test(out.slice(oddPrefix.length));
     expect(`sign --json: ${lane.name} escapes a quote and a backslash in the domain`,
       shaped && out === oddOut[0] ? "escaped, and the lanes agree" : out, "escaped, and the lanes agree");
+  }
+
+  // The reserved prefix is byte-exact, as a domain is (ADR 0008 §2): a different case is an
+  // ordinary domain, and every lane signs in it, with the store key, identically.
+  const folded = lanes.map((lane) => runSign(lane,
+    ["sign", "--key", "shared", "--domain", "Archon-login/1", "--expect", TEXT, "--in", msgPath]));
+  for (const [i, lane] of lanes.entries()) {
+    const out = folded[i];
+    expect(`sign --key: ${lane.name} signs in Archon-login/1 (the reservation is byte-exact)`,
+      /^[0-9a-f]{128}\n\[0\]$/u.test(out) && out === folded[0] ? "signed, and the lanes agree" : out,
+      "signed, and the lanes agree");
   }
 
   // THE CONTROLLING TERMINAL, on Linux where a pseudo-terminal can be driven unattended: the

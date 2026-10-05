@@ -53,6 +53,13 @@ fn refuse(category: &'static str, message: impl Into<String>) -> Failure {
     }
 }
 
+/// Marks archon's own protocol domains (`archon-login/1`, `archon-request/1`,
+/// `archon-enroll/1`). Those signatures are made only by the commands that show the person what
+/// they mean; `sign` shows a length and a digest, so it refuses them for every key source,
+/// before anything is read. The prefix is compared byte for byte, like a domain itself (ADR 0008
+/// §2): `Archon-x` is not reserved.
+const RESERVED_DOMAIN_PREFIX: &str = "archon-";
+
 /// Gives a plain error the category.
 fn as_<T>(category: &'static str, r: Result<T, String>) -> Result<T, Failure> {
     r.map_err(|message| Failure { category, message })
@@ -143,6 +150,16 @@ fn sign_with(argv: &[String], json: bool) -> Result<(), Failure> {
     // copy of that rule lives here to drift from it.
     if let Some(d) = domain.as_deref() {
         as_("domain", sign_in_domain(&[0u8; SEED_SIZE], d, &[]))?;
+        if d.starts_with(RESERVED_DOMAIN_PREFIX) {
+            return Err(refuse(
+                "domain",
+                format!(
+                    "domain {} is reserved: {RESERVED_DOMAIN_PREFIX}* domains are signed only by \
+archon's own commands, which show what they sign",
+                    json_string(d)
+                ),
+            ));
+        }
     }
     let expected = match expect_text.as_deref() {
         Some(text) => Some(as_("usage", decode_key(text))?),
