@@ -253,6 +253,10 @@ Everything in §2 holds for version 2, with the header now `[0, H)`. And:
   is no default: a missing, malformed or unknown policy never means unrestricted.
 - **Each context** is a domain by ADR 0008 §2: 1 to 255 bytes of well-formed UTF-8, compared byte
   for byte, never normalised. There is no wildcard and no prefix match.
+- **Each context holds nothing display-unsafe** ([`docs/login.md`](login.md) §5's set,
+  `vectors/display-unsafe.json`): a policy is shown to the person, by `key policy`, `key list` and
+  the refusals. A writer refuses such a context and a reader refuses such a file, so nothing is
+  written that cannot be read, and nothing read that cannot be shown.
 - **The contexts are in strictly ascending byte order.** That refuses duplicates and makes the
   encoding canonical: one policy has one header.
 - **The length is exact.** A file that is not `H + 72` bytes, for the `H` its own header implies,
