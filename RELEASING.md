@@ -5,9 +5,13 @@ A release is one commit on `main`, one version in every manifest, five tags, one
 conformance and publication separately, because a tag does not claim an upload to every
 registry, and a registry step that did not run is not a registry that published.
 
-The current release is **0.9.0**: signing with a stored key (`archon sign --key`), the sdk's
-signer interface, and the login server handing `AdmitAuthority` the request the proof covers. The
-last is a breaking change for Go and Rust laws, so it is a minor release (ADR 0005). 0.8.2 was the
+The current release is **0.10.1**, a patch on 0.10.0 with one security fix: the Rust CLI's
+`archon keygen --out` now creates the private-key file `0600`, as Go and TypeScript always did
+([GHSA-32mc-pxw9-43jc](https://github.com/Bitspark/archon/security/advisories/GHSA-32mc-pxw9-43jc), #96).
+0.10.0 added request authentication and key enrollment (#48, ADR 0010), wire version 1, as new
+API only. 0.9.0 added signing with a stored key (`archon sign --key`), the sdk's signer
+interface, and the login server handing `AdmitAuthority` the request the proof covers. That last
+change broke Go and Rust laws, so 0.9.0 was a minor release (ADR 0005). 0.8.2 was the
 first release in which `@bitspark/archon-server` on npm carries its code. Every version of it
 through 0.8.1 was published as a `package.json` alone
 ([#55](https://github.com/Bitspark/archon/issues/55)), and a version cannot be replaced, so the

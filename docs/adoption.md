@@ -3,7 +3,7 @@
 Which part of archon does which job, what it deliberately leaves to you, and what it will not
 interoperate with. Language coverage and the exact published versions are in
 [languages.md](languages.md) and are not repeated here; this page names the tier, and that
-page says which languages carry it. The current release is **0.9.0**.
+page says which languages carry it. The current release is **0.10.1**.
 
 ## Which part does which job
 
@@ -15,6 +15,8 @@ page says which languages carry it. The current release is **0.9.0**.
 | prove you hold a key, over a challenge and something it is bound to | possession `prove` / `verify` | `sdk` | the binding must not be empty; what goes into it is your protocol's to define |
 | send a payload that only opens under its expected domain and key | envelope `seal` / `open` | `sdk` | |
 | let a person's key authorize a key-less client (a browser, a CI job) for a stated scope and time | the login scheme ([login.md](login.md)), `archon login`, and the mounted login handler | `sdk`, `cli`, `server` | Go, Rust and TypeScript; Python and Java have possession and envelope but not login |
+| authenticate an ordinary API request: which key sent it, to this service, not replayed | the request profile ([request.md](request.md)): the sdk signs and verifies, the server's verifier keeps the replay store | `sdk`, `server` | Go, Rust and TypeScript, from 0.10.0; a narrow RFC 9421 application profile, wire version 1 ([ADR 0010](architecture/decisions/0010-request-authentication-and-key-enrollment-profiles.md)); whether the key may do the thing is still yours |
+| enroll a new key under an account the service already authenticated | key enrollment: `prove_enroll` / `verify_enroll`, and the server's enroller | `sdk`, `server` | Go, Rust and TypeScript, from 0.10.0; the enrollment statement in ADR 0010 |
 | keep a person's key on their machine under a name and a password | `archon key`, `keygen --store`, `login --key` | `cli` | [ADR 0007](architecture/decisions/0007-custody-in-the-command-and-the-login-server-tier.md) §A; for people — agents and CI use seed files |
 | decide what a key is allowed to do | **not archon** — a grant layer such as thesmos | — | the login handler passes the authority payload, as opaque bytes, to an `AdmitAuthority` callback you supply, and never reads it |
 
@@ -26,7 +28,8 @@ page says which languages carry it. The current release is **0.9.0**.
 - **`sdk`** — possession, the envelope and the login scheme's binding and proofs: deterministic
   byte layouts with vectors. No clock, no entropy, no I/O; time and randomness are arguments.
 - **`server`** — the login handler a service mounts: the routes, a configured audience,
-  injected clock and entropy, one in-memory record per pending login. It opens no socket and
+  injected clock and entropy, one in-memory record per pending login. From 0.10.0 also the
+  request verifier with its replay store, and the key enroller. It opens no socket and
   interprets no authority.
 - **`cli`** — the `archon` command, and the one place keys are kept (the store above).
 
@@ -74,15 +77,15 @@ Decided in [ADR 0009](architecture/decisions/0009-the-signing-boundary-and-the-s
 `Admitted{id, scope, validFor}`, the request the proof covers. Every Go and Rust law gains the
 parameter. A TypeScript law written for three arguments keeps working.
 
-## Decided, not yet usable
+## Request authentication and key enrollment (from 0.10.0)
 
-- Request-authentication and key-enrollment profiles for authenticating ordinary API requests
-  ([#48](https://github.com/Bitspark/archon/issues/48)). The design is decided in
-  [ADR 0010](architecture/decisions/0010-request-authentication-and-key-enrollment-profiles.md)
-  (a narrow RFC 9421 application profile, and a separate enrollment statement). Since 4 October
-  2026 **the wire is fixed as version 1** ([docs/request.md](request.md)). The sdk halves and the
-  server halves (replay store, verifier, enroller) are on `main` in all three lanes. They reach the
-  published packages with the next release.
+Request-authentication and key-enrollment profiles for authenticating ordinary API requests
+([#48](https://github.com/Bitspark/archon/issues/48)), released in 0.10.0. The design is in
+[ADR 0010](architecture/decisions/0010-request-authentication-and-key-enrollment-profiles.md):
+a narrow RFC 9421 application profile, and a separate enrollment statement. **The wire is fixed
+as version 1** ([docs/request.md](request.md)). The sdk halves (sign, strict parse, pure verify,
+enrollment) and the server halves (replay store, verifier, enroller) ship in the TypeScript, Go
+and Rust `sdk` and `server` packages; the Python and Java sdks do not carry them.
 
 ## Not in archon
 
