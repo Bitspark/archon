@@ -32,6 +32,7 @@ import { encodeKey, decodeKey, getPublicKey } from "@bitspark/archon";
 import {
   MIN_NONCE_SIZE as SCHEME_MIN_NONCE_SIZE,
   deriveAudience,
+  displayUnsafe,
   proveLogin as schemeProveLogin,
   type LoginRequest as SchemeRequest,
 } from "@bitspark/archon-sdk";
@@ -266,9 +267,12 @@ export function validateLoginRequest(r: LoginRequest, wantId: string): void {
   }
 }
 
-/** Reject C0/DEL control characters in anything the person will be shown. A scope entry
- *  carrying an escape sequence can repaint the terminal and hide what is really being
- *  signed, so display safety is a validation concern, not a cosmetic one. */
+/** Reject every display-unsafe code point (displayUnsafe, docs/login.md §5) in anything the
+ *  person will be shown: controls, bidirectional and zero-width characters, separators, and the
+ *  rest of what a terminal may render as nothing or let rearrange the text around it. A scope
+ *  entry carrying one can make the statement read differently from the bytes that are signed,
+ *  so display safety is a validation concern, not a cosmetic one. Stricter than the scheme's
+ *  own grammar (C0 and DEL only). The code point is named, never echoed. */
 function refuseUndisplayable(field: string, s: string): void {
   // Lone surrogates survive JSON.parse and are NOT valid UTF-8; the scheme's check_text
   // refuses them at binding time, which is after the person has already agreed. Refusing
@@ -278,8 +282,9 @@ function refuseUndisplayable(field: string, s: string): void {
   }
   for (const ch of s) {
     const code = ch.codePointAt(0)!;
-    if (code < 0x20 || code === 0x7f) {
-      throw new Error(`login: ${field} contains a control character — refusing`);
+    if (displayUnsafe(code)) {
+      const u = code.toString(16).toUpperCase().padStart(4, "0");
+      throw new Error(`login: ${field} contains U+${u}, which would not show as itself — refusing`);
     }
   }
 }

@@ -4,6 +4,7 @@
 // value" so all three lanes fail the same way.
 import { readFileSync } from "node:fs";
 import { pkcs8PemToSeed, seedFromHex } from "@bitspark/archon";
+import { displayUnsafe } from "@bitspark/archon-sdk";
 
 /** Read the whole input as raw bytes: the file when given, else stdin. */
 export function readBytes(file?: string): Uint8Array {
@@ -42,9 +43,10 @@ export function takeInFlag(args: string[]): [string[], string | undefined] {
 /** `<cmd> --help` / `-h` as the first token: help is success (usage to stdout, exit 0). */
 /**
  * A JSON string literal by the one rule the three binaries share, so machine output is
- * byte-identical across them: `"` and `\` are escaped, every C0 control is `\u00xx` in
- * lowercase hex, and everything else — U+2028 included, which Go's encoder would escape — is
- * written as itself.
+ * byte-identical across them: `"` and `\` are escaped, every display-unsafe code point
+ * (displayUnsafe, docs/login.md §5) is `\uxxxx` in lowercase hex — a UTF-16 surrogate pair
+ * above U+FFFF — and everything else is written as itself. The escape keeps the value and keeps
+ * such a code point off a terminal that displays the output.
  */
 export function jsonString(s: string): string {
   let out = '"';
@@ -52,8 +54,10 @@ export function jsonString(s: string): string {
     const c = ch.codePointAt(0) as number;
     if (ch === '"') out += '\\"';
     else if (ch === '\\') out += '\\\\';
-    else if (c < 0x20) out += `\\u${c.toString(16).padStart(4, "0")}`;
-    else out += ch;
+    else if (displayUnsafe(c)) {
+      // `ch` is one code point; its UTF-16 units are the JSON escape's.
+      for (let i = 0; i < ch.length; i++) out += `\\u${ch.charCodeAt(i).toString(16).padStart(4, "0")}`;
+    } else out += ch;
   }
   return `${out}"`;
 }

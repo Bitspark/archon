@@ -128,8 +128,8 @@ test("refuses malformed requests", () => {
 
 // A scope entry is printed verbatim to a terminal. An escape sequence there can erase or
 // repaint the statement the person is about to approve.
-test("refuses control characters in scope", () => {
-  for (const bad of ["read:\u001b[2Jprojects", "read:\nprojects", "read:\rprojects", "read:\u0000p", "read:\u007fp"]) {
+test("refuses every display-unsafe code point in scope", () => {
+  for (const bad of ["read:\u001b[2Jprojects", "read:\nprojects", "read:\rprojects", "read:\u0000p", "read:\u007fp", "read:\u202eprojects", "read:\u2066x\u2069", "read:\u200fx", "read:pro\u200bjects", "read:\ufeffx", "read:\u2060x", "read:x\u2028for 1h", "read:\u0085x", "read:\u00adx", "read:x\u{e0041}", "read:x\u3164", "read:x\ufe0f"]) {
     const r = validRequest();
     r.scope = [bad];
     assert.throws(() => validateLoginRequest(r, "8f3c"), `accepted ${JSON.stringify(bad)}`);
@@ -776,7 +776,7 @@ test("offers from a sealed store key", async () => {
 
     // A scope entry that could lie on screen is refused before any request.
     r = await go(["--audience", audience, "--scope", "read:\u001b[2Jx", "--valid-for", "60", "--key", "julia"]);
-    assert.match(r.error?.message ?? "", /control character/);
+    assert.match(r.error?.message ?? "", /U\+001B, which would not show as itself/);
     r = await go(["--audience", audience, "--scope", "", "--valid-for", "60", "--key", "julia"]);
     assert.ok(r.error !== undefined, "an empty --scope value was accepted");
     assert.equal(stub.requests.length, 0);

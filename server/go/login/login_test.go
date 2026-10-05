@@ -465,6 +465,11 @@ func TestBeginRefusals(t *testing.T) {
 		{"valid_for is zero", map[string]any{"browser": ok, "scope": []string{"a"}, "valid_for": 0}},
 		{"a scope entry is empty", map[string]any{"browser": ok, "scope": []string{""}, "valid_for": 60}},
 		{"a scope entry has a control character", map[string]any{"browser": ok, "scope": []string{"read:\x1b[2Jx"}, "valid_for": 60}},
+		{"a scope entry has a bidirectional control", map[string]any{"browser": ok, "scope": []string{"read:\u202eprojects"}, "valid_for": 60}},
+		{"a scope entry has a zero-width space", map[string]any{"browser": ok, "scope": []string{"read:pro\u200bjects"}, "valid_for": 60}},
+		{"a scope entry has a line separator", map[string]any{"browser": ok, "scope": []string{"read:x\u2028for 1h"}, "valid_for": 60}},
+		{"a scope entry has a C1 control", map[string]any{"browser": ok, "scope": []string{"read:\u0085x"}, "valid_for": 60}},
+		{"a scope entry has a tag character", map[string]any{"browser": ok, "scope": []string{"read:x\U000e0041"}, "valid_for": 60}},
 		{"an unknown field", map[string]any{"browser": ok, "scope": []string{"a"}, "valid_for": 60, "audience": "https://evil.example"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {

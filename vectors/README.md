@@ -22,6 +22,13 @@ client and every signature from OpenSSL 3.2.4 — regenerate with
 `python vectors/tools/request-vectors.py > vectors/request.json`. Each verify refusal breaks exactly one
 rule and is otherwise signed correctly, so it can only be refused for that rule.
 
+`display-unsafe.json` — not cases but one frozen list: the display-unsafe code points
+(`Cc ∪ Cf ∪ Zl ∪ Zp ∪ Default_Ignorable_Code_Point`, from Unicode 15.1) that the CLIs refuse in a
+scope entry and escape in what they print ([docs/login.md](../docs/login.md) §5). Each sdk lane's
+unit test sweeps every code point against it, so the three lanes' tables are this file exactly.
+Derived by [`tools/display-unsafe.py`](tools/display-unsafe.py); regenerate with
+`python vectors/tools/display-unsafe.py > vectors/display-unsafe.json` (LF line endings).
+
 `identity.json` — 105 cases in 7 families, the byte-level contract every archon core must
 satisfy. Driven by [`../conformance/`](../conformance/).
 

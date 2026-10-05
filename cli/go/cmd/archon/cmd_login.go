@@ -306,22 +306,24 @@ func validateLoginRequest(r *loginRequest, wantID string) error {
 	return nil
 }
 
-// refuseUndisplayable rejects anything that cannot be shown to the person faithfully:
-// invalid UTF-8, and C0/DEL control characters. A scope entry carrying an escape sequence
-// can repaint the terminal and hide what is really being signed, so display safety is a
-// validation concern rather than a cosmetic one.
+// refuseUndisplayable rejects anything that cannot be shown to the person faithfully
+// (docs/login.md §5): invalid UTF-8, and every display-unsafe code point (login.DisplayUnsafe:
+// controls, bidirectional and zero-width characters, separators, and the rest of what a
+// terminal may render as nothing or let rearrange the text around it). A scope entry carrying
+// one can make the statement read differently from the bytes that are signed, so display
+// safety is a validation concern rather than a cosmetic one.
 //
-// This MIRRORS the scheme's own checkText (docs/login.md §3.2), deliberately and with the
-// duplication acknowledged: the scheme refuses these at Binding, which is AFTER the person
-// has been shown the statement and said yes. Refusing here means a request that could lie
-// on screen never reaches the confirm prompt at all.
+// This is STRICTER than the scheme's own checkText (§3.2), which refuses only C0 and DEL and
+// runs at Binding, AFTER the person has been shown the statement and said yes. Refusing here
+// means a request that could lie on screen never reaches the confirm prompt at all, whatever
+// the service accepted. The code point is named, never echoed: echoing it would carry it.
 func refuseUndisplayable(field, s string) error {
 	if !utf8.ValidString(s) {
 		return fmt.Errorf("login: %s is not valid UTF-8 — refusing", field)
 	}
 	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
-			return fmt.Errorf("login: %s contains a control character (%#U) — refusing", field, r)
+		if login.DisplayUnsafe(r) {
+			return fmt.Errorf("login: %s contains U+%04X, which would not show as itself — refusing", field, r)
 		}
 	}
 	return nil

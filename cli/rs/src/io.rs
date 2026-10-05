@@ -51,9 +51,10 @@ pub fn take_in_flag(args: &[String]) -> Result<(Vec<String>, Option<String>), St
 /// flag as the first token. Help is success (usage to STDOUT, exit 0), distinct from the
 /// error path (usage to stderr, exit non-zero).
 /// A JSON string literal by the one rule the three binaries share, so machine output is
-/// byte-identical across them: `"` and `\` are escaped, every C0 control is `\u00xx` in
-/// lowercase hex, and everything else — U+2028 included, which Go's encoder would escape — is
-/// written as itself.
+/// byte-identical across them: `"` and `\` are escaped, every display-unsafe code point
+/// (`archon_sdk::login::display_unsafe`, `docs/login.md` §5) is `\uxxxx` in lowercase hex — a
+/// UTF-16 surrogate pair above U+FFFF — and everything else is written as itself. The escape
+/// keeps the value and keeps such a code point off a terminal that displays the output.
 pub fn json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -61,7 +62,12 @@ pub fn json_string(s: &str) -> String {
         match c {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if archon_sdk::login::display_unsafe(c) => {
+                let mut units = [0u16; 2];
+                for u in c.encode_utf16(&mut units) {
+                    out.push_str(&format!("\\u{:04x}", u));
+                }
+            }
             c => out.push(c),
         }
     }

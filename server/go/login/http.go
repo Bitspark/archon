@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Bitspark/archon/sdk/go/login"
 )
 
 // maxBodyBytes caps what a caller may post. Every body in this protocol is a few hundred
@@ -178,12 +180,12 @@ func checkCode(code string) error {
 }
 
 // checkScopeEntry refuses what the CLI could not display faithfully: an empty entry,
-// invalid UTF-8, or a control character (§3.1).
+// invalid UTF-8, or a display-unsafe code point (login.DisplayUnsafe, docs/login.md §5).
 //
-// The scheme refuses these too, at Binding. Refusing HERE as well is not redundancy for its
-// own sake: the scheme's refusal happens when a proof is made, which is after the person has
-// read the statement — so a request that could lie on screen would already have been shown.
-// Checking at the door means it never exists to be shown.
+// That is stricter than the scheme's grammar (C0 and DEL only), and it is not the boundary:
+// the person's CLI refuses every one of these before it shows the statement, and that
+// refusal is the guarantee: a server that skips this check still cannot get past it. This is
+// the courtesy that tells an honest service at begin rather than at the person's CLI.
 func checkScopeEntry(entry string) error {
 	if entry == "" {
 		return errors.New("login: a scope entry is empty")
@@ -192,8 +194,8 @@ func checkScopeEntry(entry string) error {
 		return errors.New("login: a scope entry is not valid UTF-8")
 	}
 	for _, r := range entry {
-		if r < 0x20 || r == 0x7f {
-			return fmt.Errorf("login: a scope entry carries a control character (%#U)", r)
+		if login.DisplayUnsafe(r) {
+			return fmt.Errorf("login: a scope entry carries U+%04X, which would not show as itself", r)
 		}
 	}
 	return nil

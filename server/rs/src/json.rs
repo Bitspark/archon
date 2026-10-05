@@ -71,23 +71,27 @@ pub(crate) fn check_code(code: &str) -> Result<(), String> {
 }
 
 /// Refuses what the CLI could not display faithfully: an empty entry, invalid UTF-8, or a
-/// control character (§3.1).
+/// display-unsafe code point.
 ///
 /// Rust needs no UTF-8 arm — a `String` cannot hold invalid UTF-8, so `serde_json` has
 /// already refused that on this crate's behalf. Go and TypeScript check it explicitly,
 /// because their string types can.
 ///
-/// The scheme refuses these too, at `binding`. Refusing HERE as well is not redundancy for
-/// its own sake: the scheme's refusal happens when a proof is made, which is AFTER the person
-/// has read the statement — so a request that could lie on screen would already have been
-/// shown. Checking at the door means it never exists to be shown.
+/// A display-unsafe code point (`archon_sdk::login::display_unsafe`, `docs/login.md` §5) is
+/// refused too. That is stricter than the scheme's grammar (C0 and DEL only), and it is not the
+/// boundary: the person's CLI refuses every one of these before it shows the statement, and that
+/// refusal is the guarantee: a server that skips this check still cannot get past it. This is
+/// the courtesy that tells an honest service at begin rather than at the person's CLI.
 pub(crate) fn check_scope_entry(entry: &str) -> Result<(), String> {
     if entry.is_empty() {
         return Err("a scope entry is empty".to_string());
     }
     for c in entry.chars() {
-        if (c as u32) < 0x20 || c as u32 == 0x7f {
-            return Err(format!("a scope entry carries a control character ({c:?})"));
+        if archon_sdk::login::display_unsafe(c) {
+            return Err(format!(
+                "a scope entry carries U+{:04X}, which would not show as itself",
+                c as u32
+            ));
         }
     }
     Ok(())
@@ -115,6 +119,17 @@ mod tests {
         assert!(check_scope_entry("read:\u{0}").is_err(), "NUL");
         assert!(check_scope_entry("read:\u{7f}").is_err(), "DEL");
         assert!(check_scope_entry("read:\r\nX-Evil: 1").is_err(), "CRLF");
+        // Every display-unsafe code point (docs/login.md §5), not only C0 and DEL.
+        for (bad, what) in [
+            ("read:\u{202e}projects", "a right-to-left override"),
+            ("read:pro\u{200b}jects", "a zero-width space"),
+            ("read:x\u{2028}for 1h", "a line separator"),
+            ("read:\u{85}x", "a C1 control"),
+            ("read:x\u{e0041}", "a tag character"),
+        ] {
+            let err = check_scope_entry(bad).expect_err(what);
+            assert!(err.contains("would not show as itself"), "{what}: {err}");
+        }
         // Ordinary text passes, astral characters included: refusing every emoji would be a
         // different bug wearing the same clothes.
         assert!(check_scope_entry("read:projects").is_ok());

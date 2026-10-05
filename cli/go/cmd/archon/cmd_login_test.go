@@ -150,6 +150,10 @@ func TestValidateRefusesUndisplayableScope(t *testing.T) {
 	for _, bad := range []string{
 		"read:\x1b[2Jprojects", "read:\nprojects", "read:\rprojects",
 		"read:\x00projects", "read:\x7fprojects",
+		"read:\u202eprojects", "read:\u2066x\u2069", "read:\u200fx", // bidirectional controls
+		"read:pro\u200bjects", "read:\ufeffx", "read:\u2060x", // zero-width
+		"read:x\u2028for 1h", "read:\u0085x", "read:\u00adx", // separator, C1, soft hyphen
+		"read:x\U000e0041", "read:x\u3164", "read:x\ufe0f", // a tag, a Hangul filler, a variation selector
 		"read:\xff\xfeprojects", // not valid UTF-8
 	} {
 		r := validRequest()
@@ -1082,7 +1086,7 @@ func TestOffersFromASealedStoreKey(t *testing.T) {
 	t.Run("a scope entry that could lie on screen is refused before any request", func(t *testing.T) {
 		reset()
 		_, _, err := run("--audience", audience, "--scope", "read:\x1b[2Jx", "--valid-for", "60", "--key", "julia")
-		if err == nil || !strings.Contains(err.Error(), "control character") {
+		if err == nil || !strings.Contains(err.Error(), "U+001B, which would not show as itself") {
 			t.Fatalf("err = %v", err)
 		}
 		_, _, err = run("--audience", audience, "--scope", "", "--valid-for", "60", "--key", "julia")

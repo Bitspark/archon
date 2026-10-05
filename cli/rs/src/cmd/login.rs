@@ -319,11 +319,13 @@ pub fn validate_login_request(r: &LoginRequest, want_id: &str) -> Result<(), Str
 /// `serde_json` has already refused that on this lane's behalf. Go and TypeScript check it
 /// explicitly, because their string types can.
 fn refuse_undisplayable(field: &str, s: &str) -> Result<(), String> {
+    // Every display-unsafe code point (docs/login.md §5), stricter than the scheme's own
+    // grammar, which refuses only C0 and DEL. The code point is named, never echoed.
     for c in s.chars() {
-        if (c as u32) < 0x20 || c as u32 == 0x7f {
+        if archon_sdk::login::display_unsafe(c) {
             return Err(format!(
-                "login: {field} contains a control character ({:?}) — refusing",
-                c
+                "login: {field} contains U+{:04X}, which would not show as itself — refusing",
+                c as u32
             ));
         }
     }
@@ -1281,13 +1283,25 @@ mod tests {
     // A scope entry is printed verbatim to a terminal. An escape sequence there can erase
     // or repaint the statement the person is about to approve.
     #[test]
-    fn refuses_control_characters_in_scope() {
+    fn refuses_display_unsafe_code_points_in_scope() {
         for bad in [
             "read:\u{1b}[2Jprojects",
             "read:\nprojects",
             "read:\rprojects",
             "read:\u{0}p",
             "read:\u{7f}p",
+            "read:\u{202e}projects",
+            "read:\u{2066}x\u{2069}",
+            "read:\u{200f}x",
+            "read:pro\u{200b}jects",
+            "read:\u{feff}x",
+            "read:\u{2060}x",
+            "read:x\u{2028}for 1h",
+            "read:\u{85}x",
+            "read:\u{ad}x",
+            "read:x\u{e0041}",
+            "read:x\u{3164}",
+            "read:x\u{fe0f}",
         ] {
             let mut r = valid_request();
             r.scope = vec![bad.to_string()];
@@ -2489,7 +2503,9 @@ Connection: close
             ],
             &|_| {},
         );
-        assert!(r.unwrap_err().contains("control character"));
+        assert!(r
+            .unwrap_err()
+            .contains("U+001B, which would not show as itself"));
         let (r, _, _, _) = go(
             &[
                 "--audience",

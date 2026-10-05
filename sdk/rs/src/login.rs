@@ -21,7 +21,9 @@
 use archon_core::crypto::{public_key_from_seed, PUBLIC_KEY_SIZE, SEED_SIZE, SIGNATURE_SIZE};
 
 mod audience;
+mod display;
 pub use audience::derive_audience;
+pub use display::display_unsafe;
 
 use crate::possession;
 use crate::signer::{sign_with, Signer, SigningRequest};

@@ -5,10 +5,12 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/Bitspark/archon/core/go/crypto"
 	"github.com/Bitspark/archon/core/go/hexbytes"
 	"github.com/Bitspark/archon/core/go/keycodec"
+	"github.com/Bitspark/archon/sdk/go/login"
 )
 
 // readInput resolves a command's input as raw bytes: the file when inPath != "", else
@@ -30,9 +32,10 @@ func readInput(inPath string) ([]byte, error) {
 }
 
 // jsonString is a JSON string literal by the one rule the three binaries share, so machine
-// output is byte-identical across them: `"` and `\` are escaped, every C0 control is
-// `\u00xx` in lowercase hex, and everything else is written as itself — including U+2028 and
-// U+2029, which encoding/json would escape and the other two lanes' encoders would not.
+// output is byte-identical across them: `"` and `\` are escaped, every display-unsafe code
+// point (login.DisplayUnsafe, docs/login.md §5) is `\uxxxx` in lowercase hex — a UTF-16
+// surrogate pair above U+FFFF — and everything else is written as itself. The escape keeps
+// the value and keeps such a code point off a terminal that displays the output.
 func jsonString(s string) string {
 	var b strings.Builder
 	b.WriteByte('"')
@@ -42,7 +45,10 @@ func jsonString(s string) string {
 			b.WriteString(`\"`)
 		case r == '\\':
 			b.WriteString(`\\`)
-		case r < 0x20:
+		case login.DisplayUnsafe(r) && r > 0xFFFF:
+			hi, lo := utf16.EncodeRune(r)
+			fmt.Fprintf(&b, `\u%04x\u%04x`, hi, lo)
+		case login.DisplayUnsafe(r):
 			fmt.Fprintf(&b, `\u%04x`, r)
 		default:
 			b.WriteRune(r)

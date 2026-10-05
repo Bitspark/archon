@@ -555,6 +555,20 @@ for (const lane of lanes) {
       shaped && out === oddOut[0] ? "escaped, and the lanes agree" : out, "escaped, and the lanes agree");
   }
 
+  // Display-unsafe code points (docs/login.md §5) are written as \uxxxx, never as themselves:
+  // a right-to-left override, a zero-width space and a tag character (astral, so a UTF-16
+  // surrogate pair). The value is unchanged; what reaches a terminal is not the raw character.
+  // Every lane must write the same bytes.
+  const unsafe = "x/\u202e/\u200b/\u{e0041}/v1";
+  const unsafePrefix = `{"version":1,"principal":"${TEXT}","scheme":"ed25519ph-context","domain":"x/\\u202e/\\u200b/\\udb40\\udc41/v1","signature":"`;
+  const unsafeOut = lanes.map((lane) => runSign(lane, ["sign", "--seed", SEED, "--domain", unsafe, "--in", msgPath, "--json"]));
+  for (const [i, lane] of lanes.entries()) {
+    const out = unsafeOut[i];
+    const shaped = out.startsWith(unsafePrefix) && /^[0-9a-f]{128}"\}\n\[0\]$/u.test(out.slice(unsafePrefix.length));
+    expect(`sign --json: ${lane.name} escapes display-unsafe code points in the domain`,
+      shaped && out === unsafeOut[0] ? "escaped, and the lanes agree" : out, "escaped, and the lanes agree");
+  }
+
   // The reserved prefix is byte-exact, as a domain is (ADR 0008 §2): a different case is an
   // ordinary domain, and every lane signs in it, with the store key, identically.
   const folded = lanes.map((lane) => runSign(lane,
