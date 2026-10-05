@@ -84,16 +84,23 @@ binary. A token has no fields to duplicate, nothing nested, and one parse in eve
 **The challenge token**, `archon-enroll-challenge-1:` followed by the hex of:
 
 ```
-audience        u16be length ‖ UTF-8      the service's audience, as the binding spells it
+audience        u16be length ‖ UTF-8      the service's audience, under the binding's audience rule
 transaction     u16be length ‖ bytes      1..=255 bytes: the pending transaction's id
 nonce           u16be length ‖ bytes      16..=255 bytes: the record's nonce
 new key         32 bytes                  the key the record enrolls
-intent          u16be length ‖ bytes      the exact intent bytes, in format 1
-deadline        u64be                     the record's expiry, in Unix seconds
+intent          u16be length ‖ bytes      1..=65535 bytes: the exact intent bytes
+deadline        u64be                     the record's expiry in Unix seconds, at most
+                                          253402300799 (9999-12-31T23:59:59Z)
 ```
 
+The token's codec checks the token's own fields. The intent inside it is checked by the intent
+codec (§2) when the command decodes it.
+
 It carries no purpose and no digest: the command takes both from the intent it shows, so there is
-no second copy to disagree with the first.
+no second copy to disagree with the first. **The request a token yields** is the binding's request
+([`request.md`](request.md) §6) with the token's nonce, transaction and new key, the **intent's**
+purpose, and **SHA-256 of the token's intent bytes** as the intent digest. The sdk derives it in one
+function, so no implementation assembles it differently.
 
 **The proof token**, `archon-enroll-proof-1:` followed by the hex of:
 
@@ -103,10 +110,11 @@ new key         32 bytes
 proof           64 bytes                  the possession signature (request.md §6)
 ```
 
-**Reading a token:** surrounding ASCII whitespace is ignored. Otherwise the text must be exactly
-the prefix followed by an even number of lowercase hex digits, decoding to exactly the fields
-above with no byte left over, and the whole token is at most 65536 bytes. Uppercase hex, a missing
-or different prefix, and trailing bytes are refused.
+**Reading a token:** leading and trailing tabs, line feeds, carriage returns and spaces are
+ignored. What remains must be at most 65536 bytes, and exactly the prefix followed by an even
+number of lowercase hex digits, decoding to exactly the fields above with no byte left over.
+Uppercase hex, a missing or different prefix, whitespace inside the token, and trailing bytes are
+refused. Writing a token produces the prefix and the hex, and nothing else.
 
 ## 4. The command
 
