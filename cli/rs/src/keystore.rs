@@ -259,7 +259,10 @@ fn check_context(c: &[u8]) -> Result<(), String> {
     // holds nothing a terminal would not show as itself (docs/login.md §5's set). Refused on
     // write and on read, so nothing is written that cannot be read, and nothing read that cannot
     // be shown.
-    if let Some(ch) = text.chars().find(|&ch| archon_sdk::login::display_unsafe(ch)) {
+    if let Some(ch) = text
+        .chars()
+        .find(|&ch| archon_sdk::login::display_unsafe(ch))
+    {
         return Err(format!(
             "a context may not contain U+{:04X}: it would not be shown as itself",
             ch as u32

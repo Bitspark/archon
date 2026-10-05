@@ -256,7 +256,9 @@ Everything in §2 holds for version 2, with the header now `[0, H)`. And:
 - **Each context holds nothing display-unsafe** ([`docs/login.md`](login.md) §5's set,
   `vectors/display-unsafe.json`): a policy is shown to the person, by `key policy`, `key list` and
   the refusals. A writer refuses such a context and a reader refuses such a file, so nothing is
-  written that cannot be read, and nothing read that cannot be shown.
+  written that cannot be read, and nothing read that cannot be shown. This is narrower than ADR
+  0008 §2, which admits any well-formed UTF-8 as a domain: such a domain can still be signed in
+  with a seed, but no stored key lists it.
 - **The contexts are in strictly ascending byte order.** That refuses duplicates and makes the
   encoding canonical: one policy has one header.
 - **The length is exact.** A file that is not `H + 72` bytes, for the `H` its own header implies,
