@@ -29,7 +29,7 @@ use crate::cmd::key_store::{
     read_default_key_name, require_named_key, take_password_fd, unlock_named_key,
 };
 use crate::cmd::resolve_seed;
-use crate::io::wants_help;
+use crate::io::{shown, wants_help};
 use zeroize::Zeroizing;
 
 const USAGE: &str =
@@ -425,8 +425,10 @@ fn push_scope_and_validity(out: &mut String, r: &LoginRequest, now_unix: i64) {
 pub fn describe_key_source(src: &LoginSource) -> String {
     match (&src.store_key, &src.seed_file, &src.key_file, &src.seed_hex) {
         (Some(name), _, _, _) => format!("the store key {name}"),
-        (_, Some(path), _, _) => format!("the seed file {path}"),
-        (_, _, Some(path), _) => format!("the key file {path}"),
+        // A path is the person's own argument, but it is shown inside the statement they
+        // approve, so a display-unsafe code point in it is escaped like any other shown text.
+        (_, Some(path), _, _) => format!("the seed file {}", shown(path)),
+        (_, _, Some(path), _) => format!("the key file {}", shown(path)),
         (_, _, _, Some(_)) => "the seed given on the command line".to_string(),
         _ => "an unspecified key".to_string(),
     }
@@ -880,23 +882,32 @@ fn parse_valid_for(text: Option<&str>) -> Result<u32, String> {
 /// audience parseable as one; feeding the audience through the scheme's derivation asks the one
 /// question that matters: is this the string the service binds?
 pub fn configured_audience(flag: Option<&str>) -> Result<String, String> {
+    selected_audience(
+        "login",
+        "in this form the audience is your configuration, never a page's word (docs/login.md §4.1)",
+        flag,
+    )
+}
+
+/// The one check of an audience the person selected rather than one a service supplied:
+/// `--audience`, or `ARCHON_AUDIENCE`, and canonical. `login`'s offers form and `enroll` share
+/// it; `command` and `why` name the caller in its refusals.
+pub fn selected_audience(command: &str, why: &str, flag: Option<&str>) -> Result<String, String> {
     let audience = match flag {
         Some(a) if !a.is_empty() => a.to_string(),
         _ => std::env::var("ARCHON_AUDIENCE").unwrap_or_default(),
     };
     if audience.is_empty() {
-        return Err(
-            "login: no audience — pass --audience <base> or set ARCHON_AUDIENCE; \
-in this form the audience is your configuration, never a page's word (docs/login.md §4.1)"
-                .to_string(),
-        );
+        return Err(format!(
+            "{command}: no audience — pass --audience <base> or set ARCHON_AUDIENCE; {why}"
+        ));
     }
     let (derived, _) = login::derive_audience(&format!("{audience}/login/00")).map_err(|e| {
-        format!("login: audience {audience:?} is not valid: {e} (docs/login.md §2.1)")
+        format!("{command}: audience {audience:?} is not valid: {e} (docs/login.md §2.1)")
     })?;
     if derived != audience {
         return Err(format!(
-            "login: audience {audience:?} is not canonical — the service binds {derived:?}; pass that (docs/login.md §2.1)"
+            "{command}: audience {audience:?} is not canonical — the service binds {derived:?}; pass that (docs/login.md §2.1)"
         ));
     }
     Ok(audience)
