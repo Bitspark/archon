@@ -835,8 +835,11 @@ expect("key store: rm --force says what it could not read",
         code === "0" && shown.includes("policy:  version 1, no policy") && shown.includes("becomes: allow archon/test/v1") &&
           readFileSync(keyFile(name))[4] === 2 ? "converted" : `${code} ${shown}`, "converted");
     }
+    // A conversion keeps the key's own password: the version-1 file's, not this store's usual one.
+    const v1Env = { ...process.env, ARCHON_HOME: storeHome, ARCHON_KEY_PASSWORD: v1Password };
     for (const converter of lanes) {
-      const signatures = lanes.map((lane) => run(lane, signIn(`converted-${converter.name}`, "archon/test/v1", V1_TEXT)).out);
+      const signatures = lanes.map((lane) =>
+        run(lane, signIn(`converted-${converter.name}`, "archon/test/v1", V1_TEXT), { env: v1Env }).out);
       const sig = /"signature":"([0-9a-f]{128})"/u.exec(signatures[0] ?? "")?.[1] ?? "";
       expect(`key policy: what ${converter.name} converted signs in every lane, identically`,
         signatures.every((s) => s === signatures[0] && s.endsWith("[0]")) ? "agree" : signatures.join(" | "), "agree");
