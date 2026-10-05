@@ -10,18 +10,19 @@
 // §8.2). `sign` and `verify` are new: raw bytes, domain-aware.
 import { run as key } from "./cmd/key.js";
 import { run as login } from "./cmd/login.js";
+import { run as enroll } from "./cmd/enroll.js";
 import { run as keygen } from "./cmd/keygen.js";
 import { run as sign } from "./cmd/sign.js";
 import { run as verify } from "./cmd/verify.js";
 import { run as version, versionLine } from "./cmd/version.js";
 import { Verdict } from "./io.js";
 
-const USAGE = "usage: archon <keygen|key|login|sign|verify|version> [args]";
+const USAGE = "usage: archon <keygen|key|login|enroll|sign|verify|version> [args]";
 
 // login is async (it makes HTTP requests), so a handler may return a promise and this
 // dispatch awaits it. Without the await, a rejected promise would escape the try/catch
 // below and Node would report an unhandled rejection instead of `archon login: <reason>`.
-const dispatch: Record<string, (args: string[]) => void | Promise<void>> = { keygen, key, login, sign, verify, version };
+const dispatch: Record<string, (args: string[]) => void | Promise<void>> = { keygen, key, login, enroll, sign, verify, version };
 
 const [command, ...rest] = process.argv.slice(2);
 if (command === undefined) {

@@ -264,8 +264,8 @@ export function promptHidden(label: string, io: HiddenPromptIo): string {
   }
 }
 
-/** One visible line from the controlling terminal, in cooked mode: `key policy`'s y/N. */
-function readTerminalLine(terminal: ControllingTerminal): string {
+/** One visible line from the controlling terminal, in cooked mode: `key policy`'s and `enroll`'s y/N. */
+export function readTerminalLine(terminal: ControllingTerminal): string {
   const bytes: number[] = [];
   for (;;) {
     const c = terminal.io.readByte();

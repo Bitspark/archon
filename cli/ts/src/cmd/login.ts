@@ -367,8 +367,10 @@ function scopeAndValidityLines(r: LoginRequest, nowSeconds: number): string[] {
  *  approved. The pinned wording is cca's (2026-09-10 20:47Z). */
 export function describeKeySource(src: LoginSource): string {
   if (src.storeKey !== undefined) return `the store key ${src.storeKey}`;
-  if (src.seedFile !== undefined) return `the seed file ${src.seedFile}`;
-  if (src.keyFile !== undefined) return `the key file ${src.keyFile}`;
+  // A path is the person's own argument, but it is shown inside the statement they approve,
+  // so a display-unsafe code point in it is escaped like any other shown text.
+  if (src.seedFile !== undefined) return `the seed file ${shown(src.seedFile)}`;
+  if (src.keyFile !== undefined) return `the key file ${shown(src.keyFile)}`;
   if (src.seedHex !== undefined) return "the seed given on the command line";
   return "an unspecified key";
 }
@@ -654,21 +656,25 @@ function parseValidFor(text: string | undefined): number {
  *  audience parseable as one; feeding the audience through the scheme's derivation asks the
  *  one question that matters: is this the string the service binds? */
 export function configuredAudience(flag: string | undefined): string {
+  return selectedAudience("login", "in this form the audience is your configuration, never a page's word (docs/login.md §4.1)", flag);
+}
+
+/** The one check of an audience the person selected rather than one a service supplied:
+ *  --audience, or ARCHON_AUDIENCE, and canonical. `login`'s offers form and `enroll` share it;
+ *  `command` and `why` name the caller in its refusals. */
+export function selectedAudience(command: string, why: string, flag: string | undefined): string {
   const audience = flag !== undefined && flag !== "" ? flag : (process.env["ARCHON_AUDIENCE"] ?? "");
   if (audience === "") {
-    throw new Error(
-      "login: no audience — pass --audience <base> or set ARCHON_AUDIENCE; " +
-        "in this form the audience is your configuration, never a page's word (docs/login.md §4.1)",
-    );
+    throw new Error(`${command}: no audience — pass --audience <base> or set ARCHON_AUDIENCE; ${why}`);
   }
   let derived: string;
   try {
     derived = deriveAudience(`${audience}/login/00`).audience;
   } catch (err) {
-    throw new Error(`login: audience ${JSON.stringify(audience)} is not valid: ${err instanceof Error ? err.message : String(err)} (docs/login.md §2.1)`);
+    throw new Error(`${command}: audience ${JSON.stringify(audience)} is not valid: ${err instanceof Error ? err.message : String(err)} (docs/login.md §2.1)`);
   }
   if (derived !== audience) {
-    throw new Error(`login: audience ${JSON.stringify(audience)} is not canonical — the service binds ${JSON.stringify(derived)}; pass that (docs/login.md §2.1)`);
+    throw new Error(`${command}: audience ${JSON.stringify(audience)} is not canonical — the service binds ${JSON.stringify(derived)}; pass that (docs/login.md §2.1)`);
   }
   return audience;
 }
