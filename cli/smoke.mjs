@@ -15,7 +15,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync,
-         writeFileSync } from "node:fs";
+         statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -688,6 +688,29 @@ if (process.platform !== "win32") {
     }
   }
   runStore(writer, ["key", "rm", "moded"]);
+}
+
+// ---- the private-key file's mode (GHSA-32mc-pxw9-43jc) ----------------------------
+//
+// `keygen --out` writes a private key, so the file it creates is the owner's alone: 0600,
+// in every lane. The Rust lane wrote it with the default mode, 0644 under the usual umask,
+// readable by every local user, from 0.6.1 through 0.10.0. The Go and TS lanes always
+// created it 0600. Each lane writes a FRESH file: like os.WriteFile and writeFileSync, the
+// mode applies when the file is created. The children inherit umask 022, the common default
+// and the one under which the defect shows. Under 077 every lane would pass and the row
+// would prove nothing. POSIX only, for the reason the section above gives.
+if (process.platform !== "win32") {
+  const previousUmask = process.umask(0o022);
+  for (const lane of lanes) {
+    const keyFile = join(tmp, `keygen-mode-${lane.name}.pem`);
+    const [program, ...pre] = lane.argv;
+    const r = spawnSync(program, [...pre, "keygen", "--seed", SEED, "--out", keyFile],
+                        { encoding: "utf8", shell: false });
+    expect(`keygen --out: ${lane.name} exits 0`, String(r.status), "0");
+    const mode = existsSync(keyFile) ? (statSync(keyFile).mode & 0o777).toString(8) : "missing";
+    expect(`keygen --out: ${lane.name} creates the private key 0600`, mode, "600");
+  }
+  process.umask(previousUmask);
 }
 
 // ---- the README's quickstart, as written (issue #49) ------------------------------
