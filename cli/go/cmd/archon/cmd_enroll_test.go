@@ -92,6 +92,18 @@ type enrollWorld struct {
 	home, audience, tokenPath string
 	key                       []byte
 	terminal                  *strings.Builder
+	// copied is closed when the terminal's output has been read to its end. nil until the
+	// command opens the terminal: a refusal before step 2 never does.
+	copied chan struct{}
+}
+
+// shown is what the terminal displayed, read only once the command has closed it and every
+// byte has been copied: reading earlier races the copier and sees a partial transcript.
+func (w *enrollWorld) shown() string {
+	if w.copied != nil {
+		<-w.copied
+	}
+	return w.terminal.String()
 }
 
 const enrollAudience = "https://bitshelf.dev/api"
@@ -127,13 +139,12 @@ func newEnrollWorld(t *testing.T, policy keystore.Policy, answer string) *enroll
 		if err != nil {
 			return nil, nil, err
 		}
-		done := make(chan struct{})
+		w.copied = make(chan struct{})
 		go func() {
 			b, _ := io.ReadAll(outR)
 			w.terminal.Write(b)
-			close(done)
+			close(w.copied)
 		}()
-		t.Cleanup(func() { <-done })
 		return inR, outW, nil
 	}
 	return w
@@ -190,7 +201,7 @@ func TestEnrollMakesTheProofForWhatItShowed(t *testing.T) {
 	if !enroll.Verify(w.audience, req, p.Proof) || string(p.Transaction) != string(req.Transaction) {
 		t.Fatal("the proof does not verify for the request the token yields")
 	}
-	shown := w.terminal.String()
+	shown := w.shown()
 	for _, want := range []string{
 		"https://bitshelf.dev/api asks you to add a key to an account:\n",
 		"  account:      julia (bitspark)\n",
@@ -255,14 +266,14 @@ func TestEnrollRefusals(t *testing.T) {
 			if stdout != "" {
 				t.Fatalf("stdout %q: a refusal prints nothing there", stdout)
 			}
-			got := w.terminal.String()
+			got := w.shown()
 			if err != nil {
 				got = err.Error()
 			}
 			if !strings.Contains(got, tc.want) {
 				t.Fatalf("got %q, want it to contain %q", got, tc.want)
 			}
-			if !tc.shownYet && strings.Contains(w.terminal.String(), "asks you to add a key") {
+			if !tc.shownYet && strings.Contains(w.shown(), "asks you to add a key") {
 				t.Fatal("the statement was shown before a refusal that needed nothing from the person")
 			}
 		})
