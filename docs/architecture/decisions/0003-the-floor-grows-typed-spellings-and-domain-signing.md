@@ -8,8 +8,8 @@ subtraction. Ruled by the operator on 2026-09-09; the measurement and the reason
 > **Status note, 2026-10-05: [0012](0012-a-stored-keys-signing-contexts.md).** *"archon neither knows nor
 > registers domains"* stands, with one reading made explicit: a store entry may carry a list of
 > opaque, byte-compared context strings as a local custody restriction (0012 §3). archon still
-> knows no domain's meaning and keeps no registry. That design is fixed and built on 0012 §5's
-> trigger.
+> knows no domain's meaning and keeps no registry, though its own protocol domains, `archon-*`,
+> are reserved from `archon sign` (#99, 0009's note).
 
 > **Amended 2026-09-21 by [0008](0008-the-ed25519-verification-profile.md).** Decision 2's
 > property was stated as holding "cryptographically, whatever the bytes". It does not hold for

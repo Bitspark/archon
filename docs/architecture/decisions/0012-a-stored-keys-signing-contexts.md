@@ -1,4 +1,4 @@
-# 0012 — a stored key's signing contexts: what archon can promise, the design, and when it is built
+# 0012 — a stored key's signing contexts: what archon can promise, and the design it builds
 
 **Status:** **ACCEPTED** (2026-10-05) · **Type:** scope / custody contract.
 **Answers** [archon#91](https://github.com/Bitspark/archon/issues/91): bound the contexts a key in
@@ -6,8 +6,9 @@ archon's store may sign in by policy, not by the caller. **Amends** the reading 
 [0003](0003-the-floor-grows-typed-spellings-and-domain-signing.md)'s *"archon neither knows nor registers domains"* for one
 case, a local custody restriction on a store entry (§3). Decided by archon-92 on 2026-10-05, under
 the operator's ruling of 2026-10-04 that such decisions are the agents', on the external advice
-taken in the 0005 consultation (`research-docs/0005-*`, internal). thesmos was asked on #91 and
-its answers bear on §5's trigger, not on the design.
+taken in the 0005 consultation (`research-docs/0005-*`, internal). thesmos answered on #91
+(comment 5988080523): it needs D1's trusted-production rule, keeps every root operation in an
+attended ceremony, and names the first entry that needs a list (§5), so §4 is built.
 
 ## Context
 
@@ -35,12 +36,12 @@ by asking. Five facts shape the answer:
 
 | property | the question it answers | whose |
 |---|---|---|
-| **context ceiling** | is this context permitted for this store entry? | archon, if built (§2) |
+| **context ceiling** | is this context permitted for this store entry? | archon (§2) |
 | **request authorization** | may this requester obtain this particular signature? | above archon; archon has no identity for its caller |
 | **trusted production and consent** | is this the intended, valid protocol object, built and approved through the required workflow? | the protocol's tooling (0009 §6) |
 
 An allowlist answers only the first. Even a single-context entry signs arbitrary caller-supplied
-bytes in that context. So archon's allowlist, built or not, does **not** discharge thesmos ADR 0041
+bytes in that context. So archon's allowlist does **not** discharge thesmos ADR 0041
 D1 (*"a key that signs a control context must never sign caller-chosen bytes in any context"*).
 
 ### 2. What archon promises, if it builds this, and what it does not
@@ -71,7 +72,7 @@ may report it for a preflight check (0009 §2), and that check is not the bounda
 
 ### 4. The design, fixed now
 
-When it is built (§5), it is built this way:
+It is built this way:
 
 - **The policy is authenticated with the seed.** It lives in the header, inside the AEAD's
   associated data, in a new format version, with its encoding, lengths and mode. There is no
@@ -97,7 +98,8 @@ When it is built (§5), it is built this way:
   administrator, and the documentation says so.
 - **The other paths, consistently:**
   - `key export --reveal` is refused for a restricted entry. A backup is the encrypted entry.
-  - `login`, with an explicit or default key, needs `archon-login/1` in the list and is refused
+  - Every store-backed signer of one of archon's own protocols needs that protocol's domain in
+    the list: today `login`, with an explicit or default key, needs `archon-login/1`, and is refused
     before contacting the server.
   - Importing an existing seed is allowed, and the policy starts with that entry.
   - Seed-file paths are unchanged and outside the policy.
@@ -108,26 +110,24 @@ When it is built (§5), it is built this way:
   - Once the new version exists, store-backed signing accepts only it.
   - Conversion of a version-1 entry is an explicit management command with an explicit policy
     choice. It replaces the entry atomically and leaves no unrestricted copy behind.
-  - Readers tell *unsupported*, *migration required*, *malformed* and *absent* apart.
-  - `key list` shows entries it cannot use instead of skipping them. Any policy it prints
-    unauthenticated is labelled as a claim.
+  - Readers of the new version tell *unsupported*, *migration required*, *malformed* and
+    *absent* apart, and `key list` shows the entries it cannot use instead of skipping them, under
+    a versioned `--json` schema. Any policy it prints unauthenticated is labelled as a claim. Until
+    then, `key list` names each entry it skips on stderr, one line each (#104).
 - **Rollback is disclaimed.** An older authentic file with a wider policy cannot be told from the
   newest without trusted state outside `$ARCHON_HOME`. archon does not claim it can.
 
-### 5. Not built until an entry needs it
+### 5. When it is built: on the first entry that needs a proper subset, which exists
 
-No entry today would carry a policy narrower than everything its callers reach:
-- a root key kept to ceremonies, as the advice recommends, would list all its contexts;
-- office keys cannot be stored only here;
-- nothing that signs a control object is in the store.
+§4 is built for the first entry whose legitimate contexts are a proper subset of what its callers
+can reach, and not before: §4 changes the format and adds a management command and a migration in
+three lanes. A root key kept to ceremonies would list all its contexts, and office keys cannot be
+stored only here, so neither is that entry.
 
-Building §4 now would change the format, add a management command and a migration in three lanes,
-and protect no entry.
-
-**Trigger:** the first consumer that names a key it will hold in archon's store whose legitimate
-contexts are a proper subset of what its callers can reach. An example is a delegated online key
-that should sign only `thesmos/fact/v1`. §4 is then the specification, and the work follows this
-ADR without another consultation.
+**The entry exists.** thesmos keeps delegators' keys in archon's store for
+`thesmos delegate sign --key` (thesmos#768, thesmos v0.26.0), and they should sign only
+`thesmos/fact/v1` (#91, comment 5988080523). §4 is the specification, and the work follows this ADR
+without another consultation, as one minor release across the three lanes, after 0.11.0.
 
 ### 6. What is not adopted
 
@@ -151,8 +151,12 @@ These are the advice's recommendations for thesmos, recorded on #91, not archon'
 
 ## Consequences
 
-- #91 is answered: the property archon can state is §2's, its design is §4's, and it is built on
-  §5's trigger. thesmos's D1 does not wait on it.
+- #91 is answered: the property archon can state is §2's, and its design is §4's, built for
+  thesmos's delegator keys (§5). thesmos's D1 does not wait on it.
+- **The clean cut has a cost, named here:** every existing entry must be converted, explicitly and
+  with a policy choice, before it signs again, and a binary older than the new version cannot use a
+  converted entry. With one person's handful of keys and the configured absolute-path installs
+  0009 §5 requires, that cost is a command per key and an upgrade, paid once.
 - Delivered alongside this record: `sign` refuses archon's own domains (#99, 0009's note).
 - 0003's sentence stands for everything except §3's custody restriction.
 - 0007 §A's refusal of a per-key attachment slot stands. §4's policy is a typed, authenticated
