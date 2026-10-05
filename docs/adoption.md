@@ -16,7 +16,7 @@ page says which languages carry it. The current release is **0.13.0**.
 | send a payload that only opens under its expected domain and key | envelope `seal` / `open` | `sdk` | |
 | let a person's key authorize a key-less client (a browser, a CI job) for a stated scope and time | the login scheme ([login.md](login.md)), `archon login`, and the mounted login handler | `sdk`, `cli`, `server` | Go, Rust and TypeScript; Python and Java have possession and envelope but not login |
 | authenticate an ordinary API request: which key sent it, to this service, not replayed | the request profile ([request.md](request.md)): the sdk signs and verifies, the server's verifier keeps the replay store | `sdk`, `server` | Go, Rust and TypeScript, from 0.10.0; a narrow RFC 9421 application profile, wire version 1 ([ADR 0010](architecture/decisions/0010-request-authentication-and-key-enrollment-profiles.md)); whether the key may do the thing is still yours |
-| enroll a new key under an account the service already authenticated | key enrollment: `prove_enroll` / `verify_enroll`, and the server's enroller | `sdk`, `server` | Go, Rust and TypeScript, from 0.10.0; the enrollment statement in ADR 0010 |
+| enroll a new key under an account the service already authenticated | key enrollment: `prove_enroll` / `verify_enroll`, and the server's enroller | `sdk`, `server`, the command | Go, Rust and TypeScript, from 0.10.0; the enrollment statement in ADR 0010. A key in archon's store makes the proof with `archon enroll`, which shows the account first ([enroll.md](enroll.md), ADR 0013), from the release after 0.13.0 |
 | keep a person's key on their machine under a name and a password | `archon key`, `keygen --store`, `login --key` | `cli` | [ADR 0007](architecture/decisions/0007-custody-in-the-command-and-the-login-server-tier.md) §A; for people — agents and CI use seed files. From 0.13.0 each key names the contexts it may sign in (`--allow`, `archon key policy`; [ADR 0012](architecture/decisions/0012-a-stored-keys-signing-contexts.md)) |
 | decide what a key is allowed to do | **not archon** — a grant layer such as thesmos | — | the login handler passes the authority payload, as opaque bytes, to an `AdmitAuthority` callback you supply, and never reads it |
 
@@ -97,6 +97,12 @@ a narrow RFC 9421 application profile, and a separate enrollment statement. **Th
 as version 1** ([docs/request.md](request.md)). The sdk halves (sign, strict parse, pure verify,
 enrollment) and the server halves (replay store, verifier, enroller) ship in the TypeScript, Go
 and Rust `sdk` and `server` packages; the Python and Java sdks do not carry them.
+
+**A key in archon's store** enrolls with `archon enroll` ([enroll.md](enroll.md),
+[ADR 0013](architecture/decisions/0013-enrolling-a-stored-key.md)), from the release after
+0.13.0. The service builds its intent in format 1, so the command can show the person which
+account the key joins before it signs. The sdk and server helpers for that format ship in the
+same packages.
 
 ## Not in archon
 

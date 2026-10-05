@@ -11,7 +11,11 @@
   - **The server** builds an intent with a fresh blind and writes a record's challenge token:
     `Enroller.Intent` and `Enroller.ChallengeToken` in Go, `intent` and `challenge_token` in Rust,
     `intent` and `challengeToken` in TypeScript.
-- **The command (§4) follows** in its own pull request.
+- **The command (§4) is implemented** in all three command implementations, which print the
+  statement and the policy refusal byte-identically (`cli/testdata/enroll-statement.json`).
+  `cli/smoke.mjs` pins every lane's refusals and, on Linux through a pseudo-terminal, the
+  statement, the question, and a proof token the sdk verifies, identical across the lanes. It
+  ships in the release after 0.13.0.
 
 Enrollment ([`request.md`](request.md) §6) has a new key prove its own possession while a signed-in
 session, or a bootstrap credential, says whose key it becomes. The proof binds the account only
@@ -170,10 +174,12 @@ archon enroll [--challenge-file <file>] [--audience <base>] [--key <name>] [--pa
      `--allow archon-enroll/1`. Every context is listed because `key policy` replaces a list
      rather than adding to it. A key made for thesmos delegation, for example, enrolls after
      `archon key policy <name> --allow thesmos/fact/v2 --allow archon-enroll/1`.
-   - **Quoting.** A context made only of `A–Z a–z 0–9 . _ / : @ + = -` is printed as it is. Any
-     other context is printed in POSIX shell single quotes, with each `'` written as `'\''`. The
-     store's contexts hold no display-unsafe code point ([`keystore.md`](keystore.md) §8.1), so
-     what is printed is what the shell receives.
+   - **Quoting: none, in any shell.** The command is printed only when every context is a bare
+     word that sh, cmd.exe and PowerShell all receive as itself: `A–Z a–z 0–9 . _ / : + = -`,
+     beginning with a letter or digit (a leading `@` is PowerShell's splatting, a leading `-` a
+     flag). Otherwise the refusal prints no command: it lists the contexts JSON-quoted and says to
+     run `archon key policy <name>` with `--allow` for each of them and for `archon-enroll/1`. No
+     one quoting rule is right in every shell, so the command never relies on one.
    - **A full list.** An entry that already lists 16 contexts, the most a policy holds, cannot gain
      another. The refusal says so and prints no command: drop a context, or keep a separate key
      for enrollment.
