@@ -38,6 +38,15 @@ builds on [0009](0009-the-signing-boundary-and-the-signer-contract.md)'s signer 
 > (`docs/request.md` §7), as this ADR's §4 requires: "The verifier authenticates the request the
 > application processes."
 
+> **Status note, 2026-10-05 — §7's intent rule, refined by [0013](0013-enrolling-a-stored-key.md).**
+> §7's "a digest is not confidentiality, so guessable account data stays out of it" becomes: **no
+> intent has a guessable preimage.** An intent may name the account when it also carries a fresh
+> random blind of at least 128 bits, as 0013's intent format 1 does ([`docs/enroll.md`](../../enroll.md)
+> §2). An intent without a blind keeps the original rule. The reason is unchanged: the digest
+> travels to the client, and SHA-256 does not hide a low-entropy input. The binding, the wire and
+> everything else in §7 stay as they are. `archon enroll` reads format 1; archon's sdk and server
+> still bind only the digest.
+
 ## Context
 
 Login (0007) proves that a person approved a browser key. Two further statements are wanted.

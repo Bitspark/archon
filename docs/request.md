@@ -196,6 +196,11 @@ one design in three lanes:
 archon defines no enrollment route. The service mounts completion behind its own session and CSRF
 protection, and each lane's tests do so through that lane's HTTP stack.
 
+**A key in archon's store** makes this proof with `archon enroll`, which shows the person the
+account before it signs. It needs the service's intent in a format the command can render (intent
+format 1), and it carries the challenge and the proof by hand as one-line tokens. Both are
+specified in [`enroll.md`](enroll.md) ([ADR 0013](architecture/decisions/0013-enrolling-a-stored-key.md)).
+
 ## 7. The order a verifier checks, and the gate that fixed it
 
 A request verifier checks, refusing at the first failure. Steps 1–7 are the sdk's pure verification

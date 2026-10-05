@@ -142,8 +142,32 @@
       "for-thesmos",
       "consequences"
     ],
+    "docs/architecture/decisions/0013-enrolling-a-stored-key.md": [
+      "0013--enrolling-a-stored-key-a-renderable-intent-archon-enroll-and-tokens-carried-by-hand",
+      "context",
+      "decision",
+      "1-the-proof-and-the-authority-stay-where-they-are",
+      "2-a-renderable-intent-format-1-opt-in-for-services",
+      "3-archon-enroll-interactive-a-store-key-no-blind-mode",
+      "4-the-tokens-one-line-carried-by-hand",
+      "5-what-services-must-do",
+      "6-what-is-not-promised",
+      "7-deferred-each-with-its-trigger",
+      "residual-risk",
+      "consequences"
+    ],
     "docs/architecture/decisions/README.md": [
       "architecture-decisions"
+    ],
+    "docs/enroll.md": [
+      "archon-enroll-enrolling-a-stored-key",
+      "1-the-flow",
+      "2-the-intent-format-1",
+      "3-the-tokens",
+      "4-the-command",
+      "5-what-the-command-does-not-do",
+      "6-what-a-service-must-do",
+      "7-not-in-version-1"
     ],
     "docs/keystore.md": [
       "the-archon-key-store--file-format",
