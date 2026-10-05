@@ -8,7 +8,7 @@ written by [`quickstart.mjs`](quickstart.mjs) — × 3 binaries, on every push).
 floor, never part of it: the library stays dependency-minimal; the CLI's I/O lives here.
 
 ```
-archon <keygen|key|login|sign|verify|version> [args]
+archon <keygen|key|login|enroll|sign|verify|version> [args]
 ```
 
 | subcommand | what it does |
@@ -23,6 +23,7 @@ archon <keygen|key|login|sign|verify|version> [args]
 | `verify --pubkey <ed25519:…\|hex> --sig <hex> [--domain <d>] [--in <file>]` | `valid` (exit 0) / `invalid` (exit 1) |
 | `login <url> [--key <name>\|--seed <hex>\|--key-file <pem>\|--seed-file <file>] [--authority-file <f>] [--yes]` | prove possession to a service so a browser key may act for you, within a scope you are shown first; with no key flag, the store's default key signs |
 | `login --audience <base> [--scope <entry>]... --valid-for <seconds> [--key <name>\|--seed <hex>\|--key-file <pem>\|--seed-file <file>] [--authority-file <f>]` | the offers form ([§4.1](../docs/login.md)): with no URL, *you* start and the page finishes — the code and the page address on stderr, no confirmation, the ledger on stdout after the service answers |
+| `enroll [--challenge-file <file>] [--audience <base>] [--key <name>] [--password-fd <n>]` | make the enrollment proof for a key in the store, after showing on the terminal which account it joins; the challenge and the proof travel by hand as one-line tokens, and success means a proof was produced, not that the key is enrolled — [docs/enroll.md](../docs/enroll.md) |
 | `key add <name> [--seed <hex>\|--seed-file <file>\|--pkcs8 <file>] (--allow <context>…\|--unrestricted)` | keep a seed under a name in the password-protected store, with the contexts it may sign in; generates one when no source is given, and refuses an existing name |
 | `key list [--json]` | every stored key as `{name, principal, status, claimed_policy}` — read from each file's header, so it never asks for a password |
 | `key rm <name> [--force]` | remove a key and say what was removed and from where; a file that is not an archon key is refused unless `--force` |
@@ -44,7 +45,8 @@ file each; [`docs/keystore.md`](../docs/keystore.md) is the byte contract and
 **Every key names the contexts it may sign in** ([ADR 0012](../docs/architecture/decisions/0012-a-stored-keys-signing-contexts.md),
 `docs/keystore.md` §8). `--allow <context>` (repeatable) lists them, `--unrestricted` allows any;
 there is no default. The policy is sealed with the seed, so `sign --key` refuses any other
-context, `login` needs `archon-login/1` in the list, and `key export` refuses an allowlisted key.
+context, `login` needs `archon-login/1` in the list, `enroll` needs `archon-enroll/1`, and `key export`
+refuses an allowlisted key.
 For a thesmos delegator key, name the fact domain of the thesmos version that uses it:
 
 ```

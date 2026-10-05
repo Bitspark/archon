@@ -400,10 +400,12 @@ func describeKeySource(src loginSource) string {
 	switch {
 	case src.storeKey != "":
 		return "the store key " + src.storeKey
+	// A path is the person's own argument, but it is shown inside the statement they approve,
+	// so a display-unsafe code point in it is escaped like any other shown text (shown).
 	case src.seedFile != "":
-		return "the seed file " + src.seedFile
+		return "the seed file " + shown(src.seedFile)
 	case src.keyFile != "":
-		return "the key file " + src.keyFile
+		return "the key file " + shown(src.keyFile)
 	case src.seedHex != "":
 		return "the seed given on the command line"
 	default:
@@ -803,20 +805,26 @@ func parseValidFor(text string) (uint32, error) {
 // the scheme's derivation asks the one question that matters: is this the string the
 // service binds?
 func configuredAudience(flag string) (string, error) {
+	return selectedAudience("login", "in this form the audience is your configuration, never a page's word (docs/login.md §4.1)", flag)
+}
+
+// selectedAudience is the one check of an audience the person selected rather than one a
+// service supplied: --audience, or ARCHON_AUDIENCE, and canonical. `login`'s offers form and
+// `enroll` share it; command and why name the caller in its refusals.
+func selectedAudience(command, why, flag string) (string, error) {
 	audience := flag
 	if audience == "" {
 		audience = os.Getenv("ARCHON_AUDIENCE")
 	}
 	if audience == "" {
-		return "", errors.New("login: no audience — pass --audience <base> or set ARCHON_AUDIENCE; " +
-			"in this form the audience is your configuration, never a page's word (docs/login.md §4.1)")
+		return "", fmt.Errorf("%s: no audience — pass --audience <base> or set ARCHON_AUDIENCE; %s", command, why)
 	}
 	derived, _, err := login.DeriveAudience(audience + "/login/00")
 	if err != nil {
-		return "", fmt.Errorf("login: audience %q is not valid: %w (docs/login.md §2.1)", audience, err)
+		return "", fmt.Errorf("%s: audience %q is not valid: %w (docs/login.md §2.1)", command, audience, err)
 	}
 	if derived != audience {
-		return "", fmt.Errorf("login: audience %q is not canonical — the service binds %q; pass that (docs/login.md §2.1)", audience, derived)
+		return "", fmt.Errorf("%s: audience %q is not canonical — the service binds %q; pass that (docs/login.md §2.1)", command, audience, derived)
 	}
 	return audience, nil
 }

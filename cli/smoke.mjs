@@ -106,7 +106,7 @@ const LOGIN_USAGE =
 // say "0.5.0" from 0.5.0 to 0.8.0 while Rust said the truth.
 const CLI_VERSION = JSON.parse(readFileSync(join(root, "cli", "ts", "package.json"), "utf8")).version;
 const cases = [
-  { name: "--help", args: ["--help"], want: "usage: archon <keygen|key|login|sign|verify|version> [args]\n", code: 0 },
+  { name: "--help", args: ["--help"], want: "usage: archon <keygen|key|login|enroll|sign|verify|version> [args]\n", code: 0 },
   { name: "unknown subcommand", args: ["nope"], want: "", code: 2 },
   { name: `version is ${CLI_VERSION}`, args: ["version"],
     shape: new RegExp(`^archon ${CLI_VERSION.replace(/\./g, "\\.")} \\(.+\\)\\n$`), code: 0 },
@@ -387,6 +387,31 @@ for (const lane of lanes) {
   expect("login: --key nobody carries the store's own wording",
     String(refused.stderr.includes(`no key named "nobody" in archon's store`)), "true");
   expect("login: --key nobody made no request", String(requests - before), "0");
+
+  // A path is the person's own argument, but it is shown inside the statement they approve, so
+  // a display-unsafe code point in a --key-file path is escaped as \uxxxx in every lane, like any
+  // other shown text (docs/login.md §5). The file is never read: stdin is closed, so the question
+  // is answered no, and nothing is signed. Built from code points so this file holds none.
+  {
+    const RLO = String.fromCodePoint(0x202e);
+    const BACKSLASH = String.fromCharCode(92);
+    const unsafePath = join(tmp, `k${RLO}ey.pem`);
+    writeFileSync(unsafePath, "never read: the question is answered no\n");
+    const escaped = join(tmp, `k${BACKSLASH}u202eey.pem`);
+    for (const lane of lanes) {
+      const begun = await fetch(`${audience}/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ browser: K_TEXT, scope: SCOPE, valid_for: VALID_FOR }),
+      });
+      const opened = await begun.json();
+      const r = await runStoreAsync(lane, ["login", `${audience}/login/${opened.id}`, "--key-file", unsafePath]);
+      expect(`login: ${lane.name} escapes a display-unsafe code point in a --key-file path`,
+        r.stdout.includes(`signing with the key file ${escaped}\n`) && !r.stdout.includes(RLO) ? "escaped" : r.stdout, "escaped");
+      expect(`login: ${lane.name} signs nothing when the question is not answered`,
+        r.stdout.includes("refused. nothing was signed.") ? "refused" : `${r.code} ${r.stdout} ${r.stderr}`, "refused");
+    }
+  }
 
   // 3c. THE OFFERS FORM (docs/login.md §4.1): every lane STARTS a login — no URL, its own
   //     audience, its own code — and the smoke plays the page from the code the lane prints on
@@ -850,6 +875,179 @@ expect("key store: rm --force says what it could not read",
     }
   }
   for (const name of ["limited", "twoctx", "legacy", "future", "broken"]) rmSync(keyFile(name));
+}
+
+// 5d. `archon enroll` (docs/enroll.md §4, ADR 0013), in every lane, with the key go sealed.
+//     The challenge token is the sdk's (sdk/ts), for the oracle's key, and the proof each lane
+//     prints is checked with the sdk's verifier — never against a lane. Everywhere: the policy
+//     refusal names the full `key policy` command, an audience is required, and with no terminal
+//     nothing is shown or signed. On Linux, where a pseudo-terminal can be driven: each lane
+//     shows the statement, asks, takes "y", and prints a proof the sdk verifies; the three
+//     lanes print the same token, Ed25519 being deterministic; and a "n" signs nothing.
+{
+  const sdk = await import(pathToFileURL(join(root, "sdk", "ts", "dist", "src", "index.js")).href);
+  const AUDIENCE = "https://bitshelf.dev/api";
+  const noPassword = (({ ARCHON_KEY_PASSWORD, ...rest }) => ({ ...rest, ARCHON_HOME: storeHome }))(process.env);
+  const noAudience = (({ ARCHON_AUDIENCE, ...rest }) => ({ ...rest, ARCHON_HOME: storeHome, ARCHON_KEY_PASSWORD: PASSWORD }))(process.env);
+  const run = (lane, args, { env, detached } = {}) => {
+    const [program, ...pre] = lane.argv;
+    const r = spawnSync(program, [...pre, ...args], {
+      encoding: "utf8",
+      shell: false,
+      detached: detached === true,
+      env: env ?? { ...noAudience },
+    });
+    return { stdout: r.stdout ?? "", stderr: r.stderr ?? "", code: r.status };
+  };
+  const unhex = (h) => new Uint8Array(Buffer.from(h, "hex"));
+  const deadline = Math.floor(Date.now() / 1000) + 3600;
+  const intentBytes = sdk.encodeEnrollIntent({
+    blind: new Uint8Array(16).fill(0x5a), accountId: "u_8f3c2a", accountName: "julia (bitspark)",
+    purpose: "add-key", restrictions: ["read:projects"],
+  });
+  const challenge = {
+    audience: AUDIENCE, transaction: Uint8Array.of(0x8f, 0x3c), nonce: new Uint8Array(16).fill(0xab),
+    newKey: unhex(PUB), intent: intentBytes, deadline,
+  };
+  const tokenPath = join(tmp, "enroll-challenge.txt");
+  writeFileSync(tokenPath, `${sdk.encodeEnrollChallenge(challenge)}\n`);
+  const { request } = sdk.enrollChallengeRequest(challenge);
+
+  run(lanes[0], ["key", "add", "nonenroll", "--seed", SEED, "--allow", "thesmos/fact/v2"]);
+  const fix = "    archon key policy nonenroll --allow thesmos/fact/v2 --allow archon-enroll/1";
+  for (const lane of lanes) {
+    const refused = run(lane, ["enroll", "--key", "nonenroll", "--audience", AUDIENCE, "--challenge-file", tokenPath]);
+    expect(`enroll: ${lane.name} refuses a key whose policy lacks archon-enroll/1, naming the command`,
+      refused.code === 1 && refused.stdout === "" && refused.stderr.includes(fix) ? "refused" : `${refused.code} ${refused.stdout} ${refused.stderr}`, "refused");
+    const unaimed = run(lane, ["enroll", "--key", "shared", "--challenge-file", tokenPath]);
+    expect(`enroll: ${lane.name} needs an audience the person selected`,
+      unaimed.code === 1 && unaimed.stdout === "" && unaimed.stderr.includes("no audience") ? "refused" : `${unaimed.code} ${unaimed.stderr}`, "refused");
+    const alone = run(lane, ["enroll", "--key", "shared", "--audience", AUDIENCE, "--challenge-file", tokenPath], { detached: true });
+    expect(`enroll: ${lane.name} asks on a terminal or not at all`,
+      alone.code === 1 && alone.stdout === "" && alone.stderr.includes("no terminal to ask on") ? "refused" : `${alone.code} ${alone.stdout} ${alone.stderr}`, "refused");
+  }
+  rmSync(join(storeHome, "keys", "nonenroll"));
+
+  if (process.platform === "linux") {
+    const PTY = [
+      "import os, pty, sys",
+      "out, answer, argv = sys.argv[1], sys.argv[2], sys.argv[3:]",
+      "pid, fd = pty.fork()",
+      "if pid == 0:",
+      "    os.dup2(os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 1)",
+      "    os.execv(argv[0], argv)",
+      "seen, sent = b'', False",
+      "while True:",
+      "    try:",
+      "        chunk = os.read(fd, 1024)",
+      "    except OSError:",
+      "        break",
+      "    if not chunk:",
+      "        break",
+      "    seen += chunk",
+      "    if not sent and seen.endswith(b'[y/N] '):",
+      "        os.write(fd, answer.encode() + bytes([13]))",
+      "        sent = True",
+      "_, status = os.waitpid(pid, 0)",
+      "sys.stdout.buffer.write(str(os.waitstatus_to_exitcode(status)).encode() + bytes([10]) + seen)",
+    ].join("\n");
+    const at = new Date(deadline * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+    const STATEMENT =
+      `${AUDIENCE} asks you to add a key to an account:\n` +
+      "  account:      julia (bitspark)\n" +
+      "  account id:   u_8f3c2a\n" +
+      `  key:          ${TEXT}\n` +
+      "  restrictions:\n    read:projects\n" +
+      "the service may give this key the account's authority.\n" +
+      `the request's deadline is about ${at}, the service's word; it is not the key's expiry.\n` +
+      "signing with the store key shared\n" +
+      'add this key to the account "julia (bitspark)"? [y/N] ';
+    const env = { ...noAudience };
+    const tokens = [];
+    for (const lane of lanes) {
+      for (const answer of ["y", "n"]) {
+        const out = join(tmp, `enroll-${lane.name}-${answer}.out`);
+        const r = spawnSync("python3", ["-c", PTY, out, answer, ...lane.argv,
+          "enroll", "--key", "shared", "--audience", AUDIENCE, "--challenge-file", tokenPath], {
+          encoding: "utf8", shell: false, env, timeout: 120_000,
+        });
+        if (r.error) {
+          failures++;
+          console.error(`FAIL enroll: ${lane.name} terminal: python3 did not run: ${r.error.message}`);
+          continue;
+        }
+        const [code, ...rest] = (r.stdout ?? "").split("\n");
+        const transcript = rest.join("\n").split(String.fromCharCode(13)).join("");
+        const printed = existsSync(out) ? readFileSync(out, "utf8") : "";
+        expect(`enroll: ${lane.name} shows the statement and asks (${answer})`,
+          transcript.includes(STATEMENT) ? "shown" : transcript, "shown");
+        if (answer === "n") {
+          // Non-zero: a script that runs `archon enroll > proof && submit` must not carry on.
+          expect(`enroll: ${lane.name} signs nothing on "n", and exits non-zero`,
+            `${code} ${printed === "" && transcript.includes("refused. nothing was signed.") ? "nothing" : printed}`, "1 nothing");
+          continue;
+        }
+        const line = printed.trim();
+        let verified = "no token";
+        try {
+          const p = sdk.decodeEnrollProof(line);
+          verified = String(sdk.verifyEnroll(AUDIENCE, request, p.proof) && Buffer.from(p.newKey).toString("hex") === PUB);
+        } catch (e) {
+          verified = `${e instanceof Error ? e.message : String(e)}: ${printed}`;
+        }
+        expect(`enroll: ${lane.name}'s proof token verifies for the oracle's key`, `${code} ${verified}`, "0 true");
+        expect(`enroll: ${lane.name} says the proof is produced, not that the key is enrolled`,
+          transcript.includes("proof produced. paste it into the service's page: the key is enrolled only when the page completes.") ? "said" : transcript, "said");
+        tokens.push(line);
+      }
+    }
+    expect("enroll: the three lanes print the same proof token",
+      tokens.length === lanes.length && tokens.every((t) => t === tokens[0]) ? "agree" : tokens.join(" | "), "agree");
+
+    // The token PASTED on stdin, the terminal, and the answer typed on that same terminal: the
+    // command asks for the token, reads one line, and must leave the "y" for the question. In TS
+    // the stdin stream and the terminal reader share the device, so a reader left running would
+    // take the answer.
+    const PASTE = [
+      "import os, pty, sys",
+      "out, token, answer, argv = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]",
+      "pid, fd = pty.fork()",
+      "if pid == 0:",
+      "    os.dup2(os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 1)",
+      "    os.execv(argv[0], argv)",
+      "seen, pasted, sent = b'', False, False",
+      "while True:",
+      "    try:",
+      "        chunk = os.read(fd, 1024)",
+      "    except OSError:",
+      "        break",
+      "    if not chunk:",
+      "        break",
+      "    seen += chunk",
+      "    if not pasted and seen.endswith(b'press Enter: '):",
+      "        os.write(fd, token.encode() + bytes([13]))",
+      "        pasted = True",
+      "    if pasted and not sent and seen.endswith(b'[y/N] '):",
+      "        os.write(fd, answer.encode() + bytes([13]))",
+      "        sent = True",
+      "_, status = os.waitpid(pid, 0)",
+      "sys.stdout.buffer.write(str(os.waitstatus_to_exitcode(status)).encode() + bytes([10]) + seen)",
+    ].join("\n");
+    const pastedToken = readFileSync(tokenPath, "utf8").trim();
+    for (const lane of lanes) {
+      const out = join(tmp, `enroll-${lane.name}-pasted.out`);
+      const r = spawnSync("python3", ["-c", PASTE, out, pastedToken, "y", ...lane.argv,
+        "enroll", "--key", "shared", "--audience", AUDIENCE], {
+        encoding: "utf8", shell: false, env, timeout: 120_000,
+      });
+      const [code, ...rest] = (r.stdout ?? "").split("\n");
+      const transcript = rest.join("\n").split(String.fromCharCode(13)).join("");
+      const printed = existsSync(out) ? readFileSync(out, "utf8").trim() : "";
+      expect(`enroll: ${lane.name} asks for the token, takes it pasted on stdin, then the answer on the terminal`,
+        `${code} ${transcript.includes("paste the challenge token, then press Enter: ") && transcript.includes(STATEMENT) ? "asked" : transcript} ${printed === tokens[0] ? "same proof" : printed}`,
+        "0 asked same proof");
+    }
+  }
 }
 
 // 6. The removal line itself, from the last lane, and then the store is empty for all.

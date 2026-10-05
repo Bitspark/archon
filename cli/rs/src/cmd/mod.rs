@@ -1,6 +1,7 @@
 //! The `archon` subcommands, one module (one file) each. Every module exposes a single
 //! `pub fn run(args: &[String]) -> Result<(), String>` registered in `main`'s dispatch.
 
+pub mod enroll;
 pub mod key;
 pub mod key_store;
 pub mod keygen;

@@ -17,7 +17,7 @@ use std::process::ExitCode;
 
 /// One usage line listing every subcommand, printed to stderr on an unknown or missing
 /// subcommand (exit 2).
-const USAGE: &str = "usage: archon <keygen|key|login|sign|verify|version> [args]";
+const USAGE: &str = "usage: archon <keygen|key|login|enroll|sign|verify|version> [args]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -41,6 +41,7 @@ fn main() -> ExitCode {
         "keygen" => cmd::keygen::run(rest),
         "key" => cmd::key::run(rest),
         "login" => cmd::login::run(rest),
+        "enroll" => cmd::enroll::run(rest),
         "sign" => cmd::sign::run(rest),
         "verify" => cmd::verify::run(rest),
         "version" => cmd::version::run(rest),

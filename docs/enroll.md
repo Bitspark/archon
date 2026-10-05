@@ -11,7 +11,11 @@
   - **The server** builds an intent with a fresh blind and writes a record's challenge token:
     `Enroller.Intent` and `Enroller.ChallengeToken` in Go, `intent` and `challenge_token` in Rust,
     `intent` and `challengeToken` in TypeScript.
-- **The command (§4) follows** in its own pull request.
+- **The command (§4) is implemented** in all three command implementations, which print the
+  statement and the policy refusal byte-identically (`cli/testdata/enroll-statement.json`).
+  `cli/smoke.mjs` pins every lane's refusals and, on Linux through a pseudo-terminal, the
+  statement, the question, and a proof token the sdk verifies, identical across the lanes. It
+  ships in the release after 0.13.0.
 
 Enrollment ([`request.md`](request.md) §6) has a new key prove its own possession while a signed-in
 session, or a bootstrap credential, says whose key it becomes. The proof binds the account only
@@ -148,8 +152,11 @@ archon enroll [--challenge-file <file>] [--audience <base>] [--key <name>] [--pa
   seed, key file or seed file. Those are plaintext seeds, which the sdk already proves with.
 - **The audience** is `--audience`, or `ARCHON_AUDIENCE`, checked exactly as `login`'s offers form
   checks it ([`login.md`](login.md) §4.1 rule 1): it must be canonical. A token never supplies it.
-- **The token** is read from `--challenge-file`, or one line from stdin. It is never a
-  command-line argument, which would put the intent into shell history and process listings.
+- **The token** is read from `--challenge-file`, or one line from stdin, at most 1 MiB. It is
+  never a command-line argument, which would put the intent into shell history and process
+  listings. When stdin is a terminal, the command first asks on the terminal:
+  `paste the challenge token, then press Enter: `. It reads that one line and nothing more, so the
+  answer to the question in step 8 is left for the question.
   - **A long token belongs in a file.** A terminal cuts a pasted line at its own limit: 1024 bytes
     on macOS and 4095 on Linux. A token with restrictions can be longer, so the page offers the
     token as a download as well as for copying. A token read from a terminal that fails to decode
@@ -170,10 +177,12 @@ archon enroll [--challenge-file <file>] [--audience <base>] [--key <name>] [--pa
      `--allow archon-enroll/1`. Every context is listed because `key policy` replaces a list
      rather than adding to it. A key made for thesmos delegation, for example, enrolls after
      `archon key policy <name> --allow thesmos/fact/v2 --allow archon-enroll/1`.
-   - **Quoting.** A context made only of `A–Z a–z 0–9 . _ / : @ + = -` is printed as it is. Any
-     other context is printed in POSIX shell single quotes, with each `'` written as `'\''`. The
-     store's contexts hold no display-unsafe code point ([`keystore.md`](keystore.md) §8.1), so
-     what is printed is what the shell receives.
+   - **Quoting: none, in any shell.** The command is printed only when every context is a bare
+     word that sh, cmd.exe and PowerShell all receive as itself: `A–Z a–z 0–9 . _ / : + = -`,
+     beginning with a letter or digit (a leading `@` is PowerShell's splatting, a leading `-` a
+     flag). Otherwise the refusal prints no command: it lists the contexts JSON-quoted and says to
+     run `archon key policy <name>` with `--allow` for each of them and for `archon-enroll/1`. No
+     one quoting rule is right in every shell, so the command never relies on one.
    - **A full list.** An entry that already lists 16 contexts, the most a policy holds, cannot gain
      another. The refusal says so and prints no command: drop a context, or keep a separate key
      for enrollment.
@@ -189,7 +198,9 @@ archon enroll [--challenge-file <file>] [--audience <base>] [--key <name>] [--pa
    at or past the deadline.
 7. **The intent** must decode as format 1 (§2), and its purpose must be `add-key`.
 8. **The statement** is written to the terminal, and the person is asked there. Any answer but `y`
-   or `yes` refuses, and nothing is signed.
+   or `yes` refuses: nothing is signed, and the command **exits non-zero**. Its success means a
+   proof was produced, and stdout is then empty, so `archon enroll > proof.txt && …` stops instead
+   of carrying on with an empty file.
 9. **Only now is the key unlocked.** It is the same snapshot of the entry that was read in step 1,
    and its authenticated policy is checked again. The authenticated header key and the key derived
    from the decrypted seed must both equal the key shown in step 8. A mismatch aborts.

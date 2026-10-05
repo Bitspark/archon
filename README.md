@@ -208,6 +208,7 @@ graph says what a module touches; it does not say what a module is."*
 - [Adopting archon](docs/adoption.md) — which tier does which job, the two signature schemes, and what is not available
 - [Login, end to end](examples/login/) — a service, a key-less client and a person, on the published packages, run in CI
 - [The key store](docs/keystore.md) — what `archon key` does and does not do
+- [Enrolling a stored key](docs/enroll.md) — `archon enroll`: the account shown before the proof, the tokens carried by hand
 - [Conformance](conformance/) and [the oracle](vectors/) — how agreement is established
 - [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
