@@ -30,7 +30,7 @@ const IntentFormat byte = 0x01
 const (
 	MinBlindSize    = 16 // at least 128 bits, so the digest cannot confirm a guess
 	MaxBlindSize    = 64
-	MaxTextSize     = 255 // each of the account reference, the account name, the purpose, a restriction
+	MaxTextSize     = 255 // each of the account id, the account name, the purpose, a restriction
 	MaxRestrictions = 32
 )
 
@@ -63,8 +63,8 @@ func EncodeIntent(i *Intent) ([]byte, error) {
 	if i == nil {
 		return nil, errors.New("enroll: nil intent")
 	}
-	if len(i.Blind) < MinBlindSize || len(i.Blind) > MaxBlindSize {
-		return nil, fmt.Errorf("enroll: blind is %d bytes, want %d..=%d", len(i.Blind), MinBlindSize, MaxBlindSize)
+	if err := checkBlind(i.Blind); err != nil {
+		return nil, err
 	}
 	for _, f := range [...]struct{ what, s string }{
 		{"account id", i.AccountID}, {"account name", i.AccountName}, {"purpose", i.Purpose},
@@ -106,12 +106,14 @@ func DecodeIntent(b []byte) (*Intent, error) {
 		return nil, fmt.Errorf("enroll: intent format 0x%02x, want 0x%02x", format[0], IntentFormat)
 	}
 	i := &Intent{}
-	if i.Blind, err = r.field(); err != nil {
+	blind, err := r.field()
+	if err != nil {
 		return nil, err
 	}
-	if len(i.Blind) < MinBlindSize || len(i.Blind) > MaxBlindSize {
-		return nil, fmt.Errorf("enroll: blind is %d bytes, want %d..=%d", len(i.Blind), MinBlindSize, MaxBlindSize)
+	if err := checkBlind(blind); err != nil {
+		return nil, err
 	}
+	i.Blind = bytes.Clone(blind) // never an alias of the caller's bytes
 	for _, f := range [...]struct {
 		what string
 		to   *string
@@ -333,6 +335,14 @@ func (p *Proof) check() error {
 	}
 	if len(p.Proof) != ProofSize {
 		return fmt.Errorf("enroll: proof is %d bytes, want %d", len(p.Proof), ProofSize)
+	}
+	return nil
+}
+
+// checkBlind is the blind's bound, one check for encoding and decoding alike.
+func checkBlind(blind []byte) error {
+	if len(blind) < MinBlindSize || len(blind) > MaxBlindSize {
+		return fmt.Errorf("enroll: blind is %d bytes, want %d..=%d", len(blind), MinBlindSize, MaxBlindSize)
 	}
 	return nil
 }
