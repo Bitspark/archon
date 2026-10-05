@@ -56,6 +56,42 @@ impl Default for KeyParams {
     }
 }
 
+/// The ceilings a header's parameters must stay under (docs/keystore.md §2). They exist only so
+/// that a header someone else wrote cannot make an unlock unbounded, and they are generous on
+/// purpose: RFC 9106's first recommended setting (2 GiB, t=1, p=4) still opens.
+pub const MAX_MEMORY_KIB: u32 = 2 * 1024 * 1024;
+pub const MAX_TIME: u32 = 10;
+
+impl KeyParams {
+    /// Refuses parameters no lane may derive with. The lower bounds are RFC 9106's validity
+    /// rules and nothing more (t ≥ 1, p ≥ 1, m ≥ 8p), so a weak but valid file keeps opening:
+    /// its weakness is its writer's. Stated here, once, before any derivation, so all three
+    /// lanes refuse the same headers at the same step whatever their Argon2 library does.
+    fn check(&self) -> Result<(), String> {
+        let floor = 8 * u32::from(self.parallelism);
+        if self.time == 0 || self.parallelism == 0 {
+            Err("argon2id parameters are not usable: t and p must be at least 1".to_string())
+        } else if self.memory_kib < floor {
+            Err(format!(
+                "argon2id parameters are not usable: m={} KiB is below 8*p={floor}",
+                self.memory_kib
+            ))
+        } else if self.memory_kib > MAX_MEMORY_KIB {
+            Err(format!(
+                "argon2id parameters are not usable: m={} KiB is above {MAX_MEMORY_KIB}",
+                self.memory_kib
+            ))
+        } else if self.time > MAX_TIME {
+            Err(format!(
+                "argon2id parameters are not usable: t={} is above {MAX_TIME}",
+                self.time
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// The authenticated prefix of a key file. `public_key` is readable without a password —
 /// that is what `key list` prints — but it is only a CLAIM until an unlock verifies the tag
 /// over this header and re-derives it from the seed.
@@ -124,9 +160,7 @@ pub fn parse_header(file: &[u8]) -> Result<KeyHeader, String> {
         time: u32::from_be_bytes([file[9], file[10], file[11], file[12]]),
         parallelism: file[13],
     };
-    if params.memory_kib == 0 || params.time == 0 || params.parallelism == 0 {
-        return Err("argon2id parameters in the header are not usable".to_string());
-    }
+    params.check()?;
     let mut salt = [0u8; SALT_SIZE];
     salt.copy_from_slice(&file[14..30]);
     let mut public_key = [0u8; PUBLIC_KEY_SIZE];
@@ -159,6 +193,7 @@ pub fn seal(
     if nonce.len() != NONCE_SIZE {
         return Err(format!("nonce must be {NONCE_SIZE} bytes"));
     }
+    p.check()?;
     let mut seed_fixed = Zeroizing::new([0u8; SEED_SIZE]);
     seed_fixed.copy_from_slice(seed);
     let mut salt_fixed = [0u8; SALT_SIZE];

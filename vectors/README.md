@@ -87,14 +87,14 @@ nothing breaks until someone deletes the original.
 
 ## `keystore.json`
 
-37 cases in 3 families (`keystore_seal` · `keystore_open` · `keystore_name`) — the
+46 cases in 3 families (`keystore_seal` · `keystore_open` · `keystore_name`) — the
 password-protected seed store of [ADR 0007](../docs/architecture/decisions/0007-custody-in-the-command-and-the-login-server-tier.md) §A,
 for `cli/{rs,go,ts}`. The layout is [`docs/keystore.md`](../docs/keystore.md).
 
 | family | cases | what it pins |
 |---|---|---|
-| `keystore_seal` | 6 | the 134-byte file as a deterministic function of (seed, password, salt, nonce, m, t, p) — including a non-ASCII password, a case at the shipping parameters, and the empty-password refusal |
-| `keystore_open` | 17 | 5 round-trips and **12 refusals**: wrong password, bad magic, unknown version, tampered salt / memory-cost / public-key / nonce / ciphertext, short file, long file, an empty-password file, and a file whose tag verifies but whose header names a public key the sealed seed does not derive |
+| `keystore_seal` | 9 | the 134-byte file as a deterministic function of (seed, password, salt, nonce, m, t, p) — including a non-ASCII password, a case at the shipping parameters, the empty-password refusal, and the Argon2id floor `m = 8p` at p=1 and p=4 (sealed) and below it (refused) |
+| `keystore_open` | 23 | 7 round-trips and **16 refusals**: wrong password, bad magic, unknown version, tampered salt / memory-cost / public-key / nonce / ciphertext, short file, long file, an empty-password file, a file whose tag verifies but whose header names a public key the sealed seed does not derive, and the parameter bounds of `docs/keystore.md` §2 — genuine `m < 8p` seals at p=1 and p=4 (written by `golang.org/x/crypto/argon2`, which the reference implementation refuses to compute), `m` above 2 GiB and `t` above 10, all refused at parse |
 | `keystore_name` | 14 | the name rules as pure string cases — 3 accepted, 11 refused (empty, leading and trailing dot, both separators, colon, a control character, reserved device names bare and with an extension, over-length) |
 
 **Oracles**, both outside all three cores, both validated before use — the same discipline as
@@ -108,6 +108,10 @@ for `cli/{rs,go,ts}`. The layout is [`docs/keystore.md`](../docs/keystore.md).
   the possession vectors — and all 23 crypto cases were then **reproduced independently by
   `@noble/hashes` + `@noble/ciphers` + `@noble/curves`**, a stack sharing no code with either
   oracle, refusals included, before any lane was written.
+- The parameter-bound cases (2026-10-05): the two `m = 8p` files were computed with the same two
+  oracles and are byte-identical to what `golang.org/x/crypto/argon2` writes. The `m < 8p` files
+  can only come from x/crypto, which raises `m` to `8p` silently; the reference implementation
+  refuses to compute them, and that refusal is checked before the cases are written.
 
 Most cases run at cheap Argon2id parameters **on purpose**: the header carries `m`/`t`/`p` and a
 reader must *read* them, so a 1 MiB case pins the format exactly as a 64 MiB one does while
