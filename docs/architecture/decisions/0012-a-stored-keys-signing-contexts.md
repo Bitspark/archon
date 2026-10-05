@@ -44,7 +44,7 @@ An allowlist answers only the first. Even a single-context entry signs arbitrary
 bytes in that context. So archon's allowlist does **not** discharge thesmos ADR 0041
 D1 (*"a key that signs a control context must never sign caller-chosen bytes in any context"*).
 
-### 2. What archon promises, if it builds this, and what it does not
+### 2. What archon promises, and what it does not
 
 > When the command signs through a restricted store entry, it has authenticated that entry's
 > policy together with its encrypted seed, checked the expected principal, and established that the
@@ -70,7 +70,7 @@ is authorization in the broad sense, and this ADR says so rather than calling it
 still knows no domain's meaning and keeps no registry. The rule is enforced in the command. The sdk
 may report it for a preflight check (0009 §2), and that check is not the boundary.
 
-### 4. The design, fixed now
+### 4. The design
 
 It is built this way:
 
