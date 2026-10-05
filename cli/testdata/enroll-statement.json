@@ -1,0 +1,147 @@
+{
+  "_why": "The statement `archon enroll` shows before it asks, and the refusal it prints for a store entry whose policy does not list archon-enroll/1, are what all three CLI lanes must print BYTE-IDENTICALLY (docs/enroll.md \u00a74). Each lane's unit suite reads THIS file: `cases` through its statement renderer and prompt, `policy_cases` through its policy refusal. The text is written from the specification, never copied from a lane. Contexts in `policy_cases` are stored sorted, as the store keeps them.",
+  "_read_by": [
+    "cli/go/cmd/archon/cmd_enroll_test.go",
+    "cli/rs/src/cmd/enroll.rs (mod tests)",
+    "cli/ts/test/enroll.test.ts"
+  ],
+  "cases": [
+    {
+      "name": "no restrictions",
+      "audience": "https://bitshelf.dev/api",
+      "intent": {
+        "account_id": "u_8f3c2a",
+        "account_name": "julia (bitspark)",
+        "restrictions": []
+      },
+      "key": "ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f",
+      "deadline": 1791197100,
+      "keySource": "the store key personal",
+      "statement": "https://bitshelf.dev/api asks you to add a key to an account:\n  account:      julia (bitspark)\n  account id:   u_8f3c2a\n  key:          ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f\n  restrictions: none\nthe service may give this key the account's authority.\nthe request's deadline is about 2026-10-05T10:45:00Z, the service's word; it is not the key's expiry.\nsigning with the store key personal\n",
+      "prompt": "add this key to the account \"julia (bitspark)\"? [y/N] "
+    },
+    {
+      "name": "two restrictions, in order",
+      "audience": "https://bitshelf.dev/api",
+      "intent": {
+        "account_id": "u_8f3c2a",
+        "account_name": "julia (bitspark)",
+        "restrictions": [
+          "read:projects",
+          "expires 2027-01-01"
+        ]
+      },
+      "key": "ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f",
+      "deadline": 1791197100,
+      "keySource": "the store key personal",
+      "statement": "https://bitshelf.dev/api asks you to add a key to an account:\n  account:      julia (bitspark)\n  account id:   u_8f3c2a\n  key:          ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f\n  restrictions:\n    read:projects\n    expires 2027-01-01\nthe service may give this key the account's authority.\nthe request's deadline is about 2026-10-05T10:45:00Z, the service's word; it is not the key's expiry.\nsigning with the store key personal\n",
+      "prompt": "add this key to the account \"julia (bitspark)\"? [y/N] "
+    },
+    {
+      "name": "a non-ASCII account name",
+      "audience": "https://bitshelf.dev/api",
+      "intent": {
+        "account_id": "42",
+        "account_name": "j\u00fclia (b\u00fcro)",
+        "restrictions": [
+          "nur lesen"
+        ]
+      },
+      "key": "ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f",
+      "deadline": 1791197100,
+      "keySource": "the store key personal",
+      "statement": "https://bitshelf.dev/api asks you to add a key to an account:\n  account:      j\u00fclia (b\u00fcro)\n  account id:   42\n  key:          ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f\n  restrictions:\n    nur lesen\nthe service may give this key the account's authority.\nthe request's deadline is about 2026-10-05T10:45:00Z, the service's word; it is not the key's expiry.\nsigning with the store key personal\n",
+      "prompt": "add this key to the account \"j\u00fclia (b\u00fcro)\"? [y/N] "
+    },
+    {
+      "name": "a name with quotes is shown as it is",
+      "audience": "https://bitshelf.dev/api",
+      "intent": {
+        "account_id": "acct-7",
+        "account_name": "the \"ops\" team",
+        "restrictions": []
+      },
+      "key": "ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f",
+      "deadline": 1791197100,
+      "keySource": "the store key personal",
+      "statement": "https://bitshelf.dev/api asks you to add a key to an account:\n  account:      the \"ops\" team\n  account id:   acct-7\n  key:          ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f\n  restrictions: none\nthe service may give this key the account's authority.\nthe request's deadline is about 2026-10-05T10:45:00Z, the service's word; it is not the key's expiry.\nsigning with the store key personal\n",
+      "prompt": "add this key to the account \"the \"ops\" team\"? [y/N] "
+    }
+  ],
+  "policy_cases": [
+    {
+      "name": "a thesmos delegator key: the command keeps what it has",
+      "key": "personal",
+      "policy": {
+        "contexts": [
+          "thesmos/fact/v2"
+        ]
+      },
+      "refusal": "enroll: key personal may not sign in archon-enroll/1: its policy is allow \"thesmos/fact/v2\".\n  to let it enroll, keeping what it has (key policy replaces the list):\n    archon key policy personal --allow thesmos/fact/v2 --allow archon-enroll/1"
+    },
+    {
+      "name": "an entry that allows nothing",
+      "key": "locked",
+      "policy": {
+        "contexts": []
+      },
+      "refusal": "enroll: key locked may not sign in archon-enroll/1: its policy is allow nothing.\n  to let it enroll, keeping what it has (key policy replaces the list):\n    archon key policy locked --allow archon-enroll/1"
+    },
+    {
+      "name": "two contexts, kept in the store's order",
+      "key": "work",
+      "policy": {
+        "contexts": [
+          "archon-login/1",
+          "thesmos/fact/v2"
+        ]
+      },
+      "refusal": "enroll: key work may not sign in archon-enroll/1: its policy is allow \"archon-login/1\", \"thesmos/fact/v2\".\n  to let it enroll, keeping what it has (key policy replaces the list):\n    archon key policy work --allow archon-login/1 --allow thesmos/fact/v2 --allow archon-enroll/1"
+    },
+    {
+      "name": "a context with a space needs quoting: no command, the list JSON-quoted",
+      "key": "odd",
+      "policy": {
+        "contexts": [
+          "my context"
+        ]
+      },
+      "refusal": "enroll: key odd may not sign in archon-enroll/1: its policy is allow \"my context\".\n  key policy replaces the list: run archon key policy odd with --allow for each of \"my context\", and for archon-enroll/1"
+    },
+    {
+      "name": "a leading @ is not bare for PowerShell",
+      "key": "at",
+      "policy": {
+        "contexts": [
+          "@team/x"
+        ]
+      },
+      "refusal": "enroll: key at may not sign in archon-enroll/1: its policy is allow \"@team/x\".\n  key policy replaces the list: run archon key policy at with --allow for each of \"@team/x\", and for archon-enroll/1"
+    },
+    {
+      "name": "a full list of sixteen: no command",
+      "key": "full",
+      "policy": {
+        "contexts": [
+          "ctx/00",
+          "ctx/01",
+          "ctx/02",
+          "ctx/03",
+          "ctx/04",
+          "ctx/05",
+          "ctx/06",
+          "ctx/07",
+          "ctx/08",
+          "ctx/09",
+          "ctx/10",
+          "ctx/11",
+          "ctx/12",
+          "ctx/13",
+          "ctx/14",
+          "ctx/15"
+        ]
+      },
+      "refusal": "enroll: key full may not sign in archon-enroll/1: its policy is allow \"ctx/00\", \"ctx/01\", \"ctx/02\", \"ctx/03\", \"ctx/04\", \"ctx/05\", \"ctx/06\", \"ctx/07\", \"ctx/08\", \"ctx/09\", \"ctx/10\", \"ctx/11\", \"ctx/12\", \"ctx/13\", \"ctx/14\", \"ctx/15\".\n  it already lists 16 contexts, the most a policy holds: drop one with archon key policy, or keep a separate key for enrollment"
+    }
+  ]
+}

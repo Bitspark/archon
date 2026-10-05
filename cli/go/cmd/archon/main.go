@@ -19,13 +19,14 @@ import (
 
 // usage is the one-line subcommand summary, printed to stderr on an unknown or missing
 // subcommand (exit 2) and to stdout on --help/-h (exit 0).
-const usage = "usage: archon <keygen|key|login|sign|verify|version> [args]"
+const usage = "usage: archon <keygen|key|login|enroll|sign|verify|version> [args]"
 
 // dispatch maps a subcommand name to its handler.
 var dispatch = map[string]func(args []string) error{
 	"keygen":  runKeygen,
 	"key":     runKey,
 	"login":   runLogin,
+	"enroll":  runEnroll,
 	"sign":    runSign,
 	"verify":  runVerify,
 	"version": runVersion,
