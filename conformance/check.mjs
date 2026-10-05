@@ -151,6 +151,13 @@ const request = spawnSync(process.execPath,
   { stdio: "inherit" });
 if ((request.status ?? 1) !== 0) process.exit(request.status ?? 1);
 console.log();
+// `archon enroll`'s formats (docs/enroll.md, ADR 0013): the same three sdk CLIs over
+// vectors/enroll.json — the intent, the two tokens, and the request a token yields.
+const enrollFormats = spawnSync(process.execPath,
+  [harness, join(root, "vectors", "enroll.json"), sdkGoBin, sdkRsBin, `node ${sdkTsEntry}`],
+  { stdio: "inherit" });
+if ((enrollFormats.status ?? 1) !== 0) process.exit(enrollFormats.status ?? 1);
+console.log();
 // The command's own layer: the key store (vectors/keystore.json, ADR 0007 §A),
 // driven by the cli/* lanes because custody is the CLI tier's.
 const keystore = spawnSync(process.execPath,

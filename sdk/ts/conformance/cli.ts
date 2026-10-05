@@ -17,10 +17,20 @@
 //                    out {"name","result":{"ok":{"base","headers"}}|{"error":true}}
 //   request_verify : in {name, policy, now, request{method, request_target, headers, body}}
 //                    out {"name","result":{"ok":{"principal","created","expires","nonce","target_uri"}}|{"error":true}}
+//
+// vectors/enroll.json (text fields of an intent as hex):
+//
+//   enroll_intent_encode     : in {name, intent}      out {"name","result":{"ok":"<hex>"}|{"error":true}}
+//   enroll_intent_decode     : in {name, bytes}       out {"name","result":{"ok":{intent}}|{"error":true}}
+//   enroll_challenge_encode  : in {name, challenge}   out {"name","result":{"ok":"<token>"}|{"error":true}}
+//   enroll_challenge_decode  : in {name, text}        out {"name","result":{"ok":{challenge}}|{"error":true}}
+//   enroll_challenge_request : in {name, text}        out {"name","result":{"ok":{"audience","request"}}|{"error":true}}
+//   enroll_proof_encode      : in {name, proof_token} out {"name","result":{"ok":"<token>"}|{"error":true}}
+//   enroll_proof_decode      : in {name, text}        out {"name","result":{"ok":{proof_token}}|{"error":true}}
 
 import { readFileSync } from "node:fs";
-import { provePossession, verifyPossession, seal, open, loginBinding, proveLogin, verifyLogin, proveCollect, verifyCollect, deriveAudience, enrollBinding, proveEnroll, verifyEnroll, signRequest, verifyRequest } from "../src/index.js";
-import type { EnrollRequest, LoginRequest } from "../src/index.js";
+import { provePossession, verifyPossession, seal, open, loginBinding, proveLogin, verifyLogin, proveCollect, verifyCollect, deriveAudience, enrollBinding, proveEnroll, verifyEnroll, signRequest, verifyRequest, encodeEnrollIntent, decodeEnrollIntent, encodeEnrollChallenge, decodeEnrollChallenge, enrollChallengeRequest, encodeEnrollProof, decodeEnrollProof } from "../src/index.js";
+import type { EnrollIntent, EnrollRequest, LoginRequest } from "../src/index.js";
 
 function fromHex(s: string): Uint8Array {
   if (s.length % 2 !== 0 || /[^0-9a-fA-F]/.test(s)) throw new Error(`case input is not valid hex: ${s}`);
@@ -66,6 +76,31 @@ function enrollRequest(c: Record<string, unknown>): EnrollRequest {
     purpose: utf8Strict.decode(fromHex(r.purpose)),
     newKey: fromHex(r.new_key),
     intentDigest: fromHex(r.intent_digest),
+  };
+}
+// The oracle's spelling of an intent in format 1: every text field as hex. This decoder KEEPS a
+// leading U+FEFF (ignoreBOM), so a case that starts with one reaches the codec, which refuses
+// it; the default decoder would drop it and let the case pass for the wrong reason.
+const utf8Exact = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+function enrollIntent(c: Record<string, unknown>): EnrollIntent {
+  const i = c["intent"] as { blind: string; account_id: string; account_name: string; purpose: string; restrictions: string[] };
+  const text = (h: string) => utf8Exact.decode(fromHex(h));
+  return {
+    blind: fromHex(i.blind),
+    accountId: text(i.account_id),
+    accountName: text(i.account_name),
+    purpose: text(i.purpose),
+    restrictions: i.restrictions.map(text),
+  };
+}
+function spellIntent(i: EnrollIntent): Record<string, unknown> {
+  const hexText = (s: string) => toHex(new TextEncoder().encode(s));
+  return {
+    blind: toHex(i.blind),
+    account_id: hexText(i.accountId),
+    account_name: hexText(i.accountName),
+    purpose: hexText(i.purpose),
+    restrictions: i.restrictions.map(hexText),
   };
 }
 function totally(f: () => boolean): boolean {
@@ -177,6 +212,75 @@ for (const c of cases as Array<Record<string, string>>) {
       };
       break;
     }
+    case "enroll_intent_encode":
+      out = { name, result: attempt(() => toHex(encodeEnrollIntent(enrollIntent(c)))) };
+      break;
+    case "enroll_intent_decode":
+      out = { name, result: attempt(() => spellIntent(decodeEnrollIntent(fromHex(c["bytes"]!)))) };
+      break;
+    case "enroll_challenge_encode": {
+      const ch = (c as Record<string, unknown>)["challenge"] as {
+        audience: string; transaction: string; nonce: string; new_key: string; intent: string; deadline: number;
+      };
+      out = {
+        name,
+        result: attempt(() =>
+          encodeEnrollChallenge({
+            audience: ch.audience, transaction: fromHex(ch.transaction), nonce: fromHex(ch.nonce),
+            newKey: fromHex(ch.new_key), intent: fromHex(ch.intent), deadline: ch.deadline,
+          }),
+        ),
+      };
+      break;
+    }
+    case "enroll_challenge_decode":
+      out = {
+        name,
+        result: attempt(() => {
+          const ch = decodeEnrollChallenge(c["text"]!);
+          return {
+            audience: ch.audience, transaction: toHex(ch.transaction), nonce: toHex(ch.nonce),
+            new_key: toHex(ch.newKey), intent: toHex(ch.intent), deadline: ch.deadline,
+          };
+        }),
+      };
+      break;
+    case "enroll_challenge_request":
+      out = {
+        name,
+        result: attempt(() => {
+          const ch = decodeEnrollChallenge(c["text"]!);
+          const { request } = enrollChallengeRequest(ch);
+          return {
+            audience: ch.audience,
+            request: {
+              nonce: toHex(request.nonce), transaction: toHex(request.transaction),
+              purpose: toHex(new TextEncoder().encode(request.purpose)), new_key: toHex(request.newKey),
+              intent_digest: toHex(request.intentDigest),
+            },
+          };
+        }),
+      };
+      break;
+    case "enroll_proof_encode": {
+      const p = (c as Record<string, unknown>)["proof_token"] as { transaction: string; new_key: string; proof: string };
+      out = {
+        name,
+        result: attempt(() =>
+          encodeEnrollProof({ transaction: fromHex(p.transaction), newKey: fromHex(p.new_key), proof: fromHex(p.proof) }),
+        ),
+      };
+      break;
+    }
+    case "enroll_proof_decode":
+      out = {
+        name,
+        result: attempt(() => {
+          const p = decodeEnrollProof(c["text"]!);
+          return { transaction: toHex(p.transaction), new_key: toHex(p.newKey), proof: toHex(p.proof) };
+        }),
+      };
+      break;
     default:
       throw new Error(`unknown family: ${family}`);
   }

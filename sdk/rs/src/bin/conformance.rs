@@ -17,6 +17,16 @@
 //!                    out `{"name","result":{"ok":{"base","headers"}}|{"error":true}}`
 //!   request_verify : in `{name, policy, now, request{method, request_target, headers, body}}`
 //!                    out `{"name","result":{"ok":{"principal","created","expires","nonce","target_uri"}}|{"error":true}}`
+//!
+//! vectors/enroll.json (text fields of an intent as hex):
+//!
+//!   enroll_intent_encode     : in `{name, intent}`      out `{"name","result":{"ok":"<hex>"}|{"error":true}}`
+//!   enroll_intent_decode     : in `{name, bytes}`       out `{"name","result":{"ok":{intent}}|{"error":true}}`
+//!   enroll_challenge_encode  : in `{name, challenge}`   out `{"name","result":{"ok":"<token>"}|{"error":true}}`
+//!   enroll_challenge_decode  : in `{name, text}`        out `{"name","result":{"ok":{challenge}}|{"error":true}}`
+//!   enroll_challenge_request : in `{name, text}`        out `{"name","result":{"ok":{"audience","request"}}|{"error":true}}`
+//!   enroll_proof_encode      : in `{name, proof_token}` out `{"name","result":{"ok":"<token>"}|{"error":true}}`
+//!   enroll_proof_decode      : in `{name, text}`        out `{"name","result":{"ok":{proof_token}}|{"error":true}}`
 
 use archon_sdk::{enroll, envelope, login, possession, request};
 use serde_json::{json, Value};
@@ -71,6 +81,41 @@ fn enroll_request(c: &Value) -> Result<enroll::Request, String> {
             .map_err(|e| format!("purpose is not UTF-8: {e}"))?,
         new_key: hex_decode(s("new_key")),
         intent_digest: hex_decode(s("intent_digest")),
+    })
+}
+
+/// Text given as hex: a non-UTF-8 case is the error result, which is the codec's own refusal.
+fn hex_text(v: &Value) -> Result<String, String> {
+    String::from_utf8(hex_decode(v.as_str().unwrap_or(""))).map_err(|e| format!("not UTF-8: {e}"))
+}
+
+/// The oracle's spelling of an intent in format 1: every text field as hex.
+fn enroll_intent(c: &Value) -> Result<enroll::Intent, String> {
+    let i = &c["intent"];
+    let mut restrictions = Vec::new();
+    for r in i["restrictions"]
+        .as_array()
+        .map(|a| a.as_slice())
+        .unwrap_or(&[])
+    {
+        restrictions.push(hex_text(r)?);
+    }
+    Ok(enroll::Intent {
+        blind: hex_decode(i["blind"].as_str().unwrap_or("")),
+        account_id: hex_text(&i["account_id"])?,
+        account_name: hex_text(&i["account_name"])?,
+        purpose: hex_text(&i["purpose"])?,
+        restrictions,
+    })
+}
+
+fn spell_intent(i: &enroll::Intent) -> Value {
+    json!({
+        "blind": hex_encode(&i.blind),
+        "account_id": hex_encode(i.account_id.as_bytes()),
+        "account_name": hex_encode(i.account_name.as_bytes()),
+        "purpose": hex_encode(i.purpose.as_bytes()),
+        "restrictions": i.restrictions.iter().map(|r| hex_encode(r.as_bytes())).collect::<Vec<_>>(),
     })
 }
 
@@ -282,6 +327,80 @@ fn main() {
                         })
                     });
                 json!({ "name": name, "result": result_json(out) })
+            }
+            "enroll_intent_encode" => {
+                let r = enroll_intent(c)
+                    .and_then(|i| enroll::encode_intent(&i))
+                    .map(|b| json!(hex_encode(&b)));
+                json!({ "name": name, "result": result_json(r) })
+            }
+            "enroll_intent_decode" => {
+                let r = enroll::decode_intent(&hex_decode(s("bytes"))).map(|i| spell_intent(&i));
+                json!({ "name": name, "result": result_json(r) })
+            }
+            "enroll_challenge_encode" => {
+                let ch = &c["challenge"];
+                let t = |k: &str| hex_decode(ch[k].as_str().unwrap_or(""));
+                let r = enroll::encode_challenge(&enroll::Challenge {
+                    audience: ch["audience"].as_str().unwrap_or("").to_string(),
+                    transaction: t("transaction"),
+                    nonce: t("nonce"),
+                    new_key: t("new_key"),
+                    intent: t("intent"),
+                    deadline: ch["deadline"].as_u64().unwrap_or(0),
+                })
+                .map(|text| json!(text));
+                json!({ "name": name, "result": result_json(r) })
+            }
+            "enroll_challenge_decode" => {
+                let r = enroll::decode_challenge(s("text")).map(|ch| {
+                    json!({
+                        "audience": ch.audience,
+                        "transaction": hex_encode(&ch.transaction),
+                        "nonce": hex_encode(&ch.nonce),
+                        "new_key": hex_encode(&ch.new_key),
+                        "intent": hex_encode(&ch.intent),
+                        "deadline": ch.deadline,
+                    })
+                });
+                json!({ "name": name, "result": result_json(r) })
+            }
+            "enroll_challenge_request" => {
+                let r = enroll::decode_challenge(s("text")).and_then(|ch| {
+                    let (req, _) = ch.request()?;
+                    Ok(json!({
+                        "audience": ch.audience,
+                        "request": {
+                            "nonce": hex_encode(&req.nonce),
+                            "transaction": hex_encode(&req.transaction),
+                            "purpose": hex_encode(req.purpose.as_bytes()),
+                            "new_key": hex_encode(&req.new_key),
+                            "intent_digest": hex_encode(&req.intent_digest),
+                        },
+                    }))
+                });
+                json!({ "name": name, "result": result_json(r) })
+            }
+            "enroll_proof_encode" => {
+                let p = &c["proof_token"];
+                let t = |k: &str| hex_decode(p[k].as_str().unwrap_or(""));
+                let r = enroll::encode_proof(&enroll::Proof {
+                    transaction: t("transaction"),
+                    new_key: t("new_key"),
+                    proof: t("proof"),
+                })
+                .map(|text| json!(text));
+                json!({ "name": name, "result": result_json(r) })
+            }
+            "enroll_proof_decode" => {
+                let r = enroll::decode_proof(s("text")).map(|p| {
+                    json!({
+                        "transaction": hex_encode(&p.transaction),
+                        "new_key": hex_encode(&p.new_key),
+                        "proof": hex_encode(&p.proof),
+                    })
+                });
+                json!({ "name": name, "result": result_json(r) })
             }
             other => panic!("unknown family: {other}"),
         };
