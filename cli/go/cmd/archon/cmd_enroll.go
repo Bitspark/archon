@@ -32,6 +32,9 @@ const enrollUsage = "usage: archon enroll [--challenge-file <file>] [--audience 
 	"  the audience is --audience or ARCHON_AUDIENCE; the key is --key or the default key. The\n" +
 	"  question is asked on the terminal, always, and the proof token is printed on stdout."
 
+// enrollPastePrompt asks for the token when stdin is a terminal.
+const enrollPastePrompt = "paste the challenge token, then press Enter: "
+
 // enrollPurpose is the one purpose version 1 renders (docs/enroll.md §2).
 const enrollPurpose = "add-key"
 
@@ -108,7 +111,7 @@ func runEnroll(args []string) error {
 	}()
 
 	// 3. The token, read and decoded once. From here on only these values are used.
-	text, fromTerminal, err := readChallenge(challengeFile)
+	text, fromTerminal, err := readChallenge(challengeFile, termOut)
 	if err != nil {
 		return err
 	}
@@ -137,8 +140,9 @@ func runEnroll(args []string) error {
 	fmt.Fprint(termOut, renderEnrollStatement(audience, intent, h.PublicKey, ch.Deadline, "the store key "+keyName))
 	fmt.Fprint(termOut, enrollPrompt(intent))
 	if !answeredYes(termIn) {
+		// Non-zero, so a script never mistakes a refusal for a proof: stdout stays empty.
 		fmt.Fprintln(termOut, "refused. nothing was signed.")
-		return nil
+		return errors.New("enroll: refused. nothing was signed.")
 	}
 
 	// 9. Only now is the key unlocked: the same snapshot, its header now authenticated.
@@ -237,9 +241,10 @@ func answeredYes(in io.Reader) bool {
 	return answer == "y" || answer == "yes"
 }
 
-// readChallenge reads the token: the whole file, or one line of stdin. It reports whether stdin
-// was a terminal, whose line limit can cut a pasted token.
-func readChallenge(path string) (text string, fromTerminal bool, err error) {
+// readChallenge reads the token: the whole file, or one line of stdin, asking for it on the
+// terminal when stdin is one. It reports whether stdin was a terminal, whose line limit can cut
+// a pasted token.
+func readChallenge(path string, termOut io.Writer) (text string, fromTerminal bool, err error) {
 	if path != "" {
 		f, err := os.Open(path)
 		if err != nil {
@@ -256,6 +261,9 @@ func readChallenge(path string) (text string, fromTerminal bool, err error) {
 		return string(raw), false, nil
 	}
 	fromTerminal = term.IsTerminal(int(os.Stdin.Fd()))
+	if fromTerminal {
+		fmt.Fprint(termOut, enrollPastePrompt)
+	}
 	line, err := bufio.NewReaderSize(io.LimitReader(os.Stdin, maxChallengeInput), 64*1024).ReadString('\n')
 	if err != nil && err != io.EOF {
 		return "", fromTerminal, fmt.Errorf("enroll: could not read the token from stdin: %w", err)
@@ -273,10 +281,10 @@ var bareContext = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:+=-]*$`)
 // then archon-enroll/1; it prints the command only when every context needs no quoting in any
 // shell, and otherwise lists the contexts JSON-quoted.
 func policyRefusal(name string, p *keystore.Policy) string {
-	head := fmt.Sprintf("enroll: key %s may not sign in %s: its policy is %s", name, enroll.Domain, p)
-	if p == nil {
-		return head
+	if p == nil { // a version-2 entry always has one; said the same way in every lane regardless
+		return fmt.Sprintf("enroll: key %s may not sign in %s: it has no policy", name, enroll.Domain)
 	}
+	head := fmt.Sprintf("enroll: key %s may not sign in %s: its policy is %s", name, enroll.Domain, p)
 	if len(p.Contexts) >= keystore.MaxContexts {
 		return fmt.Sprintf("%s.\n  it already lists %d contexts, the most a policy holds: drop one with archon key policy, "+
 			"or keep a separate key for enrollment", head, keystore.MaxContexts)

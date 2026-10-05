@@ -982,8 +982,9 @@ expect("key store: rm --force says what it could not read",
         expect(`enroll: ${lane.name} shows the statement and asks (${answer})`,
           transcript.includes(STATEMENT) ? "shown" : transcript, "shown");
         if (answer === "n") {
-          expect(`enroll: ${lane.name} signs nothing on "n"`,
-            `${code} ${printed === "" && transcript.includes("refused. nothing was signed.") ? "nothing" : printed}`, "0 nothing");
+          // Non-zero: a script that runs `archon enroll > proof && submit` must not carry on.
+          expect(`enroll: ${lane.name} signs nothing on "n", and exits non-zero`,
+            `${code} ${printed === "" && transcript.includes("refused. nothing was signed.") ? "nothing" : printed}`, "1 nothing");
           continue;
         }
         const line = printed.trim();
@@ -1002,6 +1003,50 @@ expect("key store: rm --force says what it could not read",
     }
     expect("enroll: the three lanes print the same proof token",
       tokens.length === lanes.length && tokens.every((t) => t === tokens[0]) ? "agree" : tokens.join(" | "), "agree");
+
+    // The token PASTED on stdin, the terminal, and the answer typed on that same terminal: the
+    // command asks for the token, reads one line, and must leave the "y" for the question. In TS
+    // the stdin stream and the terminal reader share the device, so a reader left running would
+    // take the answer.
+    const PASTE = [
+      "import os, pty, sys",
+      "out, token, answer, argv = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]",
+      "pid, fd = pty.fork()",
+      "if pid == 0:",
+      "    os.dup2(os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 1)",
+      "    os.execv(argv[0], argv)",
+      "seen, pasted, sent = b'', False, False",
+      "while True:",
+      "    try:",
+      "        chunk = os.read(fd, 1024)",
+      "    except OSError:",
+      "        break",
+      "    if not chunk:",
+      "        break",
+      "    seen += chunk",
+      "    if not pasted and seen.endswith(b'press Enter: '):",
+      "        os.write(fd, token.encode() + bytes([13]))",
+      "        pasted = True",
+      "    if pasted and not sent and seen.endswith(b'[y/N] '):",
+      "        os.write(fd, answer.encode() + bytes([13]))",
+      "        sent = True",
+      "_, status = os.waitpid(pid, 0)",
+      "sys.stdout.buffer.write(str(os.waitstatus_to_exitcode(status)).encode() + bytes([10]) + seen)",
+    ].join("\n");
+    const pastedToken = readFileSync(tokenPath, "utf8").trim();
+    for (const lane of lanes) {
+      const out = join(tmp, `enroll-${lane.name}-pasted.out`);
+      const r = spawnSync("python3", ["-c", PASTE, out, pastedToken, "y", ...lane.argv,
+        "enroll", "--key", "shared", "--audience", AUDIENCE], {
+        encoding: "utf8", shell: false, env, timeout: 120_000,
+      });
+      const [code, ...rest] = (r.stdout ?? "").split("\n");
+      const transcript = rest.join("\n").split(String.fromCharCode(13)).join("");
+      const printed = existsSync(out) ? readFileSync(out, "utf8").trim() : "";
+      expect(`enroll: ${lane.name} asks for the token, takes it pasted on stdin, then the answer on the terminal`,
+        `${code} ${transcript.includes("paste the challenge token, then press Enter: ") && transcript.includes(STATEMENT) ? "asked" : transcript} ${printed === tokens[0] ? "same proof" : printed}`,
+        "0 asked same proof");
+    }
   }
 }
 

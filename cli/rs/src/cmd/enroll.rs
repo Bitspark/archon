@@ -23,6 +23,9 @@ const USAGE: &str = "usage: archon enroll [--challenge-file <file>] [--audience 
   the audience is --audience or ARCHON_AUDIENCE; the key is --key or the default key. The
   question is asked on the terminal, always, and the proof token is printed on stdout.";
 
+/// Asks for the token when stdin is a terminal.
+const PASTE_PROMPT: &str = "paste the challenge token, then press Enter: ";
+
 /// The one purpose version 1 renders (`docs/enroll.md` §2).
 const PURPOSE: &str = "add-key";
 
@@ -85,7 +88,7 @@ stream; pass the token with --challenge-file"
     let (mut tty_in, mut tty_out) = open_terminal().map_err(|_| NO_TERMINAL.to_string())?;
 
     // 3. The token, read and decoded once. From here on only these values are used.
-    let (text, from_terminal) = read_challenge(challenge_file.as_deref())?;
+    let (text, from_terminal) = read_challenge(challenge_file.as_deref(), &mut tty_out)?;
     let ch = enroll::decode_challenge(&text).map_err(|e| {
         if from_terminal {
             format!("{e} (a terminal cuts a long pasted line; save the token to a file and pass --challenge-file)")
@@ -114,8 +117,9 @@ stream; pass the token with --challenge-file"
     )
     .map_err(|e| format!("could not write to the terminal: {e}"))?;
     if !answered_yes(&mut tty_in) {
+        // Non-zero, so a script never mistakes a refusal for a proof: stdout stays empty.
         let _ = writeln!(tty_out, "refused. nothing was signed.");
-        return Ok(());
+        return Err("enroll: refused. nothing was signed.".to_string());
     }
 
     // 9. Only now is the key unlocked: the same snapshot, its header now authenticated.
@@ -241,9 +245,9 @@ fn open_terminal() -> std::io::Result<(BufReader<fs::File>, fs::File)> {
     Ok((BufReader::new(inp), out))
 }
 
-/// The token: the whole file, or one line of stdin, and whether stdin was a terminal, whose line
-/// limit can cut a pasted token.
-fn read_challenge(path: Option<&str>) -> Result<(String, bool), String> {
+/// The token: the whole file, or one line of stdin, asked for on the terminal when stdin is one;
+/// and whether stdin was a terminal, whose line limit can cut a pasted token.
+fn read_challenge(path: Option<&str>, tty_out: &mut fs::File) -> Result<(String, bool), String> {
     if let Some(path) = path {
         let f =
             fs::File::open(path).map_err(|e| format!("enroll: could not read {path:?}: {e}"))?;
@@ -263,6 +267,9 @@ fn read_challenge(path: Option<&str>) -> Result<(String, bool), String> {
     }
     let stdin = std::io::stdin();
     let from_terminal = stdin.is_terminal();
+    if from_terminal {
+        let _ = write!(tty_out, "{PASTE_PROMPT}");
+    }
     let mut line = String::new();
     stdin
         .lock()

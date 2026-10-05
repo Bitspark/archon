@@ -4,7 +4,6 @@
 // from the signed-in page; the proof leaves as a token they carry back. The command contacts no
 // server, so its success means a proof was produced, never that the key is enrolled.
 import { closeSync, openSync, readSync } from "node:fs";
-import { createInterface } from "node:readline";
 
 import { encodeKey, getPublicKey } from "@bitspark/archon";
 import {
@@ -39,6 +38,9 @@ export const USAGE =
   "  the audience is --audience or ARCHON_AUDIENCE; the key is --key or the default key. The\n" +
   "  question is asked on the terminal, always, and the proof token is printed on stdout.";
 
+/** Asks for the token when stdin is a terminal. */
+const PASTE_PROMPT = "paste the challenge token, then press Enter: ";
+
 /** The one purpose version 1 renders (docs/enroll.md §2). */
 const PURPOSE = "add-key";
 
@@ -53,8 +55,10 @@ const NO_TERMINAL =
 export interface EnrollIo {
   /** The controlling terminal: where the statement is shown and the question asked. */
   openTerminal(): { readLine(): string; write(text: string): void; close(): void };
-  /** One line of stdin, and whether stdin is a terminal (whose line limit can cut a token). */
-  readStdinLine(): Promise<{ text: string; fromTerminal: boolean }>;
+  /** Whether stdin is a terminal: then the token is asked for, and its line limit can cut it. */
+  stdinIsTerminal(): boolean;
+  /** One line of stdin, at most MAX_INPUT bytes. */
+  readStdinLine(): Promise<string>;
   stdout(text: string): void;
   /** Unix seconds. */
   now(): number;
@@ -69,15 +73,24 @@ const realIo: EnrollIo = {
       close: () => terminal.close(),
     };
   },
+  stdinIsTerminal: () => process.stdin.isTTY === true,
   async readStdinLine() {
-    const fromTerminal = process.stdin.isTTY === true;
-    const rl = createInterface({ input: process.stdin });
-    const text = await new Promise<string>((resolve) => {
-      rl.once("line", (value) => resolve(value));
-      rl.once("close", () => resolve(""));
-    });
-    rl.close();
-    return { text, fromTerminal };
+    // Bounded like the Go and Rust lanes, and the stream is stopped once the line is in: when
+    // stdin is the terminal, a reader left running would take the person's "y" from the
+    // controlling terminal's reader, which shares the device.
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of process.stdin) {
+      const b = chunk as Buffer;
+      const nl = b.indexOf(0x0a);
+      chunks.push(nl >= 0 ? b.subarray(0, nl) : b);
+      size += nl >= 0 ? nl : b.length;
+      if (nl >= 0 || size > MAX_INPUT) break; // breaking out destroys the stream
+    }
+    if (size > MAX_INPUT) {
+      throw new Error(`enroll: the line on stdin is over ${MAX_INPUT} bytes; a challenge token is at most ${ENROLL_MAX_TOKEN_SIZE}`);
+    }
+    return Buffer.concat(chunks).toString("utf8");
   },
   stdout: (text) => process.stdout.write(text),
   now: () => Math.floor(Date.now() / 1000),
@@ -125,7 +138,9 @@ export async function run(args: string[], io: EnrollIo = realIo): Promise<void> 
   }
   try {
     // 3. The token, read and decoded once. From here on only these values are used.
-    const { text, fromTerminal } = challengeFile !== undefined ? { text: readChallengeFile(challengeFile), fromTerminal: false } : await io.readStdinLine();
+    const fromTerminal = challengeFile === undefined && io.stdinIsTerminal();
+    if (fromTerminal) terminal.write(PASTE_PROMPT);
+    const text = challengeFile !== undefined ? readChallengeFile(challengeFile) : await io.readStdinLine();
     let ch: EnrollChallenge;
     try {
       ch = decodeEnrollChallenge(text);
@@ -147,8 +162,9 @@ export async function run(args: string[], io: EnrollIo = realIo): Promise<void> 
     terminal.write(renderStatement(audience, intent, header.publicKey, ch.deadline, `the store key ${name}`) + prompt(intent));
     const answer = terminal.readLine().trim().toLowerCase();
     if (answer !== "y" && answer !== "yes") {
+      // Non-zero, so a script never mistakes a refusal for a proof: stdout stays empty.
       terminal.write("refused. nothing was signed.\n");
-      return;
+      throw new Error("enroll: refused. nothing was signed.");
     }
 
     // 9. Only now is the key unlocked: the same snapshot, its header now authenticated.
@@ -227,8 +243,9 @@ const BARE_CONTEXT = /^[A-Za-z0-9][A-Za-z0-9._/:+=-]*$/;
  *  archon-enroll/1; it is printed only when every context needs no quoting in any shell, and
  *  otherwise the contexts are listed JSON-quoted. */
 export function policyRefusal(name: string, policy: keystore.Policy | null): string {
+  // A version-2 entry always has one; said the same way in every lane regardless.
+  if (policy === null) return `enroll: key ${name} may not sign in ${ENROLL_DOMAIN}: it has no policy`;
   const head = `enroll: key ${name} may not sign in ${ENROLL_DOMAIN}: its policy is ${keystore.describePolicy(policy)}`;
-  if (policy === null) return head;
   if (policy.contexts.length >= keystore.MAX_CONTEXTS) {
     return `${head}.\n  it already lists ${keystore.MAX_CONTEXTS} contexts, the most a policy holds: drop one with archon key policy, or keep a separate key for enrollment`;
   }

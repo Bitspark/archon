@@ -86,7 +86,8 @@ function world(policy: keystore.Policy, answer: string, opts: { noTerminal?: boo
       if (opts.noTerminal) throw new Error("no terminal");
       return { readLine: () => answer, write: (t) => terminal.push(t), close: () => {} };
     },
-    readStdinLine: async () => ({ text: "", fromTerminal: false }),
+    stdinIsTerminal: () => false,
+    readStdinLine: async () => "",
     stdout: (t) => stdout.push(t),
     now: () => NOW,
   };
@@ -196,6 +197,7 @@ for (const r of refusals) {
       assert.deepEqual(w.stdout, [], "a refusal prints nothing on stdout");
       const got = err?.message ?? w.terminal.join("");
       assert.ok(got.includes(r.want), `got ${JSON.stringify(got)}, want it to contain ${JSON.stringify(r.want)}`);
+      if (r.shownYet === true) assert.ok(err !== undefined, "a decline exited as a success: a script would carry on with an empty stdout");
       if (r.shownYet !== true) {
         assert.ok(!w.terminal.join("").includes("asks you to add a key"), "the statement was shown before a refusal that needed nothing from the person");
       }

@@ -152,8 +152,11 @@ archon enroll [--challenge-file <file>] [--audience <base>] [--key <name>] [--pa
   seed, key file or seed file. Those are plaintext seeds, which the sdk already proves with.
 - **The audience** is `--audience`, or `ARCHON_AUDIENCE`, checked exactly as `login`'s offers form
   checks it ([`login.md`](login.md) §4.1 rule 1): it must be canonical. A token never supplies it.
-- **The token** is read from `--challenge-file`, or one line from stdin. It is never a
-  command-line argument, which would put the intent into shell history and process listings.
+- **The token** is read from `--challenge-file`, or one line from stdin, at most 1 MiB. It is
+  never a command-line argument, which would put the intent into shell history and process
+  listings. When stdin is a terminal, the command first asks on the terminal:
+  `paste the challenge token, then press Enter: `. It reads that one line and nothing more, so the
+  answer to the question in step 8 is left for the question.
   - **A long token belongs in a file.** A terminal cuts a pasted line at its own limit: 1024 bytes
     on macOS and 4095 on Linux. A token with restrictions can be longer, so the page offers the
     token as a download as well as for copying. A token read from a terminal that fails to decode
@@ -195,7 +198,9 @@ archon enroll [--challenge-file <file>] [--audience <base>] [--key <name>] [--pa
    at or past the deadline.
 7. **The intent** must decode as format 1 (§2), and its purpose must be `add-key`.
 8. **The statement** is written to the terminal, and the person is asked there. Any answer but `y`
-   or `yes` refuses, and nothing is signed.
+   or `yes` refuses: nothing is signed, and the command **exits non-zero**. Its success means a
+   proof was produced, and stdout is then empty, so `archon enroll > proof.txt && …` stops instead
+   of carrying on with an empty file.
 9. **Only now is the key unlocked.** It is the same snapshot of the entry that was read in step 1,
    and its authenticated policy is checked again. The authenticated header key and the key derived
    from the decrypted seed must both equal the key shown in step 8. A mismatch aborts.

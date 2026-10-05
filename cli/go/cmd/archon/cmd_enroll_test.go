@@ -273,6 +273,9 @@ func TestEnrollRefusals(t *testing.T) {
 			if !strings.Contains(got, tc.want) {
 				t.Fatalf("got %q, want it to contain %q", got, tc.want)
 			}
+			if tc.shownYet && err == nil {
+				t.Fatal("a decline exited as a success: a script would carry on with an empty stdout")
+			}
 			if !tc.shownYet && strings.Contains(w.shown(), "asks you to add a key") {
 				t.Fatal("the statement was shown before a refusal that needed nothing from the person")
 			}
