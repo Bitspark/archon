@@ -8,7 +8,7 @@
 # (ADR 0004).
 [package]
 name = "bitspark-archon-sdk"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/Bitspark/archon"
@@ -20,7 +20,7 @@ path = "src/lib.rs"
 
 [dependencies]
 # The floor.
-bitspark-archon-core = { path = "../../core/rs", version = "0.9.0" }
+bitspark-archon-core = { path = "../../core/rs", version = "0.10.0" }
 # The request profile's SHA-256 Content-Digest (docs/request.md). Already in the graph through the
 # floor's ed25519-dalek, so it adds no crate; default features off, which would add const-oid.
 sha2 = { version = "0.11", default-features = false }

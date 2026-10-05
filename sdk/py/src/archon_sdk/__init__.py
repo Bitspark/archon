@@ -25,6 +25,6 @@ keys that do not live in this process.
 from . import envelope, possession, signer
 from .envelope import Opened
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 __all__ = ["envelope", "possession", "signer", "Opened", "__version__"]
