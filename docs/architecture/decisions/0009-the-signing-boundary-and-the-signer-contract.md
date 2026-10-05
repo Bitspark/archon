@@ -14,7 +14,8 @@ profiles ([archon#48](https://github.com/Bitspark/archon/issues/48)) are separat
 > before the key file is read or a password is sought. Those signatures are made only by the
 > commands that show the person what they mean; `sign` shows a length and a digest. The
 > comparison is byte for byte, like the domain itself (ADR 0008 §2), so `Archon-x` is an ordinary
-> domain. Nothing else in §5 changes. From the consultation on
+> domain. It is the command's rule, not the libraries': `core` and `sdk` still sign in `archon-*`
+> domains, which is how `login` and the profiles make their proofs. Nothing else in §5 changes. From the consultation on
 > [archon#91](https://github.com/Bitspark/archon/issues/91) (`research-docs/0005-*`, internal).
 
 ## Context
