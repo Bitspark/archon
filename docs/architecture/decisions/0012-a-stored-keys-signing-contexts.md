@@ -113,9 +113,11 @@ It is built this way:
   - Readers of the new version tell *unsupported*, *migration required*, *malformed* and
     *absent* apart, each with its own machine-mode category.
   - `key list` names every entry it cannot use, with that reason, on stderr and in its text
-    listing (one line each on stderr since #104). Its `--json` keeps its shape, one row per
-    usable entry, so a caller that finds a principal by name is unaffected; each row gains the
-    header's policy, labelled as a claim, since it is read without the password.
+    listing (one line each on stderr since #104). Its `--json` keeps its shape, an array of rows
+    a caller finds a principal in by name, and keeps a row for every entry whose principal it can
+    read, so an entry awaiting conversion is reported as that, not as absent (thesmos's ask on
+    #105). Each row gains a `status` and the header's policy, labelled as a claim, since it is
+    read without the password.
 - **Rollback is disclaimed.** An older authentic file with a wider policy cannot be told from the
   newest without trusted state outside `$ARCHON_HOME`. archon does not claim it can.
 
