@@ -111,9 +111,11 @@ It is built this way:
   - Conversion of a version-1 entry is an explicit management command with an explicit policy
     choice. It replaces the entry atomically and leaves no unrestricted copy behind.
   - Readers of the new version tell *unsupported*, *migration required*, *malformed* and
-    *absent* apart, and `key list` shows the entries it cannot use instead of skipping them, under
-    a versioned `--json` schema. Any policy it prints unauthenticated is labelled as a claim. Until
-    then, `key list` names each entry it skips on stderr, one line each (#104).
+    *absent* apart, each with its own machine-mode category.
+  - `key list` names every entry it cannot use, with that reason, on stderr and in its text
+    listing (one line each on stderr since #104). Its `--json` keeps its shape, one row per
+    usable entry, so a caller that finds a principal by name is unaffected; each row gains the
+    header's policy, labelled as a claim, since it is read without the password.
 - **Rollback is disclaimed.** An older authentic file with a wider policy cannot be told from the
   newest without trusted state outside `$ARCHON_HOME`. archon does not claim it can.
 
