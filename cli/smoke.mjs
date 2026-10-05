@@ -341,11 +341,11 @@ for (const lane of lanes) {
   const exitOf = (r) => (r.code === 0 ? "0" : `${r.code}: ${r.stderr.trim()}`);
 
   // The `until` wall-clock end is each lane's own second; every other byte is pinned.
-  const scrubTime = (s) => s.replace(/until \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/, "until <t>");
+  const scrubTime = (s) => s.replace(/until about \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/, "until about <t>");
   const WANT =
     `${audience} asks you to let browser key ${K_TEXT} act as you:\n` +
     SCOPE.map((s) => `  ${s}\n`).join("") +
-    "for 8h0m0s, until <t>\n" +
+    "for 8h0m0s, until about <t>\n" +
     "signing with the store key shared\n" +
     `signed as ${TEXT}. the browser is in.\n`;
 
@@ -394,7 +394,7 @@ for (const lane of lanes) {
   const LEDGER =
     `you offered ${audience} to let browser key ${K_TEXT} act as you:\n` +
     OFFER_SCOPE.map((s) => `  ${s}\n`).join("") +
-    "for 8h0m0s, until <t>\n" +
+    "for 8h0m0s, until about <t>\n" +
     "signed with the store key shared\n" +
     "the service accepted the login. the browser is in.\n";
   const CODE_LINE = /^code: ([0-9a-f]{32})$/m;

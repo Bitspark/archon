@@ -241,6 +241,8 @@ fn end_to_end() {
             id: request.id.clone(),
             scope: vec!["read:projects".to_string(), "read:campaigns".to_string()],
             valid_for: 28800,
+            // The test clock never moved, so the answer was accepted at its start (#93).
+            accepted_at: 1_789_034_640,
         }
     );
     assert_eq!(

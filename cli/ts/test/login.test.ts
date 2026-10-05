@@ -145,7 +145,7 @@ test("renders the statement", () => {
     `https://prover.core.example.dev/api asks you to let browser key ${BROWSER} act as you:\n` +
     "  read:projects\n" +
     "  read:campaigns\n" +
-    "for 8h0m0s, until 2026-09-10T18:04:00Z\n" +
+    "for 8h0m0s, until about 2026-09-10T18:04:00Z\n" +
     "signing with the seed file /keys/julia\n";
   assert.equal(got, want);
 });
@@ -675,7 +675,7 @@ test("offers from a sealed store key", async () => {
   };
   const base = ["--audience", audience, "--scope", "read:projects", "--scope", "read:campaigns", "--valid-for", "28800", "--key", "julia"];
   const ledger = (verdict: string): string =>
-    `you offered ${audience} to let browser key ${K} act as you:\n  read:projects\n  read:campaigns\nfor 8h0m0s, until 2026-09-10T18:04:00Z\nsigned with the store key julia\n${verdict}`;
+    `you offered ${audience} to let browser key ${K} act as you:\n  read:projects\n  read:campaigns\nfor 8h0m0s, until about 2026-09-10T18:04:00Z\nsigned with the store key julia\n${verdict}`;
   const theCode = (): string => {
     assert.equal(stub.offers.size, 1, "exactly one offer must be registered");
     return [...stub.offers.keys()][0]!;

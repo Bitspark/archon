@@ -89,12 +89,18 @@ const (
 // request id it is handed), or leave them until the browser has collected.
 type AdmitAuthority func(browser, principal []byte, authority json.RawMessage, req Admitted) error
 
-// Admitted is the request a verified answer is for, as its proof bound it. The law gets
-// copies: nothing it does to them reaches the stored request.
+// Admitted is the request a verified answer is for, as its proof bound it, and when this
+// server accepted that answer. The law gets copies: nothing it does to them reaches the stored
+// request.
 type Admitted struct {
 	ID       []byte   // the server's request id, unique per login — the key for idempotent effects
 	Scope    []string // the entries the person was shown and approved, in order
 	ValidFor uint32   // the delegation's approved lifetime in seconds
+	// AcceptedAt is when this server accepted the answer, by its own clock, in whole seconds
+	// (docs/login.md §4): the delegation is [AcceptedAt, AcceptedAt + ValidFor). It is taken
+	// once, while the answer holds the admission turn, and the stored answer carries the same
+	// instant back to the collecting client as `accepted_at`.
+	AcceptedAt time.Time
 }
 
 // Clock and Entropy are CONSTRUCTOR ARGUMENTS rather than package-level calls, which is the
@@ -664,8 +670,13 @@ func (h *Handler) answer(w http.ResponseWriter, r *http.Request, idHex string) {
 		writeError(w, http.StatusConflict, errInvalidRequest)
 		return
 	}
+	// The delegation starts here (§4, #93): one instant, taken while this answer holds the
+	// turn, handed to the law and stored with the answer — so the law and the collecting
+	// client agree on it, and neither a refused answer before nor a late collection after can
+	// move it.
+	acceptedAt := h.clock().UTC().Truncate(time.Second)
 	if h.admit != nil {
-		req := Admitted{ID: bytes.Clone(rec.id), Scope: slices.Clone(rec.scope), ValidFor: rec.validFor}
+		req := Admitted{ID: bytes.Clone(rec.id), Scope: slices.Clone(rec.scope), ValidFor: rec.validFor, AcceptedAt: acceptedAt}
 		if err := h.admit(rec.browser, principal, body.Authority, req); err != nil {
 			writeError(w, http.StatusForbidden, errInvalidGrant)
 			return
@@ -679,6 +690,7 @@ func (h *Handler) answer(w http.ResponseWriter, r *http.Request, idHex string) {
 			Principal:  body.Principal,
 			Possession: body.Possession,
 			Authority:  body.Authority,
+			AcceptedAt: acceptedAt,
 		}
 		return nil
 	})

@@ -390,7 +390,7 @@ fn push_scope_and_validity(out: &mut String, r: &LoginRequest, now_unix: i64) {
         out.push_str(&format!("  {entry}\n"));
     }
     out.push_str(&format!(
-        "for {}, until {}\n",
+        "for {}, until about {}\n",
         format_duration(r.valid_for),
         format_rfc3339_utc(now_unix + i64::from(r.valid_for))
     ));
@@ -1311,7 +1311,7 @@ mod tests {
         );
         let want = format!(
             "https://prover.core.example.dev/api asks you to let browser key {BROWSER} act as you:\n  \
-read:projects\n  read:campaigns\nfor 8h0m0s, until 2026-09-10T18:04:00Z\n\
+read:projects\n  read:campaigns\nfor 8h0m0s, until about 2026-09-10T18:04:00Z\n\
 signing with the seed file /keys/julia\n"
         );
         assert_eq!(got, want);
@@ -2306,7 +2306,7 @@ Connection: close
         ];
         let ledger = |verdict: &str| {
             format!(
-                "you offered {audience} to let browser key {k_text} act as you:\n  read:projects\n  read:campaigns\nfor 8h0m0s, until 2026-09-10T18:04:00Z\nsigned with the store key julia\n{verdict}"
+                "you offered {audience} to let browser key {k_text} act as you:\n  read:projects\n  read:campaigns\nfor 8h0m0s, until about 2026-09-10T18:04:00Z\nsigned with the store key julia\n{verdict}"
             )
         };
 

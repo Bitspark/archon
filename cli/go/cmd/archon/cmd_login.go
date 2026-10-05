@@ -371,7 +371,7 @@ func writeScopeAndValidity(b *strings.Builder, r *loginRequest, now time.Time) {
 		fmt.Fprintf(b, "  %s\n", entry)
 	}
 	end := now.Add(time.Duration(r.ValidFor) * time.Second)
-	fmt.Fprintf(b, "for %s, until %s\n", formatDuration(r.ValidFor), end.Format("2006-01-02T15:04:05Z"))
+	fmt.Fprintf(b, "for %s, until about %s\n", formatDuration(r.ValidFor), end.Format("2006-01-02T15:04:05Z"))
 }
 
 // describeKeySource names the custody the signature will come from, for the last line of

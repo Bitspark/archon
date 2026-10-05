@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 	"unicode/utf8"
 )
 
@@ -74,6 +75,9 @@ func writeCollected(w http.ResponseWriter, a *answer) {
 	body.Write(principal)
 	body.WriteString(`,"possession":`)
 	body.Write(possession)
+	body.WriteString(`,"accepted_at":"`)
+	body.WriteString(a.AcceptedAt.UTC().Format(time.RFC3339))
+	body.WriteString(`"`)
 	if len(a.Authority) > 0 {
 		body.WriteString(`,"authority":`)
 		body.Write(a.Authority)
