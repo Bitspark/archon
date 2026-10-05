@@ -16,7 +16,7 @@ import (
 // It is the FALLBACK. A binary installed with `go install …/cli/go/cmd/archon@vX.Y.Z`
 // carries the module version the Go toolchain resolved, and that is what it reports (see
 // reportedVersion); the constant answers only for builds from a working tree.
-var version = "0.13.0"
+var version = "0.14.0"
 
 // releaseVersion matches what the toolchain records for a RELEASE — `vX.Y.Z` and nothing
 // more. Go 1.24+ also stamps builds from a git checkout: a pseudo-version past the last tag
