@@ -70,7 +70,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let pem = seed_to_pkcs8_pem(&opts.seed)?;
     match opts.out.as_deref() {
         Some(path) => {
-            fs::write(path, &pem).map_err(|e| format!("could not write key to {path:?}: {e}"))?;
+            write_private(path, pem.as_bytes())
+                .map_err(|e| format!("could not write key to {path:?}: {e}"))?;
             eprintln!("wrote PKCS#8 private key PEM to {path}");
         }
         None => {
@@ -128,6 +129,29 @@ impl Opts {
             pub_format,
         })
     }
+}
+
+/// Write the private key so that only its owner can read it: created 0600 on Unix, as the Go
+/// lane's `os.WriteFile(…, 0o600)` and the TS lane's `writeFileSync(…, { mode: 0o600 })` do.
+/// Like theirs, the mode applies when the file is created. A plain `fs::write` created it
+/// 0644 under the usual umask, readable by every local user (GHSA-32mc-pxw9-43jc).
+#[cfg(unix)]
+fn write_private(path: &str, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(bytes)
+}
+
+/// Windows has no mode bits: the file inherits the ACL of the directory it is written to.
+#[cfg(not(unix))]
+fn write_private(path: &str, bytes: &[u8]) -> std::io::Result<()> {
+    fs::write(path, bytes)
 }
 
 /// Draw a fresh 32-byte seed from the operating system's CSPRNG.
