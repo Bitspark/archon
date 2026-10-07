@@ -152,15 +152,16 @@ connection profile would be a new archon protocol version, taken up when a produ
 - **Consequences outlive permission.** Expiry stops further use of the delegation. It does not undo
   writes, copied data or configuration changes already made.
 - **Approving the wrong client.** A person can approve, at the genuine service, a pending request an
-  attacker created for the attacker's K. That needs its own analysis, tracked separately.
+  attacker created for the attacker's K. That needs its own analysis: [archon#123](https://github.com/Bitspark/archon/issues/123).
 
 ## Consequences
 
 - **`docs/login.md` §1, §6 and §7 are rewritten** to this decision. The stale reference to a browser
   client package (`sdk/ts/login/browser`), which archon never shipped, is removed. ADR 0007's
   historical table keeps it as it was.
-- **thesmos** is asked whether a grant can restrict onward delegation and the audience; services must
-  not claim either until their law enforces it.
+- **thesmos** is asked whether a grant can restrict onward delegation and the audience
+  ([thesmos#895](https://github.com/Bitspark/thesmos/issues/895)); services must not claim either until
+  their law enforces it.
 - **aiscape's** planned login route is a reasonable composition under §1–§3, with its connection
   proof, its write envelopes and grants signed in the page each needing the acceptance contracts
   above.
