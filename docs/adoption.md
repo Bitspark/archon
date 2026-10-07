@@ -59,6 +59,12 @@ its error codes. **It is not an OAuth or OpenID Connect provider, not SAML, and 
 single sign-on integration**, and it issues no bearer token. Whether the person behind the key
 may do anything is the authority layer's question, answered in your `AdmitAuthority`.
 
+**After the login**, your service authenticates the client's key through a protocol you
+specify: archon's request profile for HTTP, a session you bind to the key at the collect, or a
+protocol of your own. The authority derived from the login stays within its audience, scope and
+interval, and you check that wherever you accept it ([login.md](login.md) §6–§7,
+[ADR 0014](architecture/decisions/0014-a-login-keys-use-after-the-collect.md)).
+
 ## Signing with a stored key (from 0.9.0)
 
 Decided in [ADR 0009](architecture/decisions/0009-the-signing-boundary-and-the-signer-contract.md)

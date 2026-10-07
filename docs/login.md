@@ -23,7 +23,7 @@ key custody, and every socket.
 
 | party | holds | called |
 |---|---|---|
-| the **browser** | an ephemeral Ed25519 key **K**, generated for this login, held in memory for exactly the delegation's lifetime | the client |
+| the **browser** | an ephemeral Ed25519 key **K**, generated for this login and kept only while it has a role (§6) | the client |
 | the **service** | its own **audience** string (§2) and a law that admits delegations | the server |
 | the **CLI** | the person's key **P**, in custody it controls | the prover |
 
@@ -349,23 +349,95 @@ test sweeps every code point against that file.
   CLI shows is an estimate, which is why it says "about". A signed absolute end would need a new
   binding version (archon#93 records that as a later decision, for a consumer that must check
   the end from the proof alone).
-- **No long-lived secrets in the browser, no sessions on the server.** K is a key the page
-  can read — necessarily: the collect proof is Ed25519ph with a context (§3.3), which
-  WebCrypto's Ed25519 cannot compute, so a non-extractable K is not a property this scheme
-  can have and it does not claim one *(corrected 2026-09-10 from the first consumer's finding on
-  archon#16; the first text said "generated non-extractable where the platform allows")*.
-  What K has instead: it never signs anything but its own collect proofs, the delegation
-  the law issues is bound to it, and both live exactly as long as the delegation — in
-  memory, `sessionStorage` at most, never `localStorage`, gone with the tab. P never leaves
-  its custody; the service holds nothing after the login. Revocation is expiry, as elsewhere
-  in the constellation's development profile.
+- **P never enters the browser; K is a key the page can read.** P stays in the prover's custody.
+  K is generated for this login and is readable by page script — necessarily: the collect proof
+  is Ed25519ph with a context (§3.3), which WebCrypto's Ed25519 cannot compute, so a
+  non-extractable K is not a property this scheme can have and it does not claim one
+  *(corrected 2026-09-10 from the first consumer's finding on archon#16; the first text said
+  "generated non-extractable where the platform allows")*. Nor does it claim that someone holding
+  K is confined to archon's sdk.
+- **After the collect, K is used only through a protocol the service specifies**
+  ([ADR 0014](architecture/decisions/0014-a-login-keys-use-after-the-collect.md), superseding
+  the earlier sentence that K "never signs anything but its own collect proofs"). The login uses K
+  for its collect proof. Afterwards a service may accept K through archon's request profile
+  (§7), through a session it binds to K at the collect, or through a protocol of its own with a
+  complete acceptance contract. A successful login does not by itself authenticate any later
+  operation.
+- **Authority stays bounded, and is checked where it is accepted.** Every use of authority derived
+  from a login stays within the approved audience, the admitted interpretation of the approved
+  scope, and the earliest applicable end: `acceptedAt + valid_for`, every applicable grant's
+  expiry, and any limit the service sets. It is checked at each execution boundary: a command, a
+  subscription's delivery, a stream's output, queued work, a reconnect. The principal is K,
+  established by the service's authentication or by a credential bound to K, never inferred from a
+  submitted chain. Attributing K's actions to P's account does not remove the limits of the
+  delegation to K.
+- **What a service's `AdmitAuthority` must establish.**
+  - The admitted authority corresponds to the approval: the right P and K, the approved scope as
+    the service interprets it, the service's audience and the login's interval. A payload that
+    holds *some valid grant* is not enough. The handler hands the law everything this needs (§4).
+  - The audience is carried by the authority itself. Whoever holds K can sign a fresh proof naming
+    another audience, so the grant, the admission context or a trust namespace exclusive to one
+    deployment must restrict the authority to this audience, and every accepting route must
+    enforce that.
+  - If the grants carry no start time, the admission context enforces the login's start.
+    Collecting, reconnecting and renewing never restart `valid_for`.
+  - Onward delegation, enrollment, credential exchange, recovery and renewal acquire no broader or
+    longer-lived authority because of this login; what they derive keeps its source's limits. A
+    service does not claim a restriction its law cannot enforce: thesmos's default law allows
+    onward delegation.
+- **A session started at the collect is the service's, and is sound under six conditions.** It is
+  created only as a consequence of a successful collect and admission; it is bound immutably to K,
+  the admitted authority, the audience and the deadlines; collection and session creation are
+  single-use across concurrent requests, replicas and retries (archon's handler makes collection
+  single-use within one process); nothing renews it past the authority's end; each operation is
+  still authorized; and the service states how a session ends. An HttpOnly cookie keeps page
+  script from *reading* the session, not from *using* it; a credential returned to JavaScript has
+  no such protection. A client that has no further use for K discards it at the handoff.
+- **No bearer credential, and no sessions in the login handler.** The login protocol issues no
+  bearer credential; a service that completes the exchange with a bearer session or another
+  credential specifies that construction and its binding to the admitted authority. The login
+  handler holds nothing after the login (§4). The service may keep admitted authority, principal
+  bindings, sessions, replay records and connection state its protocols need. Plaintext logs and
+  proxies that see a bearer credential are inside that credential's trust boundary.
+- **Keeping K is client behaviour, never revocation.** A client keeps K only while it has a role,
+  in memory or `sessionStorage` at most, never `localStorage`, and discards it when the exchange is
+  abandoned, its role ends or the deadline passes. That is not erasure: `sessionStorage` can be
+  copied into windows the page opens, a copy of K survives the tab, and closing a tab revokes
+  nothing. Expired authority is refused whatever copies of K remain. The login protocol has no early
+  revocation; revocation is expiry, and a service that supports more says what it invalidates.
+- **Residual risk.** A service that accepts K directly exposes all the authority it accepts
+  through K, for as long as that authority lasts, to page compromise or a copied K. Request
+  verification does not show that the sender holds K now, since requests can be signed in advance
+  (ADR 0010 §5); the hard bound is the authority check at the time of use. A session reduces
+  extraction but not misuse by page script. A copy of K can race the page to collect, and is not
+  inert afterwards while any route accepts K or authority derived from it, such as an onward grant.
+  Expiry stops further use; it does not undo what was done.
 - **Pinnable.** The binding is a deterministic function of its inputs and the proofs are
   deterministic Ed25519ph signatures, so `vectors/login.json` pins the bytes across the three
   lanes; nonce generation and clocks are the callers'.
 
-## 7. Not in this document
+## 7. Protocols composed with login, and what this document leaves out
 
-Custody of P (ADR 0007: the CLI's key store), the server package and the browser client
-(ADR 0007; `server/`, `sdk/ts/login/browser`), the delegation's contents (the law's), request
-signing after login (RFC 9421 — a separate proposal), and any fleet rule about domains. The
+- **HTTP requests.** archon's request profile ([`request.md`](request.md), ADR 0010) is the
+  standard composition. A service may accept requests signed by the K this login approved,
+  combining request verification with §6's audience, principal and authority conditions. It
+  authenticates the signed request under that profile; it does not show that the sender holds K
+  now, or holds it alone.
+- **Sessions and connections.** Login defines no session credential and no WebSocket, stream or
+  connection authentication. A browser cannot add headers to a WebSocket upgrade, so a service
+  authenticates a connection by its session cookie (with an Origin check, as a supplement), by a
+  challenge and K's proof in the first messages, or by a single-use ticket from an authenticated
+  request. The integrating protocol specifies its signature domain, version and purpose; a fresh,
+  single-use challenge tied to the actual pending connection; its binding to the audience and
+  endpoint; which key becomes the principal and how its authority is obtained; and its timeout,
+  reconnect and expiry behaviour. It owns that contract's tests.
+- **Other signatures and derived authority.** A service may define other uses of K, onward grants
+  included where its law allows them. Each accepting protocol defines what its signatures mean and
+  when K's authority is accepted for them. A distinct signature domain alone establishes neither;
+  and a proof of possession never raises a key's standing, so enrollment and issuance are governed
+  by their endpoints' policy. Using archon's signature or possession primitives does not make the
+  enclosing protocol an archon protocol (ADR 0011).
+
+**Not in this document:** custody of P (ADR 0007: the CLI's key store), the server package
+(`server/`), the delegation's contents (the law's), and any fleet rule about signature domains. The
 prover-initiated form is §4.1 as of v0.5.0.
