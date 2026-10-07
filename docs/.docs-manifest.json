@@ -156,6 +156,19 @@
       "residual-risk",
       "consequences"
     ],
+    "docs/architecture/decisions/0014-a-login-keys-use-after-the-collect.md": [
+      "0014--a-logins-key-after-the-collect-bounded-authority-accepted-through-specified-protocols",
+      "context",
+      "decision",
+      "1-6s-sentence-is-superseded",
+      "2-the-property-is-bounded-authority-enforced-where-it-is-accepted",
+      "3-what-archon-requires-of-a-service-that-admits-a-login",
+      "4-a-session-started-at-the-collect-is-a-sound-completion",
+      "5-connections-are-the-integrating-protocols",
+      "6-what-is-not-adopted",
+      "residual-risk",
+      "consequences"
+    ],
     "docs/architecture/decisions/README.md": [
       "architecture-decisions"
     ],
@@ -208,7 +221,7 @@
       "41-the-prover-initiated-form--offers",
       "5-what-the-cli-shows-before-it-signs",
       "6-properties",
-      "7-not-in-this-document"
+      "7-protocols-composed-with-login-and-what-this-document-leaves-out"
     ],
     "docs/request.md": [
       "archon-request-authentication-and-key-enrollment--the-profiles",
