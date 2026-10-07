@@ -378,7 +378,10 @@ test sweeps every code point against that file.
   - The audience is carried by the authority itself. Whoever holds K can sign a fresh proof naming
     another audience, so the grant, the admission context or a trust namespace exclusive to one
     deployment must restrict the authority to this audience, and every accepting route must
-    enforce that.
+    enforce that. The audience is compared byte for byte, never by prefix: a login mounted at
+    `https://x.dev/login` has the audience `https://x.dev`, not the API's `https://x.dev/api`. Mount
+    the login at `<api base>/login` so the two are one string, or have the admitted authority name
+    the API's audience explicitly.
   - If the grants carry no start time, the admission context enforces the login's start.
     Collecting, reconnecting and renewing never restart `valid_for`.
   - Onward delegation, enrollment, credential exchange, recovery and renewal acquire no broader or
@@ -393,6 +396,13 @@ test sweeps every code point against that file.
   still authorized; and the service states how a session ends. An HttpOnly cookie keeps page
   script from *reading* the session, not from *using* it; a credential returned to JavaScript has
   no such protection. A client that has no further use for K discards it at the handoff.
+  - **How to build it with this handler.** The handler has no collect callback, and the collect
+    response carries no K, so never build the session from that response. Record K, P, the
+    admitted authority and the deadlines in `AdmitAuthority`, keyed by `Admitted.ID` and
+    idempotently; wrap the collect route; and where the handler answers 200 for that id (it has
+    verified K's collect proof), create the session from that record, once.
+  - **Replicas.** The handler's state lives in one process's memory. Route every request of one
+    login to the same replica; that also keeps collection single-use across replicas.
 - **No bearer credential, and no sessions in the login handler.** The login protocol issues no
   bearer credential; a service that completes the exchange with a bearer session or another
   credential specifies that construction and its binding to the admitted authority. The login

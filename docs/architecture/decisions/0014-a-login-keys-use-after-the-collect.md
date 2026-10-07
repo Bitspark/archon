@@ -78,6 +78,13 @@ authority, and no public key is marked as a "login key".
   stop a proof from being replayed elsewhere, but not that. So the grant, the admission context, or a
   trust namespace exclusive to one deployment must restrict the authority to the approved audience,
   and every accepting route must enforce it.
+- **"The approved audience" means byte equality.** The login's audience is whatever precedes
+  `/login/<id>`, so a login mounted at `https://x.dev/login` has the audience `https://x.dev`, while an
+  API verified at `https://x.dev/api` has `https://x.dev/api`. For K's requests to fall within the
+  login's audience, either mount the login at `<api base>/login`, so that the request profile's
+  configured audience and the login's are the same string, or have the admitted authority name the
+  API's audience explicitly. Never treat one audience as containing another by prefix: tenants
+  routed by path share a host.
 - **The start.** `acceptedAt` is taken once and never moves (archon#93). Collecting, reconnecting
   and renewing must not restart `valid_for`. If the grants carry no start time, the admission
   context enforces the login's start.
@@ -98,8 +105,19 @@ It is the service's construction, not login's, and it meets six conditions:
 5. each operation is still authorized under the law;
 6. the service states how a session ends, since immediate revocation needs a server-side check.
 
-archon's handler already makes collection single-use within one process. A deployment with replicas
-makes it single-use across them.
+**The construction, with the handler as shipped.** The handler has no collect callback, and the
+collect response carries no K, so a session must not be built from that response, which is public
+evidence. Instead:
+- in `AdmitAuthority`, record K, P, the admitted authority and the deadlines, keyed by
+  `Admitted.ID`, idempotently (the law may run more than once for one request, §4);
+- wrap the collect route; where the handler answers 200 for that id, it has verified K's collect
+  proof, so create the session there, from the record for that id;
+- create it once, and never from anything the client sends.
+
+archon's handler keeps its state in one process's memory, which makes collection single-use there. A
+deployment with replicas routes every request of one login to the same replica, which is also what
+keeps collection single-use across them. A collect callback in the handler would make this
+construction simpler; it is deferred (§6).
 
 **A page-readable K still matters under a session.** A copy of K can race the page to collect, and
 it is not inert afterwards if any route accepts K or authority derived from it, for example an onward
@@ -133,6 +151,8 @@ connection profile would be a new archon protocol version, taken up when a produ
 - **Excluding `archon-enroll/1` as a defence.** A proof of possession never raises a key's standing;
   elevation is the enrollment endpoint's and the law's policy. K could otherwise ask an issuer to
   grant to another key through an ordinary request.
+- **A collect callback in the handler, for now.** Services wrap the collect route (§4). Deferred until
+  a service building a session at the collect asks for the seam.
 - **An sdk that confines K, for now.** Interfaces that bind K to its collect, its audience and its
   deadline would help callers avoid mistakes, but they bind only archon's code, never a copy of the
   seed (ADR 0012 records the same limit). Deferred until the first consumer builds the browser half
