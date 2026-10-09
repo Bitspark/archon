@@ -274,7 +274,9 @@ any permitted sign-in path.
 - account continuity checked before presenting, before signing and at admission;
 - the receipt and the passkey evidence (accounts PR #20);
 - the renewal mandate's rules, and one K per episode;
-- whether publication activates authority before admission;
+- whether publication activates authority before admission. thesmos ruled on thesmos#933: it does,
+  at every receiver that checks residence. So the grant is published only after admission, and until
+  then its bytes go only to the admitting party, with a short expiry (`docs/login.md` §6);
 - durable issuance identifiers and recovery;
 - a backend asking for more coverage than intended;
 - a revocation consistency contract.

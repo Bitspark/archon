@@ -558,6 +558,12 @@ It is shown as eight groups of four lowercase hex digits: `7a91 b2c3 d4e5 f607 1
   - A grant signed before `acceptedAt` matches the login when the login's interval is its upper
     bound: the admitted authority ends no later than `acceptedAt + valid_for`. Exact equality with a
     clock reading taken later is not required (ADR 0015 §6).
+  - **Publish after admission.** With thesmos, publishing a grant activates it at every receiver
+    that checks residence ([thesmos#933](https://github.com/Bitspark/thesmos/issues/933)). So a
+    grant that must not act before admission has checked it is sent to the admitting service in the
+    authority payload, and published only after `AdmitAuthority` accepts it. Until then its bytes go
+    only to the admitting party, and its expiry is short. A grant that is never admitted is never
+    published.
   - Onward delegation, enrollment, credential exchange, recovery and renewal acquire no broader or
     longer-lived authority because of this login; what they derive keeps its source's limits. A
     service does not claim a restriction its law cannot enforce: thesmos's default law allows
