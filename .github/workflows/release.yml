@@ -542,7 +542,11 @@ jobs:
               fi
               echo "::error::cargo publish failed in $c" >&2; exit 1
             fi
-            [ -z "$DRY" ] && wait_for_index "$pkg" "${TAG#v}"
+            # An `if`, not `[ -z "$DRY" ] && …`: in a rehearsal that test is false, and when it
+            # is the last command of the last crate it becomes the step's exit status. That
+            # failed the v0.15.0 rehearsal (run 37902686040), once all four crates already
+            # existed and every dry run therefore resolved.
+            if [ -z "$DRY" ]; then wait_for_index "$pkg" "${TAG#v}"; fi
           done
 
       - name: Import the release signing key
