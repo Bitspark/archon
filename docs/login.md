@@ -3,7 +3,7 @@
 **Status:** shipped — in every release since 0.3.0 (designed on
 [archon#16](https://github.com/Bitspark/archon/issues/16); the offers form since 0.5.0,
 `acceptedAt` since 0.11.0, the display rule since 0.12.0; the transaction fingerprint, the
-consequence statement and the offers page's trusted origin from the release after 0.14.0,
+consequence statement and the offers page's trusted origin since 0.15.0,
 [ADR 0015](architecture/decisions/0015-approving-the-right-client.md)), in all three lanes ·
 **Layer:** `sdk/{rs,go,ts}/login` (ADR 0004; pinnable, tri-lane) · **Oracle:** `vectors/login.json`
 
