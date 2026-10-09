@@ -1,10 +1,11 @@
 {
-  "_why": "The statement is the one thing all three archon CLI lanes must print BYTE-IDENTICALLY, and it is the thing the person reads before signing. cli/smoke.mjs pins exactly ONE rendered statement — the store-key login it runs against the server it hosts itself — and this fixture pins every OTHER source line, with no network: each lane's unit suite reads THIS file and asserts its renderer reproduces `statement` exactly. Change the wording here and all three suites fail until all three lanes agree again. `offer_cases` is the same pin for the offers form (docs/login.md §4.1 rule 4): the LEDGER the CLI prints AFTER answering, the same fields the statement shows before signing, with the service's verdict as its last line — and never the code.",
+  "_why": "The statement is the one thing all three archon CLI lanes must print BYTE-IDENTICALLY, and it is the thing the person reads before signing. cli/smoke.mjs pins exactly ONE rendered statement — the store-key login it runs against the server it hosts itself — and this fixture pins every OTHER source line, with no network: each lane's unit suite reads THIS file and asserts its renderer reproduces `statement` exactly. Change the wording here and all three suites fail until all three lanes agree again. `offer_cases` is the same pin for the offers form (docs/login.md §4.1 rule 4): the LEDGER the CLI prints AFTER answering, the same fields the statement shows before signing, with the service's verdict as its last line — and never the code. `prompt` is the same pin for what follows the statement when the question is asked (ADR 0015, archon#123): the consequence a yes has and who should give it, then the unchanged question — and nothing of it with --yes, which asks nothing.",
   "_read_by": [
     "cli/go/cmd/archon/cmd_login_test.go",
     "cli/rs/src/cmd/login.rs (mod tests)",
     "cli/ts/test/login.test.ts"
   ],
+  "prompt": "This gives the browser key above authority to act as you.\nApprove only a client you started yourself.\nsign? [y/N] ",
   "cases": [
     {
       "name": "a scope of two entries",

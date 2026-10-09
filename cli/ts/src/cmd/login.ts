@@ -46,13 +46,14 @@ const USAGE =
   "usage: archon login <url> [--key <name> | --seed <hex> | --key-file <pkcs8.pem> | --seed-file <file>] " +
   "[--authority-file <file>] [--yes]\n" +
   "       archon login --audience <base> [--scope <entry>]... --valid-for <seconds> " +
-  "[--key <name> | --seed <hex> | --key-file <pkcs8.pem> | --seed-file <file>] [--authority-file <file>]\n  " +
+  "[--key <name> | --seed <hex> | --key-file <pkcs8.pem> | --seed-file <file>] [--authority-file <file>] [--page-origin <origin>]\n  " +
   "proves possession of your key to the service at <url> so the browser key it names may act for you. " +
   "<url> is the invocation URL <audience>/login/<id>; the audience is derived from it, never taken from the server. " +
   "--key names a key in the store and is the default (archon key default); --key-file is a PKCS#8 file. " +
   "Store password: interactive prompt, or ARCHON_KEY_PASSWORD / --password-fd <n>, never argv.\n  " +
   "with no URL, the CLI OFFERS what you typed and the page finishes: the audience is --audience or ARCHON_AUDIENCE, " +
-  "never a page's word; the code and the page address go to stderr, the ledger to stdout after the service answers; " +
+  "never a page's word; the code goes to stderr, the page address with it only when it is https (or http on this machine) " +
+  "on the audience's origin or the one --page-origin names, the ledger to stdout after the service answers; " +
   "no confirmation is asked — what you typed is what you sign.";
 
 /** Where the offers form writes its interactive lines and how it waits, injected so a test can
@@ -63,6 +64,9 @@ export interface LoginIo {
   sleep: (seconds: number) => Promise<void>;
   /** Seconds since the Unix epoch. */
   now: () => number;
+  /** Where the page-started form reads the answer to its question; process.stdin when absent.
+   *  A function, so the real stream is only touched when the question is actually asked. */
+  stdin?: () => NodeJS.ReadableStream;
 }
 
 const realIo: LoginIo = {
@@ -71,6 +75,7 @@ const realIo: LoginIo = {
   },
   sleep: (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1000)),
   now: () => Math.floor(Date.now() / 1000),
+  stdin: () => process.stdin,
 };
 
 // The signing domain (archon-login/1) is deliberately NOT declared here. It is the
@@ -197,6 +202,15 @@ export async function run(
       assumeYes = true;
       continue;
     }
+    if (flag === "--page-origin") {
+      // The offers form's flag (ADR 0015). Here it would do nothing — the page started this
+      // login, and no page address is printed — and a flag that does nothing is a flag someone
+      // will come to rely on.
+      throw new Error(
+        "--page-origin applies only to the offers form (no URL): with a URL the page started the login, " +
+          `and no page address is printed\n${USAGE}`,
+      );
+    }
     const value = rest[i + 1];
     if (value === undefined || value === "") throw new Error(`flag ${JSON.stringify(flag)} needs a value\n${USAGE}`);
     i++;
@@ -241,7 +255,7 @@ export async function run(
   // SHOW BEFORE SIGN. The person confirms the statement, not the URL.
   const keySource = describeKeySource(src);
   write(renderStatement(audience, request, io.now(), keySource));
-  if (!assumeYes && !(await confirm())) {
+  if (!assumeYes && !(await confirm(write, (io.stdin ?? (() => process.stdin))()))) {
     write("refused. nothing was signed.\n");
     return;
   }
@@ -391,11 +405,29 @@ export function formatRfc3339Utc(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-/** Read a y/N answer. Default is NO: anything that is not an explicit yes refuses,
- *  including EOF, so a login cannot be completed by a closed stdin. */
-export async function confirm(): Promise<boolean> {
-  process.stdout.write("sign? [y/N] ");
-  const rl = createInterface({ input: process.stdin });
+/** Printed between the statement and the question (ADR 0015, archon#123). The statement says
+ *  WHAT is asked; these say what a yes DOES, and who should be giving it: a login request
+ *  reaching a person who did not start the client behind it is the phishing shape, and the one
+ *  defence the CLI has at this moment is the person declining it. Pinned across the three lanes
+ *  by cli/testdata/login-statement.json's `prompt`. */
+const CONSEQUENCE_LINES =
+  "This gives the browser key above authority to act as you.\n" +
+  "Approve only a client you started yourself.\n";
+
+/** States the consequence, then reads a y/N answer. Default is NO: anything that is not an
+ *  explicit yes refuses, including EOF, so a login cannot be completed by a closed stdin. With
+ *  --yes it is never called, so nothing of it is printed. It writes where the statement was
+ *  written — `run`'s writer, stdout unless a test injected one — so the two cannot be reordered
+ *  or split across streams. */
+export async function confirm(
+  write: (text: string) => void = (text) => {
+    process.stdout.write(text);
+  },
+  input: NodeJS.ReadableStream = process.stdin,
+): Promise<boolean> {
+  write(CONSEQUENCE_LINES);
+  write("sign? [y/N] ");
+  const rl = createInterface({ input });
   const line = await new Promise<string>((resolve) => {
     rl.once("line", (value) => resolve(value));
     rl.once("close", () => resolve(""));
@@ -549,6 +581,7 @@ export async function runOffer(args: string[], write: (text: string) => void, io
   let authorityFile: string | undefined;
   let audienceFlag: string | undefined;
   let validForText: string | undefined;
+  let pageOriginText: string | undefined;
   const scope: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const flag = rest[i]!;
@@ -569,6 +602,7 @@ export async function runOffer(args: string[], write: (text: string) => void, io
       case "--key-file": src.keyFile = value; break;
       case "--seed-file": src.seedFile = value; break;
       case "--authority-file": authorityFile = value; break;
+      case "--page-origin": pageOriginText = value; break;
       default: throw new Error(`unknown flag ${JSON.stringify(flag)}\n${USAGE}`);
     }
   }
@@ -587,6 +621,9 @@ export async function runOffer(args: string[], write: (text: string) => void, io
   // RULE 1: the audience is the CLI's own configuration, a fixed point of §2.1's grammar,
   // refused before anything is fetched.
   const audience = configuredAudience(audienceFlag);
+  // The one other origin whose page may be printed is the person's own word, checked here,
+  // before anything is sent, the way the audience is (ADR 0015).
+  const pageOrigin = pageOriginFlag(pageOriginText);
 
   // The code is the CLI's own entropy, registered under it. The service echoes the offer back;
   // an echo that differs is a service that altered what was offered, and nothing of it is
@@ -599,10 +636,11 @@ export async function runOffer(args: string[], write: (text: string) => void, io
   io.writeErr(`offer registered at ${audience}\n`);
   io.writeErr(`code: ${code}\n`);
   if (offered.page !== undefined) {
-    // The address a person would open, printed beside a warning about itself: one that would not
-    // show as itself is refused, not escaped (docs/login.md §5).
+    // The address a person would open: one that would not show as itself is refused, not
+    // escaped (docs/login.md §5) — first, before it is judged — and one on an origin nobody
+    // trusted is withheld rather than printed (describePage).
     refuseUndisplayable("the service's page address", offered.page);
-    io.writeErr(`${describePage(audience, offered.page)}\n`);
+    io.writeErr(`${describePage(audience, offered.page, pageOrigin)}\n`);
   }
   io.writeErr(`waiting for the page to take the offer, up to ${offered.expires_in}s\n`);
 
@@ -726,15 +764,84 @@ function checkOfferEcho(offered: OfferResponse, code: string, scope: string[], v
   if (!Number.isInteger(offered.expires_in) || offered.expires_in <= 0) throw new Error("login: the service's offer has no lifetime (expires_in)");
 }
 
-/** The one line about the page address, printed and MARKED, never opened (§4.1 rule 1; ADR
- *  0007 §C.7 (6)). "On the service's own origin" is a byte-exact comparison of scheme and host
- *  with the audience's — a differently spelled origin fails closed, the right direction for an
- *  address a person is about to click — and launching a browser is the person's action, never
- *  this command's: spawning a platform opener by name is the PATH surface §C.5 refuses. */
-export function describePage(audience: string, page: string): string {
-  const origin = originOf(audience);
-  const onOrigin = page === origin || page.startsWith(`${origin}/`) || page.startsWith(`${origin}#`) || page.startsWith(`${origin}?`);
-  return onOrigin ? `page: ${page} (on the service's own origin)` : `page: ${page} (NOT on the service's origin — do not open it)`;
+/** The lines describePage prints when it withholds the page address. Each says why, and none
+ *  carries the address: it holds the code, and the code is already on the line above it. */
+export const PAGE_NOT_HTTPS = "the service's page is not an https address, so its address (which carries the code) is not printed";
+export const PAGE_PLAIN_HTTP =
+  "the service's page is plain HTTP off this machine, so its address (which carries the code) is not printed; " +
+  "only https, or http on localhost, 127.0.0.1 or [::1], is printed";
+export const PAGE_OFF_ORIGIN =
+  "the service's page is not on the service's own origin, so its address (which carries the code) is not printed; " +
+  "pass --page-origin <origin> to trust that origin";
+export const PAGE_OFF_TRUSTED =
+  "the service's page is on neither the service's own origin nor the one --page-origin names, " +
+  "so its address (which carries the code) is not printed";
+
+/** The one stderr line about the page address (§4.1 rule 1; ADR 0007 §C.7 (6); ADR 0015). The
+ *  address carries the code in its fragment, and a person shown an address can open it whatever
+ *  label sits beside it (archon#123) — so it is PRINTED only when it is both (a) on a trusted
+ *  transport, https or plain http on this machine (localhost, 127.0.0.1, [::1]), and (b) on a
+ *  trusted origin: the audience's own, or the one the person named with --page-origin.
+ *  Otherwise one line says why it was withheld and the flow goes on: the code line above it lets
+ *  the person finish on the service's own page.
+ *
+ *  Both comparisons are byte-exact, of the page's scheme and authority as it spells them with
+ *  the audience's (canonical by construction) and with --page-origin (canonical, pageOriginFlag
+ *  made sure) — a differently spelled origin fails closed, the right direction for an address
+ *  carrying a secret. It is never opened: launching a browser is the person's action, never this
+ *  command's — spawning a platform opener by name is the PATH surface §C.5 refuses. */
+export function describePage(audience: string, page: string, trusted?: string): string {
+  const sep = page.indexOf("://");
+  const scheme = sep < 0 ? "" : page.slice(0, sep);
+  if (scheme !== "https" && scheme !== "http") return PAGE_NOT_HTTPS;
+  const rest = page.slice(sep + 3);
+  const end = rest.search(/[/?#]/);
+  const authority = end < 0 ? rest : rest.slice(0, end);
+  if (scheme === "http" && !isLoopback(authority)) return PAGE_PLAIN_HTTP;
+  const origin = `${scheme}://${authority}`;
+  if (origin === originOf(audience)) return `page: ${page} (on the service's own origin)`;
+  if (trusted !== undefined && origin === trusted) return `page: ${page} (on the origin you trusted with --page-origin)`;
+  return trusted !== undefined ? PAGE_OFF_TRUSTED : PAGE_OFF_ORIGIN;
+}
+
+/** Whether an authority, as a page spells it, names this machine: exactly localhost, 127.0.0.1
+ *  or [::1], with any port. Userinfo is never this machine — it is how
+ *  `http://localhost@elsewhere` reads as one host and goes to another. */
+function isLoopback(authority: string): boolean {
+  if (authority.includes("@")) return false;
+  let host = authority;
+  if (host.startsWith("[")) {
+    const close = host.indexOf("]");
+    if (close >= 0) host = host.slice(0, close + 1);
+  } else {
+    const colon = host.indexOf(":");
+    if (colon >= 0) host = host.slice(0, colon);
+  }
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+}
+
+/** Checks --page-origin (ADR 0015) before anything is sent: an ORIGIN — scheme://host[:port],
+ *  with no path, query or fragment — spelled canonically, as an audience must be: a fixed point
+ *  of §2.1's grammar, fed through the scheme's derivation exactly as selectedAudience feeds the
+ *  audience. describePage compares it byte for byte, so a spelling the comparison could never
+ *  match is refused here, naming the one it could. */
+export function pageOriginFlag(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const sep = value.indexOf("://");
+  const rest = sep < 0 ? "" : value.slice(sep + 3);
+  if (rest === "" || /[/?#]/.test(rest)) {
+    throw new Error(`login: --page-origin ${jsonString(value)} is not an origin — give scheme://host[:port], with no path, query or fragment`);
+  }
+  let derived: string;
+  try {
+    derived = deriveAudience(`${value}/login/00`).audience;
+  } catch (err) {
+    throw new Error(`login: --page-origin ${jsonString(value)} is not valid: ${err instanceof Error ? err.message : String(err)} (docs/login.md §2.1)`);
+  }
+  if (derived !== value) {
+    throw new Error(`login: --page-origin ${jsonString(value)} is not canonical — pass ${jsonString(derived)} (docs/login.md §2.1)`);
+  }
+  return value;
 }
 
 /** The audience up to its path: scheme, host and port, as the audience spells them (canonical
