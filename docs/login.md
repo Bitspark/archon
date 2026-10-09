@@ -2,7 +2,9 @@
 
 **Status:** shipped — in every release since 0.3.0 (designed on
 [archon#16](https://github.com/Bitspark/archon/issues/16); the offers form since 0.5.0,
-`acceptedAt` since 0.11.0, the display rule since 0.12.0), in all three lanes ·
+`acceptedAt` since 0.11.0, the display rule since 0.12.0; the transaction fingerprint, the
+consequence statement and the offers page's trusted origin from the release after 0.14.0,
+[ADR 0015](architecture/decisions/0015-approving-the-right-client.md)), in all three lanes ·
 **Layer:** `sdk/{rs,go,ts}/login` (ADR 0004; pinnable, tri-lane) · **Oracle:** `vectors/login.json`
 
 A person holds a key on their machine. A browser — or any client that wants to act but holds no
@@ -29,6 +31,23 @@ key custody, and every socket.
 
 Roles generalise: the "browser" is any key-less client (a CI job, a container, a phone); the
 "CLI" is any holder of a key (a person's laptop, an agent with a workspace key).
+
+### 1.1 What a login claims
+
+A login claims what its prover can stand behind, at three levels
+([ADR 0015](architecture/decisions/0015-approving-the-right-client.md) §3):
+- **Cryptographic.** A valid login proof under P commits to this request's audience, K, id, scope and
+  validity, in the login domain and over the request's nonce.
+- **A conforming prover** (§5.1). The prover obtained approval of a presentation generated from the
+  frozen operation before signing it.
+- **A custodial deployment** (§5.2). A custodian signed with P after an account service authenticated
+  approval of the custodian's operation. The claim is subject to the recorded evidence and the trust
+  placed in that service, its presentation and the custodian. For an unattended renewal under a
+  mandate: the custodian signed under that mandate after evaluating its current conditions, and no
+  fresh human approval is asserted.
+
+None of these claims sole control of P or a qualified signature. None says that the person started
+the request: see §6's approval relay.
 
 ## 2. The audience is derived, never transported
 
@@ -256,6 +275,27 @@ URL, and the reason both forms print K's principal. Once taken, the code is spen
    consumed by the first request that matches it, and dies with that request or at its own
    expiry, whichever comes first.
 
+**Two rules hold without exception** (ADR 0015 §5):
+- **The code's binding.** The code is confidential, short-lived and single-use. Taking an offer binds
+  it atomically to one request and K, and nothing replaces that binding (rule 5).
+- **No fallback.** The prover signs automatically only for its outstanding offer and its frozen
+  parameters. Expiry, cancellation, a conflict or changed parameters never fall back to the
+  page-started form.
+
+**The page address is printed only on a trusted origin.** It carries the code, so the CLI prints it
+only when both hold:
+- it is `https`, or `http` on a loopback host;
+- its origin is the audience's, or the one the person names with `--page-origin <origin>`.
+
+Otherwise the CLI says why it did not print the address, and prints the code alone. A label saying
+"do not open it" is not a trust relationship.
+
+**A page that receives a code** keeps the address out of logs and telemetry, runs as little script as
+it can, and removes the code from the browser's history once it has taken it.
+
+The ledger of rule 4 is an audit record, not the defence. The defence is exclusive possession of the
+code, and the first use binding it to K.
+
 **Refusals**, as the server makes them:
 
 | condition | status | code |
@@ -296,11 +336,14 @@ CLI's own entropy.
 
 The audience it derived (§2), the browser principal, every scope entry verbatim in order, the
 validity as a duration and as an approximate wall-clock end ("for 8h0m0s, until about <T>"),
-and which of its keys will sign. `<T>` is the CLI's clock plus `valid_for` when it shows the
-statement. The delegation starts when the server accepts the answer (§4), a little later, so
+which of its keys will sign, and the request's transaction fingerprint (§5.3). `<T>` is the CLI's
+clock plus `valid_for` when it shows the statement. The delegation starts when the server accepts the answer (§4), a little later, so
 the real end is later than `<T>` by the time the person takes to confirm, and at most by the
-request's remaining lifetime. It signs only
-after an explicit confirmation. A request that fails any rule in §3 is refused before display.
+request's remaining lifetime.
+
+Then it states the consequence, "This gives the browser key above authority to act as you. Approve
+only a client you started yourself.", and signs only after an explicit confirmation. The confirmation
+defaults to no. A request that fails any rule in §3 is refused before display.
 
 **What may be shown.** A scope entry is text a service chose, and the person reads it on a
 terminal. Some code points make what they read differ from the bytes they sign: a terminal may
@@ -324,8 +367,7 @@ test sweeps every code point against that file.
   begin and offer (`400`), so an honest service learns at once rather than from a person whose
   CLI refused. A third-party server that skips this check still cannot get past the CLI.
 - **The offers form's page address is refused too** when it carries one. It is the address a
-  person would open, printed beside the CLI's warning about whether it is on the service's
-  origin, so it is never shown escaped.
+  person would open, printed only on a trusted origin (§4.1), so it is never shown escaped.
 - **Elsewhere, such a code point is escaped, never shown.** The CLIs write one as `\uxxxx`, a
   UTF-16 surrogate pair above U+FFFF, in everything else a service or a caller chose that they
   print:
@@ -338,12 +380,122 @@ test sweeps every code point against that file.
   and no list of code points can tell it from the one it imitates. A service that wants its
   scope entries to be unmistakable keeps them to ASCII.
 
+### 5.1 Every prover's contract
+
+The CLI is one prover. Any holder of P that makes a login proof is another, such as a custodian
+signing for a person ([ADR 0015](architecture/decisions/0015-approving-the-right-client.md) §2,
+extending [ADR 0009](architecture/decisions/0009-the-signing-boundary-and-the-signer-contract.md)
+§6). Every prover keeps this contract:
+1. It **selects the signing principal**, **obtains and validates the pending request** (§3), and
+   **establishes the audience itself** (§2.1, or its own configuration in §4.1). It never takes the
+   audience from the party that asked it to sign.
+2. It **freezes the complete message** to be signed before asking for approval.
+3. It **generates the presentation from that frozen message.** Caller-supplied explanatory text is
+   never an authoritative description of what will be signed.
+4. It **obtains approval of that exact operation,** or relies on an explicit policy authorized
+   earlier that covers it. Authentication of an account alone is not approval.
+5. It **signs only the approved bytes, verifies the signature, and records the operation's single
+   use.** A material change needs a new approval.
+6. It **never presents a valid audience, a displayed key identifier or a matching fingerprint as
+   evidence that the person started the request.** None of them is.
+
+### 5.2 A prover that is not the person's CLI
+
+A prover that signs for a person from elsewhere keeps §5.1, and four things more (ADR 0015 §6).
+- **It fetches the request itself.**
+  - It builds `<audience>/login/<id>` from its own registration of the service's audience and the
+    request id. It never uses an address the requesting party supplied.
+  - It derives the audience by §2.1.
+  - The fetch uses authenticated transport, controlled egress, bounded responses, and a redirect
+    policy that cannot change the audience.
+
+  This keeps what it shows and what it signs from diverging. It does not make the requesting party's
+  choices (its K, its coverage) reflect the person's intent.
+- **Its operation is larger than the binding.** A custodian's frozen operation includes:
+  - the proof's domain, nonce and binding;
+  - P;
+  - the exact grants it will sign;
+  - the product and account bindings;
+  - the pending session;
+  - the deadlines;
+  - the custody mode;
+  - any renewal mandate.
+
+  §5.1 covers the whole operation. Approving a login proof is never permission to sign an arbitrary
+  accompanying grant: the authority payload is opaque here, so the party issuing it understands and
+  limits it, and `AdmitAuthority` checks the correspondence (§6).
+- **Its presentation shows, at minimum:**
+  - who acts: the account, P, the service, the audience, and which party holds K;
+  - what authority is issued: the exact scope strings, beside any interpretation of them;
+  - for how long;
+  - what further authority it creates, such as renewal;
+  - which initiation it belongs to, with verified facts kept distinct from estimates.
+
+  A key fingerprint the person has never seen may be shown, but recognising it is not their task.
+- **Its claim is the custodial level of §1.1,** never "the person signed".
+
+### 5.3 The transaction fingerprint
+
+A short value the person can compare between the page that began a login and the prover about to
+sign it (ADR 0015 §4):
+
+    fingerprint = SHA-256( u16be(len d) ‖ d ‖ u16be(len nonce) ‖ nonce ‖ binding )[0..16]
+    d           = "archon-login-fingerprint/1"
+    binding     = the login proof's binding, role 0x01 (§3.2)
+
+It is shown as eight groups of four lowercase hex digits: `7a91 b2c3 d4e5 f607 1829 3a4b 5c6d 7e8f`.
+- **Inputs.** The page computes it from the K it generated and its own begin response (`id`,
+  `nonce`, `scope`, `valid_for`) at its configured audience. The prover computes it from the request
+  it will sign (`login.Fingerprint`, `login::fingerprint`, `fingerprint`).
+- **Coverage.** It covers the whole transcript, not K alone, so it tells apart requests that reuse a
+  key, and changes with any difference in scope or validity. At 128 bits a match cannot be searched
+  for offline.
+- **Pinning.** `vectors/login.json`'s `login_fingerprint` family pins it in the three lanes. It is not
+  a signature and changes no signed bytes.
+- **A page shows it only for the request its own K began,** never for whichever request an address
+  or a message names.
+- **It is conditional protection.** It detects substitution only when the person compares it with a
+  page they started and trust. An attacker's page can show the matching value for the attacker's own
+  request beside its instruction. The CLI cannot see what a page showed. It prints the fingerprint
+  and asks the person to approve only a client they started. A flow that requires comparison fails
+  when the comparison cannot be made, and the person enforces that by answering no.
+
 ## 6. Properties
 
 - **Unrelayable.** The binding names the audience the CLI talks to, the key that will act, the
   request, the scope and the validity; the possession scheme refuses an empty binding and a
   short nonce. A proof made for one origin verifies nowhere else; a proof captured in transit
-  binds a key the attacker does not hold.
+  binds a key the attacker does not hold. That is about relaying a *proof*. Relaying the *request
+  for approval* is the next property.
+- **Approval relay: the residual risk, by form**
+  ([ADR 0015](architecture/decisions/0015-approving-the-right-client.md)). Begin is
+  unauthenticated, so anyone can begin a request with their own K and send the person its address.
+  RFC 8628 calls this remote phishing, and RFC 10027 (BCP 247) treats cross-device flows at length.
+  - **The page-started form** is open to it when the person accepts an attacker's request. The
+    fingerprint (§5.3) detects substitution only when the person compares it with a page they started
+    and trust; an attacker's page can show the matching value. An approval without that comparison
+    is lower assurance.
+  - **The offers form** resists an unsolicited address while the code stays confidential and reaches
+    the intended page. An attacker who reads the code before it is taken can race to authorize their
+    own K. The form does not authenticate the page after the code is disclosed, nor stop a person who
+    hands the code over. It is the recommended form for a person who can start at their own terminal.
+  - **A custodial prover** (§5.2), approved on a phone through an account service. Account matching
+    refuses a relay across accounts. A matching code helps against unrelated or mistaken requests.
+    Neither defeats a live attacker who controls a session on the person's own account and relays its
+    presentation. That needs a fresh phishing-resistant sign-in in the initiating browser, bound to
+    the pending delegation ("Authenticate then Initiate", RFC 10027 §6.1.15), which is the
+    deployment's to provide. Account matching and a code never close the same-account relay.
+  - **What services do.** No prior account authentication is required of every login: a client
+    with no prior session is legitimate. A service SHOULD:
+    - offer the offers form;
+    - protect the page that begins a login;
+    - bound pending requests and their lifetimes;
+    - provide a way to find and end issued authority;
+    - where it has accounts, bind a pending request to the account that began it, and admit only that
+      account's P.
+  - **Rollout.** An old and a new prover make the same v1 proofs, so a service cannot read the
+    stronger ceremony from the signature. A service that requires it enforces its own initiation
+    state and refuses the paths that bypass it. A CLI version string is not proof.
 - **What you see is what you sign.** Scope and validity are inside the binding. The validity is
   signed as a duration; its start is the server's `acceptedAt` (§4), so the wall-clock end the
   CLI shows is an estimate, which is why it says "about". A signed absolute end would need a new
@@ -382,9 +534,17 @@ test sweeps every code point against that file.
     enforce that. The audience is compared byte for byte, never by prefix: a login mounted at
     `https://x.dev/login` has the audience `https://x.dev`, not the API's `https://x.dev/api`. Mount
     the login at `<api base>/login` so the two are one string, or have the admitted authority name
-    the API's audience explicitly.
+    the API's audience explicitly. For downstream services, use one of two constructions (ADR 0015
+    §6):
+    - they implement operations within the login's audience, as one logical boundary;
+    - or each destination gets separately restricted authority.
+
+    Until a deployment specifies one, it refuses the login's authority at any other audience.
   - If the grants carry no start time, the admission context enforces the login's start.
     Collecting, reconnecting and renewing never restart `valid_for`.
+  - A grant signed before `acceptedAt` matches the login when the login's interval is its upper
+    bound: the admitted authority ends no later than `acceptedAt + valid_for`. Exact equality with a
+    clock reading taken later is not required (ADR 0015 §6).
   - Onward delegation, enrollment, credential exchange, recovery and renewal acquire no broader or
     longer-lived authority because of this login; what they derive keeps its source's limits. A
     service does not claim a restriction its law cannot enforce: thesmos's default law allows
@@ -405,6 +565,13 @@ test sweeps every code point against that file.
     verified K's collect proof), create the session from that record, once.
   - **Replicas.** The handler's state lives in one process's memory. Route every request of one
     login to the same replica; that also keeps collection single-use across replicas.
+  - **Renewal** (ADR 0015 §6).
+    - A replacement is a new immutable admission, switched in atomically. The old admission's
+      deadline is never mutated.
+    - A switched session pointer does not invalidate a published grant. Superseded grants are
+      retracted, or every accepting route enforces the current generation.
+    - Replacements that keep going to the same K keep going to a stolen copy of it too. A short
+      grant is then not a short compromise window.
 - **No bearer credential, and no sessions in the login handler.** The login protocol issues no
   bearer credential; a service that completes the exchange with a bearer session or another
   credential specifies that construction and its binding to the admitted authority. The login
@@ -450,6 +617,7 @@ test sweeps every code point against that file.
   by their endpoints' policy. Using archon's signature or possession primitives does not make the
   enclosing protocol an archon protocol (ADR 0011).
 
-**Not in this document:** custody of P (ADR 0007: the CLI's key store), the server package
+**Not in this document:** custody of P (ADR 0007: the CLI's key store; a custodian's custody is
+its own, and what it must do as a prover is §5.1 and §5.2), the server package
 (`server/`), the delegation's contents (the law's), and any fleet rule about signature domains. The
 prover-initiated form is §4.1 as of v0.5.0.

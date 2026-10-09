@@ -9,6 +9,12 @@ helper and a proof-to-bearer exchange) and [archon#65](https://github.com/Bitspa
 rule. The operator ruled both on 2026-10-04, on the external advice taken in the 0004 consultation
 (`research-docs/0004-*`, internal): *accept the placement* and *promote the invariant*.
 
+> **Status note, 2026-10-09: when a fact is signed.** [ADR 0015](0015-approving-the-right-client.md)
+> §1 adds a test beside the scope rule. The rule decides which layer owns a contract. The test
+> decides whether a fact is signed: *must a relying party verify it without trusting mutable state
+> or an authenticated assertion from the layer that owns it?* If so, the fact, or a commitment to
+> it, goes in a signed artifact of that layer, which is not necessarily archon's.
+
 ## Context
 
 #64 and #65 ask archon for Git transport integrations. Their proposed pieces:
