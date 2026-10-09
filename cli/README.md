@@ -123,8 +123,13 @@ carrying one is refused rather than half-read.
 
 The order is the security order: derive, fetch, validate, **show**, confirm, only then
 unlock and sign. You are shown the audience, the browser key, every scope entry verbatim,
-the validity and which key will sign, and nothing is signed until you answer `y` — the
-default, including on a closed stdin, is no. Between the statement and the question, two
+the validity, the login's transaction fingerprint and which key will sign, and nothing is
+signed until you answer `y` — the default, including on a closed stdin, is no. The
+fingerprint line, `transaction fingerprint: 7a91 b2c3 … (compare it with the page you
+started)`, is computed by the sdk over the audience and the exact request that will be signed
+([`docs/login.md` §5.3](../docs/login.md)); the page that began the login shows the same 32
+digits only if every bound field and the nonce agree. A request it cannot be computed for is
+refused before anything is shown. Between the statement and the question, two
 lines say what a yes does and who should give it (ADR 0015, archon#123):
 
 ```

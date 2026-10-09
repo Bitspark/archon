@@ -23,21 +23,53 @@ import (
 
 // proveLogin returns the person's login proof over this request and their principal as
 // canonical key text.
+func proveLogin(seed []byte, audience string, r *loginRequest) (proof []byte, principal string, err error) {
+	principal = keytext.EncodeKey(crypto.PublicKeyFromSeed(seed))
+	req, err := schemeRequest(r)
+	if err != nil {
+		return nil, principal, err
+	}
+	proof, err = login.Prove(seed, audience, req)
+	if err != nil {
+		return nil, principal, err
+	}
+	return proof, principal, nil
+}
+
+// transactionFingerprint is the login's transaction fingerprint (docs/login.md §5.3; ADR 0015
+// §4) as the person reads it, over the derived audience and the SAME scheme request the proof
+// is made from — schemeRequest, once — so the fingerprint the person compares with the page
+// they started covers exactly the request that will be signed. The digest and its spelling are
+// the sdk's; this lane only converts the wire values, as for the proof. An error is the sdk
+// refusing what Binding refuses, or a nonce under the scheme's floor: the caller refuses the
+// request before anything is shown.
+func transactionFingerprint(audience string, r *loginRequest) (string, error) {
+	req, err := schemeRequest(r)
+	if err != nil {
+		return "", err
+	}
+	fp, err := login.Fingerprint(audience, req)
+	if err != nil {
+		return "", err
+	}
+	return login.FormatFingerprint(fp), nil
+}
+
+// schemeRequest converts the wire request into the scheme's: hex and key text in, bytes out.
+// It is the one conversion both the proof and the transaction fingerprint are made from.
 //
 // The decodes below have all been validated already by validateLoginRequest, which runs
 // BEFORE the person is shown anything. They are re-checked here rather than assumed
 // because this function is reachable from any future caller, and a silent mis-decode would
 // produce a proof bound to bytes nobody displayed.
-func proveLogin(seed []byte, audience string, r *loginRequest) (proof []byte, principal string, err error) {
-	principal = keytext.EncodeKey(crypto.PublicKeyFromSeed(seed))
-
+func schemeRequest(r *loginRequest) (*login.Request, error) {
 	nonce, err := hex.DecodeString(r.Nonce)
 	if err != nil {
-		return nil, principal, fmt.Errorf("login: nonce is not hex: %w", err)
+		return nil, fmt.Errorf("login: nonce is not hex: %w", err)
 	}
 	browser, err := keytext.DecodeKey(r.Browser)
 	if err != nil {
-		return nil, principal, fmt.Errorf("login: browser key is not canonical key text: %w", err)
+		return nil, fmt.Errorf("login: browser key is not canonical key text: %w", err)
 	}
 
 	// THE ID IS HEX-DECODED, NOT HANDED OVER AS TEXT. docs/login.md §3.1 makes the id BYTES
@@ -51,17 +83,13 @@ func proveLogin(seed []byte, audience string, r *loginRequest) (proof []byte, pr
 	// against an INDEPENDENTLY hex-decoded id, and asserts the ASCII form does NOT verify.
 	idBytes, err := hex.DecodeString(r.ID)
 	if err != nil {
-		return nil, principal, fmt.Errorf("login: id is not hex: %w", err)
+		return nil, fmt.Errorf("login: id is not hex: %w", err)
 	}
-	proof, err = login.Prove(seed, audience, &login.Request{
+	return &login.Request{
 		ID:       idBytes,
 		Nonce:    nonce,
 		Browser:  browser,
 		Scope:    r.Scope,
 		ValidFor: r.ValidFor,
-	})
-	if err != nil {
-		return nil, principal, err
-	}
-	return proof, principal, nil
+	}, nil
 }

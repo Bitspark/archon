@@ -34,6 +34,8 @@ import {
   MIN_NONCE_SIZE as SCHEME_MIN_NONCE_SIZE,
   deriveAudience,
   displayUnsafe,
+  fingerprint as schemeFingerprint,
+  formatFingerprint,
   proveLogin as schemeProveLogin,
   type LoginRequest as SchemeRequest,
 } from "@bitspark/archon-sdk";
@@ -251,10 +253,15 @@ export async function run(
   const id = toHex(idBytes);
   const request = await fetchLoginRequest(audience, id);
   validateLoginRequest(request, id);
+  // THE TRANSACTION FINGERPRINT (docs/login.md §5.3; ADR 0015 §4): over the derived audience and
+  // the exact request that will be signed, for the person to compare with the page they started.
+  // Computed before anything is shown, so a request it cannot cover is refused like any other
+  // malformed one, and the person never reads a statement without it.
+  const fingerprint = transactionFingerprint(audience, request);
 
   // SHOW BEFORE SIGN. The person confirms the statement, not the URL.
   const keySource = describeKeySource(src);
-  write(renderStatement(audience, request, io.now(), keySource));
+  write(renderStatement(audience, request, io.now(), keySource, fingerprint));
   if (!assumeYes && !(await confirm(write, (io.stdin ?? (() => process.stdin))()))) {
     write("refused. nothing was signed.\n");
     return;
@@ -317,14 +324,19 @@ function refuseUndisplayable(field: string, s: string): void {
 }
 
 /** EXACTLY what the person is asked to approve, and the text all three lanes must print
- *  byte-identically. nowSeconds is a parameter so the wall-clock end is testable. */
+ *  byte-identically. nowSeconds is a parameter so the wall-clock end is testable. `fingerprint`
+ *  is the formatted transaction fingerprint (transactionFingerprint) of this audience and
+ *  request: computed by the caller, which must refuse the request when it cannot be, rather
+ *  than here, so rendering stays total. */
 export function renderStatement(
   audience: string,
   r: LoginRequest,
   nowSeconds: number,
   keySource: string,
+  fingerprint: string,
 ): string {
   const lines = [`${audience} asks you to let browser key ${r.browser} act as you:`, ...scopeAndValidityLines(r, nowSeconds)];
+  lines.push(`transaction fingerprint: ${fingerprint} (compare it with the page you started)`);
   lines.push(`signing with ${keySource}`);
   return `${lines.join("\n")}\n`;
 }
@@ -958,7 +970,23 @@ export function proveLogin(
   request: LoginRequest,
 ): { proof: Uint8Array; principal: string } {
   const principal = encodeKey(getPublicKey(seed));
+  return { proof: schemeProveLogin(seed, audience, schemeRequest(request)), principal };
+}
 
+/** The login's transaction fingerprint (docs/login.md §5.3; ADR 0015 §4) as the person reads it,
+ *  over the derived audience and the SAME scheme request the proof is made from — schemeRequest,
+ *  once — so the fingerprint the person compares with the page they started covers exactly the
+ *  request that will be signed. The digest and its spelling are the sdk's; this lane only
+ *  converts the wire values, as for the proof. Throws when the sdk refuses what the binding
+ *  refuses, or a nonce under the scheme's floor: the caller refuses the request before anything
+ *  is shown. */
+export function transactionFingerprint(audience: string, request: LoginRequest): string {
+  return formatFingerprint(schemeFingerprint(audience, schemeRequest(request)));
+}
+
+/** The wire request as the scheme's: hex and key text in, bytes out. The one conversion both
+ *  the proof and the transaction fingerprint are made from. */
+function schemeRequest(request: LoginRequest): SchemeRequest {
   // Re-decoded rather than assumed: validateLoginRequest has already checked these, but it
   // runs on the flow's path and this function is reachable from any future caller. A silent
   // mis-decode would produce a proof bound to bytes nobody displayed.
@@ -972,12 +1000,11 @@ export function proveLogin(
   // as UTF-8 would bind the ASCII of the hex — 0x38 0x66 0x33 0x63 for "8f3c" instead of
   // 0x8f 0x3c — and the resulting proof verifies NOWHERE. A stub test that builds its
   // expected request the same wrong way still passes, which is how it survived.
-  const scheme: SchemeRequest = {
+  return {
     id: fromHex(request.id),
     nonce,
     browser,
     scope: request.scope,
     validFor: request.valid_for,
   };
-  return { proof: schemeProveLogin(seed, audience, scheme), principal };
 }

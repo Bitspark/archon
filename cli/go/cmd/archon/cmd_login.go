@@ -253,9 +253,17 @@ func runLogin(args []string) error {
 	if err := validateLoginRequest(request, id); err != nil {
 		return err
 	}
+	// THE TRANSACTION FINGERPRINT (docs/login.md §5.3; ADR 0015 §4): over the derived audience
+	// and the exact request that will be signed, for the person to compare with the page they
+	// started. Computed before anything is shown, so a request it cannot cover is refused like
+	// any other malformed one, and the person never reads a statement without it.
+	fingerprint, err := transactionFingerprint(audience, request)
+	if err != nil {
+		return err
+	}
 
 	// SHOW BEFORE SIGN. The person confirms the statement, not the URL.
-	fmt.Print(renderStatement(audience, request, clockNow().UTC(), describeKeySource(src)))
+	fmt.Print(renderStatement(audience, request, clockNow().UTC(), describeKeySource(src), fingerprint))
 	if !assumeYes {
 		ok, err := confirm(os.Stdin)
 		if err != nil {
@@ -348,11 +356,15 @@ func refuseUndisplayable(field, s string) error {
 
 // renderStatement is EXACTLY what the person is asked to approve, and is the text all
 // three lanes must print byte-identically. now is a parameter so the wall-clock end is
-// testable rather than dependent on when the suite runs.
-func renderStatement(audience string, r *loginRequest, now time.Time, keySource string) string {
+// testable rather than dependent on when the suite runs. fingerprint is the formatted
+// transaction fingerprint (transactionFingerprint) of this audience and request: computed by
+// the caller, which must refuse the request when it cannot be, rather than here, so rendering
+// stays total.
+func renderStatement(audience string, r *loginRequest, now time.Time, keySource, fingerprint string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s asks you to let browser key %s act as you:\n", audience, r.Browser)
 	writeScopeAndValidity(&b, r, now)
+	fmt.Fprintf(&b, "transaction fingerprint: %s (compare it with the page you started)\n", fingerprint)
 	fmt.Fprintf(&b, "signing with %s\n", keySource)
 	return b.String()
 }

@@ -22,6 +22,7 @@ import {
   describePage,
   pageOriginFlag,
   confirm,
+  transactionFingerprint,
   PAGE_NOT_HTTPS,
   PAGE_PLAIN_HTTP,
   PAGE_OFF_ORIGIN,
@@ -40,7 +41,7 @@ import {
 import { sealAndWrite } from "../src/cmd/key_store.js";
 import { allowlist } from "../src/keystore.js";
 import { encodeKey, getPublicKey } from "@bitspark/archon";
-import { deriveAudience, verifyLogin, type LoginRequest as SchemeRequest } from "@bitspark/archon-sdk";
+import { deriveAudience, fingerprint, formatFingerprint, verifyLogin, type LoginRequest as SchemeRequest } from "@bitspark/archon-sdk";
 
 const hexToBytes = (h: string): Uint8Array =>
   Uint8Array.from(h.match(/../g)!.map((b) => Number.parseInt(b, 16)));
@@ -164,21 +165,69 @@ test("the service's text is escaped", () => {
 // must come out of all three binaries.
 test("renders the statement", () => {
   const now = 1789034640; // 2026-09-10T10:04:00Z
-  const got = renderStatement("https://prover.core.example.dev/api", validRequest(), now, "the seed file /keys/julia");
+  const audience = "https://prover.core.example.dev/api";
+  const got = renderStatement(audience, validRequest(), now, "the seed file /keys/julia", transactionFingerprint(audience, validRequest()));
+  // The fingerprint line's value is the sdk's, over a request built HERE, independently of the
+  // lane's conversion: the id hex-decoded, the key decoded from its text.
+  const r = validRequest();
+  const fp = formatFingerprint(fingerprint(audience, {
+    id: hexToBytes(r.id), nonce: hexToBytes(r.nonce), browser: hexToBytes(r.browser.slice("ed25519:".length)), scope: r.scope, validFor: r.valid_for,
+  }));
   const want =
     `https://prover.core.example.dev/api asks you to let browser key ${BROWSER} act as you:\n` +
     "  read:projects\n" +
     "  read:campaigns\n" +
     "for 8h0m0s, until about 2026-09-10T18:04:00Z\n" +
+    `transaction fingerprint: ${fp} (compare it with the page you started)\n` +
     "signing with the seed file /keys/julia\n";
   assert.equal(got, want);
+});
+
+// The transaction fingerprint covers the request that will be SIGNED (docs/login.md §5.3):
+// change any field the proof binds, or the nonce, and the line the person compares changes. It
+// goes through schemeRequest, the proof's own conversion, so the id is bound as its decoded
+// bytes; a fingerprint over the ASCII of the id's hex must differ. What the sdk refuses, the
+// command refuses before anything is shown.
+test("the transaction fingerprint covers the signed request", () => {
+  const audience = "https://prover.core.example.dev/api";
+  const base = transactionFingerprint(audience, validRequest());
+  assert.ok(/^[0-9a-f]{4}( [0-9a-f]{4}){7}$/.test(base), `fingerprint ${base} is not eight groups of four hex digits`);
+  const alterations: [string, string, (r: LoginRequest) => void][] = [
+    ["another audience", "https://prover.core.example.dev/ap", () => {}],
+    ["another browser key", audience, (r) => { r.browser = `ed25519:${"11".repeat(32)}`; }],
+    ["another id", audience, (r) => { r.id = "8f3d"; }],
+    ["another nonce", audience, (r) => { r.nonce = `${"ab".repeat(15)}ac`; }],
+    ["another scope entry", audience, (r) => { r.scope = ["read:projects", "read:campaign"]; }],
+    ["a reordered scope", audience, (r) => { r.scope.reverse(); }],
+    ["another validity", audience, (r) => { r.valid_for += 1; }],
+  ];
+  for (const [name, aud, alter] of alterations) {
+    const r = validRequest();
+    alter(r);
+    assert.notEqual(transactionFingerprint(aud, r), base, `${name}: the fingerprint did not change`);
+  }
+  const r = validRequest();
+  const ascii = formatFingerprint(fingerprint(audience, {
+    id: new TextEncoder().encode(r.id), nonce: hexToBytes(r.nonce), browser: hexToBytes(r.browser.slice("ed25519:".length)), scope: r.scope, validFor: r.valid_for,
+  }));
+  assert.notEqual(ascii, base, "the fingerprint matches one over the id's ASCII hex; it must cover the DECODED bytes");
+  const refusals: [string, (r: LoginRequest) => void][] = [
+    ["a nonce under the floor", (q) => { q.nonce = "ab".repeat(8); }],
+    ["an empty id", (q) => { q.id = ""; }],
+    ["a zero validity", (q) => { q.valid_for = 0; }],
+  ];
+  for (const [name, alter] of refusals) {
+    const q = validRequest();
+    alter(q);
+    assert.throws(() => transactionFingerprint(audience, q), `${name}: fingerprinted; want a refusal`);
+  }
 });
 
 // An empty scope is VALID (docs/login.md §3.1) and must still say so on screen.
 test("states an empty scope rather than showing a blank", () => {
   const r = validRequest();
   r.scope = [];
-  const got = renderStatement("https://h.example", r, 0, "the seed given on the command line");
+  const got = renderStatement("https://h.example", r, 0, "the seed given on the command line", "0000 0000 0000 0000 0000 0000 0000 0000");
   assert.match(got, /no scope entries/, "an empty scope must be stated");
 });
 
@@ -350,7 +399,9 @@ test("statement matches the shared fixture", () => {
   };
   assert.ok(doc.cases.length > 0, "the shared fixture holds no cases — a fixture nobody can fail is not a pin");
   for (const c of doc.cases) {
-    const got = renderStatement(c.audience, c.request, c.nowUnix, c.keySource);
+    // The fingerprint through the lane's OWN conversion and sdk; the fixture's line was computed
+    // with sdk/ts directly, so this also checks the lane's conversion against it.
+    const got = renderStatement(c.audience, c.request, c.nowUnix, c.keySource, transactionFingerprint(c.audience, c.request));
     assert.equal(got, c.statement, `statement differs from the shared fixture for case ${JSON.stringify(c.name)}`);
   }
 });

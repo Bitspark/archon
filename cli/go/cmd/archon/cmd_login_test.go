@@ -190,21 +190,100 @@ func TestServiceTextIsEscaped(t *testing.T) {
 // binaries must produce these bytes exactly.
 func TestRenderStatement(t *testing.T) {
 	now := time.Date(2026, 9, 10, 10, 4, 0, 0, time.UTC)
-	got := renderStatement("https://prover.core.example.dev/api", validRequest(), now, "the seed file /keys/julia")
+	const audience = "https://prover.core.example.dev/api"
+	fingerprint, err := transactionFingerprint(audience, validRequest())
+	if err != nil {
+		t.Fatalf("transactionFingerprint: %v", err)
+	}
+	got := renderStatement(audience, validRequest(), now, "the seed file /keys/julia", fingerprint)
+	// The fingerprint line's value is the sdk's, over a Request built HERE, independently of
+	// the lane's conversion: the id hex-decoded, the key decoded from its text.
+	r := validRequest()
+	nonce, _ := hex.DecodeString(r.Nonce)
+	browser, _ := keytext.DecodeKey(r.Browser)
+	idBytes, _ := hex.DecodeString(r.ID)
+	fp, err := login.Fingerprint(audience, &login.Request{ID: idBytes, Nonce: nonce, Browser: browser, Scope: r.Scope, ValidFor: r.ValidFor})
+	if err != nil {
+		t.Fatalf("login.Fingerprint: %v", err)
+	}
 	want := "https://prover.core.example.dev/api asks you to let browser key " + testBrowserKey + " act as you:\n" +
 		"  read:projects\n" +
 		"  read:campaigns\n" +
 		"for 8h0m0s, until about 2026-09-10T18:04:00Z\n" +
+		"transaction fingerprint: " + login.FormatFingerprint(fp) + " (compare it with the page you started)\n" +
 		"signing with the seed file /keys/julia\n"
 	if got != want {
 		t.Fatalf("statement mismatch\n got: %q\nwant: %q", got, want)
 	}
 }
 
+// The transaction fingerprint covers the request that will be SIGNED (docs/login.md §5.3):
+// change any field the proof binds, or the nonce, and the line the person compares changes.
+// It goes through schemeRequest, the proof's own conversion, so the id is bound as its decoded
+// bytes; a fingerprint over the ASCII of the id's hex must differ. What the sdk refuses, the
+// command refuses before anything is shown.
+func TestTransactionFingerprintCoversTheSignedRequest(t *testing.T) {
+	const audience = "https://prover.core.example.dev/api"
+	base, err := transactionFingerprint(audience, validRequest())
+	if err != nil {
+		t.Fatalf("transactionFingerprint: %v", err)
+	}
+	if len(base) != 39 || strings.Count(base, " ") != 7 {
+		t.Fatalf("fingerprint %q is not eight groups of four hex digits", base)
+	}
+	for _, c := range []struct {
+		name     string
+		audience string
+		alter    func(*loginRequest)
+	}{
+		{"another audience", "https://prover.core.example.dev/ap", func(*loginRequest) {}},
+		{"another browser key", audience, func(r *loginRequest) { r.Browser = "ed25519:" + strings.Repeat("11", 32) }},
+		{"another id", audience, func(r *loginRequest) { r.ID = "8f3d" }},
+		{"another nonce", audience, func(r *loginRequest) { r.Nonce = strings.Repeat("ab", 15) + "ac" }},
+		{"another scope entry", audience, func(r *loginRequest) { r.Scope = []string{"read:projects", "read:campaign"} }},
+		{"a reordered scope", audience, func(r *loginRequest) { r.Scope = []string{"read:campaigns", "read:projects"} }},
+		{"another validity", audience, func(r *loginRequest) { r.ValidFor++ }},
+	} {
+		r := validRequest()
+		c.alter(r)
+		got, err := transactionFingerprint(c.audience, r)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got == base {
+			t.Errorf("%s: the fingerprint did not change", c.name)
+		}
+	}
+	r := validRequest()
+	nonce, _ := hex.DecodeString(r.Nonce)
+	browser, _ := keytext.DecodeKey(r.Browser)
+	ascii, err := login.Fingerprint(audience, &login.Request{ID: []byte(r.ID), Nonce: nonce, Browser: browser, Scope: r.Scope, ValidFor: r.ValidFor})
+	if err != nil {
+		t.Fatalf("login.Fingerprint: %v", err)
+	}
+	if login.FormatFingerprint(ascii) == base {
+		t.Fatal("the fingerprint matches one over the id's ASCII hex; it must cover the DECODED bytes")
+	}
+	for _, c := range []struct {
+		name  string
+		alter func(*loginRequest)
+	}{
+		{"a nonce under the floor", func(r *loginRequest) { r.Nonce = strings.Repeat("ab", 8) }},
+		{"an empty id", func(r *loginRequest) { r.ID = "" }},
+		{"a zero validity", func(r *loginRequest) { r.ValidFor = 0 }},
+	} {
+		r := validRequest()
+		c.alter(r)
+		if got, err := transactionFingerprint(audience, r); err == nil {
+			t.Errorf("%s: fingerprinted as %q; want a refusal", c.name, got)
+		}
+	}
+}
+
 func TestRenderStatementKeepsScopeOrderAndVerbatim(t *testing.T) {
 	r := validRequest()
 	r.Scope = []string{"publish:projects/bun/workers/w1", "read:projects"}
-	got := renderStatement("https://h.example", r, time.Unix(0, 0).UTC(), "the seed given on the command line")
+	got := renderStatement("https://h.example", r, time.Unix(0, 0).UTC(), "the seed given on the command line", "0000 0000 0000 0000 0000 0000 0000 0000")
 	first := strings.Index(got, "publish:projects/bun/workers/w1")
 	second := strings.Index(got, "read:projects")
 	if first < 0 || second < 0 || first > second {
@@ -216,7 +295,7 @@ func TestRenderStatementKeepsScopeOrderAndVerbatim(t *testing.T) {
 func TestRenderStatementStatesAnEmptyScope(t *testing.T) {
 	r := validRequest()
 	r.Scope = nil
-	got := renderStatement("https://h.example", r, time.Unix(0, 0).UTC(), "the seed given on the command line")
+	got := renderStatement("https://h.example", r, time.Unix(0, 0).UTC(), "the seed given on the command line", "0000 0000 0000 0000 0000 0000 0000 0000")
 	if !strings.Contains(got, noScopeLine) {
 		t.Fatalf("an empty scope must be stated, not shown as a blank: %q", got)
 	}
@@ -564,7 +643,13 @@ func TestStatementMatchesTheSharedFixture(t *testing.T) {
 	}
 	for _, c := range fixture.Cases {
 		t.Run(c.Name, func(t *testing.T) {
-			got := renderStatement(c.Audience, &c.Request, time.Unix(c.NowUnix, 0).UTC(), c.KeySource)
+			// The fingerprint through the lane's OWN conversion and sdk; the fixture's line was
+			// computed with sdk/ts, so this is also a cross-lane check of the conversion.
+			fingerprint, err := transactionFingerprint(c.Audience, &c.Request)
+			if err != nil {
+				t.Fatalf("transactionFingerprint: %v", err)
+			}
+			got := renderStatement(c.Audience, &c.Request, time.Unix(c.NowUnix, 0).UTC(), c.KeySource, fingerprint)
 			if got != c.Statement {
 				t.Fatalf("statement differs from the shared fixture\n got: %q\nwant: %q", got, c.Statement)
 			}

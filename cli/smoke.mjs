@@ -274,7 +274,7 @@ for (const lane of lanes) {
   // is what makes this correct on Windows, where a bare path is not a valid import.
   const mod = (...p) => import(pathToFileURL(join(root, ...p, "dist", "src", "index.js")).href);
   const { Handler, COLLECT_HEADER } = await mod("server", "ts");
-  const { proveCollect, verifyLogin } = await mod("sdk", "ts");
+  const { fingerprint, formatFingerprint, proveCollect, verifyLogin } = await mod("sdk", "ts");
   const { encodeKey, getPublicKey } = await mod("core", "ts");
 
   const hex = (b) => Buffer.from(b).toString("hex");
@@ -347,10 +347,14 @@ for (const lane of lanes) {
 
   // The `until` wall-clock end is each lane's own second; every other byte is pinned.
   const scrubTime = (s) => s.replace(/until about \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/, "until about <t>");
-  const WANT =
+  // The transaction fingerprint line (docs/login.md §5.3) is the PAGE's: computed here, as the
+  // page that began the login computes it, from its own K and the begin response — so each
+  // lane's line is checked against the value a person would compare it with.
+  const WANT = (req) =>
     `${audience} asks you to let browser key ${K_TEXT} act as you:\n` +
     SCOPE.map((s) => `  ${s}\n`).join("") +
     "for 8h0m0s, until about <t>\n" +
+    `transaction fingerprint: ${formatFingerprint(fingerprint(audience, req))} (compare it with the page you started)\n` +
     "signing with the store key shared\n" +
     `signed as ${TEXT}. the browser is in.\n`;
 
@@ -368,7 +372,7 @@ for (const lane of lanes) {
     // ...the lane logs in from the key go sealed, and a person would have seen this...
     const r = await runStoreAsync(lane, ["login", `${audience}/login/${opened.id}`, "--key", "shared", "--yes"]);
     expect(`login: ${lane.name} logs in from the key ${writer.name} sealed`, exitOf(r), "0");
-    expect(`login: ${lane.name} shows the statement and the outcome`, scrubTime(r.stdout), WANT);
+    expect(`login: ${lane.name} shows the statement and the outcome`, scrubTime(r.stdout), WANT(req));
 
     // ...and the browser collects the answer and checks it against the ORACLE.
     const got = await fetch(`${audience}/login/${opened.id}/answer`, {

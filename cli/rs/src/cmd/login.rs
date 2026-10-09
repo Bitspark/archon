@@ -261,10 +261,15 @@ and no page address is printed\n{USAGE}"
     let id = to_hex(&id_bytes);
     let request = fetch_login_request(&audience, &id)?;
     validate_login_request(&request, &id)?;
+    // THE TRANSACTION FINGERPRINT (docs/login.md §5.3; ADR 0015 §4): over the derived audience
+    // and the exact request that will be signed, for the person to compare with the page they
+    // started. Computed before anything is shown, so a request it cannot cover is refused like
+    // any other malformed one, and the person never reads a statement without it.
+    let fingerprint = transaction_fingerprint(&audience, &request)?;
 
     // SHOW BEFORE SIGN. The person confirms the statement, not the URL.
     let key_source = describe_key_source(&src);
-    let statement = render_statement(&audience, &request, now_unix(), &key_source);
+    let statement = render_statement(&audience, &request, now_unix(), &key_source, &fingerprint);
     if !show_and_ask(
         &mut std::io::stdout(),
         &mut std::io::stdin().lock(),
@@ -355,18 +360,25 @@ fn refuse_undisplayable(field: &str, s: &str) -> Result<(), String> {
 
 /// EXACTLY what the person is asked to approve, and the text all three lanes must print
 /// byte-identically. `now_unix` is a parameter so the wall-clock end is testable rather
-/// than dependent on when the suite runs.
+/// than dependent on when the suite runs. `fingerprint` is the formatted transaction
+/// fingerprint ([`transaction_fingerprint`]) of this audience and request: computed by the
+/// caller, which must refuse the request when it cannot be, rather than here, so rendering
+/// stays total.
 pub fn render_statement(
     audience: &str,
     r: &LoginRequest,
     now_unix: i64,
     key_source: &str,
+    fingerprint: &str,
 ) -> String {
     let mut out = format!(
         "{audience} asks you to let browser key {} act as you:\n",
         r.browser
     );
     push_scope_and_validity(&mut out, r, now_unix);
+    out.push_str(&format!(
+        "transaction fingerprint: {fingerprint} (compare it with the page you started)\n"
+    ));
     out.push_str(&format!("signing with {key_source}\n"));
     out
 }
@@ -1242,6 +1254,25 @@ pub fn prove_login(
     request: &LoginRequest,
 ) -> Result<(Vec<u8>, String), String> {
     let principal = encode_key(&public_key_from_seed(seed));
+    let proof = login::prove(seed, audience, &scheme_request(request)?)?;
+    Ok((proof.to_vec(), principal))
+}
+
+/// The login's transaction fingerprint (docs/login.md §5.3; ADR 0015 §4) as the person reads
+/// it, over the derived audience and the SAME scheme request the proof is made from —
+/// [`scheme_request`], once — so the fingerprint the person compares with the page they started
+/// covers exactly the request that will be signed. The digest and its spelling are the sdk's;
+/// this lane only converts the wire values, as for the proof. An error is the sdk refusing what
+/// the binding refuses, or a nonce under the scheme's floor: the caller refuses the request
+/// before anything is shown.
+pub fn transaction_fingerprint(audience: &str, request: &LoginRequest) -> Result<String, String> {
+    let fp = login::fingerprint(audience, &scheme_request(request)?)?;
+    Ok(login::format_fingerprint(&fp))
+}
+
+/// The wire request as the scheme's: hex and key text in, bytes out. The one conversion both
+/// the proof and the transaction fingerprint are made from.
+fn scheme_request(request: &LoginRequest) -> Result<login::Request, String> {
     let nonce = from_hex(&request.nonce).map_err(|e| format!("login: nonce is not hex: {e}"))?;
     let browser = decode_key(&request.browser)
         .map_err(|e| format!("login: browser key is not canonical key text: {e}"))?;
@@ -1253,18 +1284,13 @@ pub fn prove_login(
     // expected Request the same wrong way still passes, which is how it survived; the test
     // below decodes independently and asserts the ASCII form does NOT verify.
     let id_bytes = from_hex(&request.id).map_err(|e| format!("login: id is not hex: {e}"))?;
-    let proof = login::prove(
-        seed,
-        audience,
-        &login::Request {
-            id: id_bytes,
-            nonce,
-            browser,
-            scope: request.scope.clone(),
-            valid_for: request.valid_for,
-        },
-    )?;
-    Ok((proof.to_vec(), principal))
+    Ok(login::Request {
+        id: id_bytes,
+        nonce,
+        browser,
+        scope: request.scope.clone(),
+        valid_for: request.valid_for,
+    })
 }
 
 #[cfg(test)]
@@ -1504,18 +1530,108 @@ mod tests {
     fn renders_the_statement() {
         // 2026-09-10T10:04:00Z
         let now = 1_789_034_640;
+        const AUD: &str = "https://prover.core.example.dev/api";
+        let fingerprint = transaction_fingerprint(AUD, &valid_request()).expect("fingerprint");
         let got = render_statement(
-            "https://prover.core.example.dev/api",
+            AUD,
             &valid_request(),
             now,
             "the seed file /keys/julia",
+            &fingerprint,
         );
+        // The fingerprint line's value is the sdk's, over a Request built HERE, independently
+        // of the lane's conversion: the id hex-decoded, the key decoded from its text.
+        let r = valid_request();
+        let fp = login::fingerprint(
+            AUD,
+            &login::Request {
+                id: from_hex(&r.id).unwrap(),
+                nonce: from_hex(&r.nonce).unwrap(),
+                browser: decode_key(&r.browser).unwrap(),
+                scope: r.scope.clone(),
+                valid_for: r.valid_for,
+            },
+        )
+        .expect("login::fingerprint");
         let want = format!(
             "https://prover.core.example.dev/api asks you to let browser key {BROWSER} act as you:\n  \
 read:projects\n  read:campaigns\nfor 8h0m0s, until about 2026-09-10T18:04:00Z\n\
-signing with the seed file /keys/julia\n"
+transaction fingerprint: {} (compare it with the page you started)\n\
+signing with the seed file /keys/julia\n",
+            login::format_fingerprint(&fp)
         );
         assert_eq!(got, want);
+    }
+
+    // The transaction fingerprint covers the request that will be SIGNED (docs/login.md
+    // §5.3): change any field the proof binds, or the nonce, and the line the person compares
+    // changes. It goes through scheme_request, the proof's own conversion, so the id is bound
+    // as its decoded bytes; a fingerprint over the ASCII of the id's hex must differ. What the
+    // sdk refuses, the command refuses before anything is shown.
+    #[test]
+    fn the_transaction_fingerprint_covers_the_signed_request() {
+        const AUD: &str = "https://prover.core.example.dev/api";
+        let base = transaction_fingerprint(AUD, &valid_request()).expect("fingerprint");
+        assert!(
+            base.len() == 39 && base.matches(' ').count() == 7,
+            "fingerprint {base:?} is not eight groups of four hex digits"
+        );
+        type Alter = fn(&mut LoginRequest);
+        let alterations: [(&str, &str, Alter); 7] = [
+            (
+                "another audience",
+                "https://prover.core.example.dev/ap",
+                |_| {},
+            ),
+            ("another browser key", AUD, |r| {
+                r.browser = format!("ed25519:{}", "11".repeat(32))
+            }),
+            ("another id", AUD, |r| r.id = "8f3d".to_string()),
+            ("another nonce", AUD, |r| {
+                r.nonce = format!("{}ac", "ab".repeat(15))
+            }),
+            ("another scope entry", AUD, |r| {
+                r.scope = vec!["read:projects".into(), "read:campaign".into()]
+            }),
+            ("a reordered scope", AUD, |r| r.scope.reverse()),
+            ("another validity", AUD, |r| r.valid_for += 1),
+        ];
+        for (name, audience, alter) in alterations {
+            let mut r = valid_request();
+            alter(&mut r);
+            let got = transaction_fingerprint(audience, &r).expect(name);
+            assert_ne!(got, base, "{name}: the fingerprint did not change");
+        }
+        let r = valid_request();
+        let ascii = login::fingerprint(
+            AUD,
+            &login::Request {
+                id: r.id.as_bytes().to_vec(),
+                nonce: from_hex(&r.nonce).unwrap(),
+                browser: decode_key(&r.browser).unwrap(),
+                scope: r.scope.clone(),
+                valid_for: r.valid_for,
+            },
+        )
+        .expect("login::fingerprint");
+        assert_ne!(
+            login::format_fingerprint(&ascii),
+            base,
+            "the fingerprint matches one over the id's ASCII hex; it must cover the DECODED bytes"
+        );
+        let refusals: [(&str, Alter); 3] = [
+            ("a nonce under the floor", |r| r.nonce = "ab".repeat(8)),
+            ("an empty id", |r| r.id = String::new()),
+            ("a zero validity", |r| r.valid_for = 0),
+        ];
+        for (name, alter) in refusals {
+            let mut r = valid_request();
+            alter(&mut r);
+            assert!(
+                transaction_fingerprint(AUD, &r).is_err(),
+                "{name}: fingerprinted; want a refusal"
+            );
+        }
     }
 
     // An empty scope is VALID (docs/login.md §3.1) and must still say so on screen.
@@ -1528,6 +1644,7 @@ signing with the seed file /keys/julia\n"
             &r,
             0,
             "the seed given on the command line",
+            "0000 0000 0000 0000 0000 0000 0000 0000",
         );
         assert!(
             got.contains(NO_SCOPE_LINE),
@@ -1882,11 +1999,16 @@ Connection: close
                 valid_for: req["valid_for"].as_u64().unwrap() as u32,
                 expires: String::new(),
             };
+            // The fingerprint through the lane's OWN conversion and sdk; the fixture's line was
+            // computed with sdk/ts, so this is also a cross-lane check of the conversion.
+            let audience = case["audience"].as_str().unwrap();
+            let fingerprint = transaction_fingerprint(audience, &r).expect("fingerprint");
             let got = render_statement(
-                case["audience"].as_str().unwrap(),
+                audience,
                 &r,
                 case["nowUnix"].as_i64().unwrap(),
                 case["keySource"].as_str().unwrap(),
+                &fingerprint,
             );
             assert_eq!(
                 got,
