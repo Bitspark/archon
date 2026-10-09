@@ -277,6 +277,31 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # Maven is pinned, not taken from the runner image, which installs "the latest Maven 3".
+      # When the image moved to Maven 3.10.0 (runner image 20261002), 0.15.0's archon-core
+      # bundle was refused by Central: "Bundle has content that does NOT have a .pom file:
+      # dev/bitspark/archon-core" (release run 37891574847). Maven 3.10.0 leaves resolver
+      # `.locks/` and a `maven-metadata-local.xml` in the staging directory, and
+      # central-publishing-maven-plugin 0.11.0 zips them into the bundle. Built locally from the
+      # v0.15.0 tree with skipPublishing: 3.10.0 gives 31 entries, six of them outside
+      # `0.15.0/`; 3.9.16 gives 20, all under it. 3.9.16 binds the same install and resources
+      # plugins (3.1.4, 3.4.0) that built 0.14.0. The checksum is Apache's published SHA-512
+      # of that tarball. A change of Maven version is a change to this line.
+      - name: Maven 3.9.16, pinned
+        run: |
+          set -euo pipefail
+          MVN=3.9.16
+          SHA512=831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6
+          f="$RUNNER_TEMP/apache-maven-$MVN-bin.tar.gz"
+          curl -fsSL --retry 5 --retry-all-errors -o "$f" \
+            "https://archive.apache.org/dist/maven/maven-3/$MVN/binaries/apache-maven-$MVN-bin.tar.gz" \
+            || curl -fsSL --retry 5 --retry-all-errors -o "$f" \
+            "https://dlcdn.apache.org/maven/maven-3/$MVN/binaries/apache-maven-$MVN-bin.tar.gz"
+          echo "$SHA512  $f" | sha512sum -c -
+          tar -xzf "$f" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/apache-maven-$MVN/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/apache-maven-$MVN/bin/mvn" -v
+
       - name: Check Maven resolves the credentials, and that Central accepts them
         if: env.VERIFY_ONLY != 'true'
         working-directory: core/java
