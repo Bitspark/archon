@@ -9,6 +9,23 @@ archon-57 on 2026-10-07, under the operator's ruling of 2026-10-04 that such dec
 agents', on the external advice taken in the 0007 consultation (`research-docs/0007-*`, internal).
 Reviewed by archon-74 on its pull request.
 
+> **Status note, 2026-10-09: thesmos says how §3's two authority requirements are met with today's
+> grants** ([thesmos#895](https://github.com/Bitspark/thesmos/issues/895), 8 October). Neither needs
+> a new grant field.
+>
+> - **Onward delegation.** A grant has no "non-delegable" flag, but publishing an onward grant needs
+>   the authority to assert `grant`. So the grant to K can withhold it with exact operation and
+>   predicate selectors that exclude asserting `grant` (never `any_op` or `any_predicate`). Every
+>   relying party that requires each link of a chain to be resident then refuses a chain through K.
+>   A relying party that runs thesmos's gate alone, without residence, cannot enforce this, and must
+>   not claim it (§3).
+> - **The audience.** It is the space scope: a root key per deployment, or a space subtree per
+>   deployment under a shared root. The request's space always comes from the relying party's own
+>   routing (thesmos ADR 0037 D1), so a chain scoped to one deployment covers no request another
+>   deployment routes. Two deployments must not route into overlapping spaces under one root; if
+>   they do, they are one audience for authority. thesmos's `vectors/authority.json` already pins
+>   the wrong-audience case (`a_sibling_space`).
+
 ## Context
 
 In a login, a person's key P approves a key K that a page generated, for a scope and a duration at
