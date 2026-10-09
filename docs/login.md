@@ -377,7 +377,8 @@ test sweeps every code point against that file.
     holds *some valid grant* is not enough. The handler hands the law everything this needs (§4).
   - The audience is carried by the authority itself. Whoever holds K can sign a fresh proof naming
     another audience, so the grant, the admission context or a trust namespace exclusive to one
-    deployment must restrict the authority to this audience, and every accepting route must
+    deployment (with thesmos, a root or a space subtree per deployment; thesmos#895) must restrict
+    the authority to this audience, and every accepting route must
     enforce that. The audience is compared byte for byte, never by prefix: a login mounted at
     `https://x.dev/login` has the audience `https://x.dev`, not the API's `https://x.dev/api`. Mount
     the login at `<api base>/login` so the two are one string, or have the admitted authority name
@@ -387,7 +388,8 @@ test sweeps every code point against that file.
   - Onward delegation, enrollment, credential exchange, recovery and renewal acquire no broader or
     longer-lived authority because of this login; what they derive keeps its source's limits. A
     service does not claim a restriction its law cannot enforce: thesmos's default law allows
-    onward delegation.
+    onward delegation. A thesmos grant to K can withhold it (ADR 0014's status note), enforced
+    only by relying parties that require every link of a chain to be resident.
 - **A session started at the collect is the service's, and is sound under six conditions.** It is
   created only as a consequence of a successful collect and admission; it is bound immutably to K,
   the admitted authority, the audience and the deadlines; collection and session creation are
