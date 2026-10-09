@@ -169,6 +169,20 @@
       "residual-risk",
       "consequences"
     ],
+    "docs/architecture/decisions/0015-approving-the-right-client.md": [
+      "0015--approving-the-right-client-a-prover-contract-residual-risk-by-form-and-no-new-login-version",
+      "context",
+      "decision",
+      "1-no-new-login-version",
+      "2-the-prover-contract",
+      "3-what-a-login-claims-at-three-levels",
+      "4-the-page-started-form",
+      "5-the-offers-form",
+      "6-a-prover-that-is-not-the-persons-cli-and-a-backend-that-is-both-client-and-service",
+      "7-who-owns-what",
+      "consequences",
+      "not-adopted"
+    ],
     "docs/architecture/decisions/README.md": [
       "architecture-decisions"
     ],
@@ -210,6 +224,7 @@
     "docs/login.md": [
       "archon-login--the-scheme",
       "1-parties-and-names",
+      "11-what-a-login-claims",
       "2-the-audience-is-derived-never-transported",
       "21-deriving-it--one-function-one-grammar-pinned",
       "3-records",
@@ -220,6 +235,9 @@
       "4-transport",
       "41-the-prover-initiated-form--offers",
       "5-what-the-cli-shows-before-it-signs",
+      "51-every-provers-contract",
+      "52-a-prover-that-is-not-the-persons-cli",
+      "53-the-transaction-fingerprint",
       "6-properties",
       "7-protocols-composed-with-login-and-what-this-document-leaves-out"
     ],
