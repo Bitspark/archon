@@ -4,14 +4,16 @@
 The binding and the possession message are assembled by hand from the layouts pinned in
 docs/login.md §3 — this file is a fourth, deliberately naive implementation of those layouts —
 and every signature is produced by OpenSSL 3.2.x (`pkeyutl -rawin -pkeyopt instance:Ed25519ph
--pkeyopt context-string:<domain>`), never by a core. A vector copied out of a core pins that
-core's bugs; a vector derived from the standard lets all three cores be wrong together and be
-caught (vectors/README.md, "Authoring").
+-pkeyopt context-string:<domain>`), never by a core. The transaction fingerprint's digest
+(docs/login.md §5.3) is OpenSSL's too (`dgst -sha256 -binary`), checked against hashlib. A vector
+copied out of a core pins that core's bugs; a vector derived from the standard lets all three
+cores be wrong together and be caught (vectors/README.md, "Authoring").
 
 Run from the repo root: `python vectors/tools/login-vectors.py > vectors/login.json`.
 """
 
 import base64
+import hashlib
 import json
 import os
 import subprocess
@@ -19,6 +21,7 @@ import sys
 import tempfile
 
 DOMAIN = "archon-login/1"
+FINGERPRINT_DOMAIN = "archon-login-fingerprint/1"
 ROLE_LOGIN = 0x01
 ROLE_COLLECT = 0x02
 POSSESSION_TAG = 0x01
@@ -93,6 +96,27 @@ def binding(role: int, audience: bytes, browser: bytes, ident: bytes, scope: lis
 
 def possession_message(nonce: bytes, bound: bytes) -> bytes:
     return bytes([POSSESSION_TAG]) + u16(len(nonce)) + nonce + u16(len(bound)) + bound
+
+
+def sha256(data: bytes) -> bytes:
+    """SHA-256 as OpenSSL computes it, checked against hashlib: both outside the three cores."""
+    digest = openssl(["dgst", "-sha256", "-binary"], data)
+    assert len(digest) == 32 and digest == hashlib.sha256(data).digest()
+    return digest
+
+
+def fingerprint(nonce: bytes, bound: bytes) -> bytes:
+    """docs/login.md §5.3: the first 16 bytes of
+    SHA-256(u16 len ‖ FINGERPRINT_DOMAIN ‖ u16 len ‖ nonce ‖ login binding)."""
+    domain = FINGERPRINT_DOMAIN.encode()
+    return sha256(u16(len(domain)) + domain + u16(len(nonce)) + nonce + bound)[:16]
+
+
+def fingerprint_display(fp: bytes) -> str:
+    """32 lowercase hex digits in eight groups of four, separated by single spaces."""
+    assert len(fp) == 16
+    h = fp.hex()
+    return " ".join(h[i : i + 4] for i in range(0, 32, 4))
 
 
 # ---- §2.1: derive_audience, a deliberately naive fourth implementation of the grammar --------
@@ -304,6 +328,33 @@ def main() -> None:
         cv("sig-truncated", "63 bytes.", sig=sig_collect[:63]),
     ]
 
+    # ---- login_fingerprint ----------------------------------------------------------------
+    def fp(name, note, a=AUDIENCE, i=ident, n=nonce, b=pub_k, s=scope, vf=valid_for, ok=True):
+        case = {"note": note, "name": name, "audience": a, "request": req_json(i, n, b, s, vf)}
+        if not ok:
+            return {**case, "result": {"error": True}}
+        f = fingerprint(n, binding(ROLE_LOGIN, a.encode(), b, i, s, vf))
+        return {**case, "result": {"ok": {"fingerprint": f.hex(), "display": fingerprint_display(f)}}}
+
+    fp_scope = [b"read:projects", "publish:projekte/übersicht".encode(), "lire:données/été".encode(), "閲覧:プロジェクト".encode(), b"write:campaigns"]
+    long_id = bytes(range(256)) * 4
+    long_nonce = bytes(range(64))
+    login_fingerprint = [
+        fp("basic", "the transaction fingerprint (docs/login.md §5.3): the first 16 bytes of SHA-256( u16 len ‖ \"archon-login-fingerprint/1\" ‖ u16 len ‖ nonce ‖ binding(0x01, audience, request) ), and its display form, 32 lowercase hex digits in eight groups of four separated by single spaces. The page that began the login computes it from its own K and the begin response, the CLI from the exact request it will sign, and the person compares the two. Inputs {audience, request} (the role is always login, 0x01); expected {\"ok\": {fingerprint (32 hex), display}} or {\"error\": true}. An encoding of its own, never signed: the proofs' bytes are untouched. Refused: everything the login binding refuses, and a nonce under 16 bytes or over the u16 field (the 65536-byte nonce is a per-lane unit test, not a 130 KB vector). SHA-256 from OpenSSL 3.2.4 (`dgst -sha256`), checked against hashlib."),
+        fp("empty-scope", "an empty scope list fingerprints (count 0), as it binds.", s=[]),
+        fp("unicode-scope", "five entries, three of them non-ASCII UTF-8 (Latin-1 accents and CJK), fingerprinted over their UTF-8 bytes, in order.", s=fp_scope),
+        fp("long-id", "a 1024-byte id: lengths are u16, never truncated.", i=long_id),
+        fp("nonce-64", "a 64-byte nonce, under its own u16 length prefix.", n=long_nonce),
+        fp("other-nonce", "the same request under another nonce has another fingerprint: the nonce is not in the binding, so the fingerprint names it separately.", n=bytes([0xAB]) * 16),
+        fp("nonce-short-rejected", "a 15-byte nonce is refused, as the login proof refuses it.", n=nonce[:15], ok=False),
+        fp("nonce-empty-rejected", "an empty nonce is refused.", n=b"", ok=False),
+        fp("validity-zero-rejected", "every login-binding refusal is a fingerprint refusal: valid_for 0.", vf=0, ok=False),
+        fp("browser-short-rejected", "every login-binding refusal is a fingerprint refusal: a 31-byte browser key.", b=pub_k[:31], ok=False),
+        fp("audience-empty-rejected", "every login-binding refusal is a fingerprint refusal: an empty audience.", a="", ok=False),
+        fp("id-empty-rejected", "every login-binding refusal is a fingerprint refusal: an empty id.", i=b"", ok=False),
+        fp("scope-not-utf8-rejected", "every login-binding refusal is a fingerprint refusal: a scope entry that is not UTF-8 (0xff).", s=[b"read:\xffprojects"], ok=False),
+    ]
+
     # ---- login_audience -------------------------------------------------------------------
     hid = ident.hex()
 
@@ -366,13 +417,14 @@ def main() -> None:
 
     doc = {
         "version": 1,
-        "note": "archon login-scheme conformance vectors (docs/login.md): the audience derivation (§2.1: one grammar, refused not normalised), the binding both proofs are made over, the person's login proof, the browser's collect proof, and their verification — all in the SDK's possession scheme, domain archon-login/1. Scope entries are given as hex so that a non-UTF-8 entry can be a case; a lane decodes them before calling the scheme (a failed decode is the same refusal). Audience is a UTF-8 string. Entropy (nonce, id, keys) and time (valid_for) are case INPUTS — the scheme never sources them — which is what makes every output deterministic and pinnable. Signatures derived with OpenSSL 3.2.4, outside all three cores (vectors/tools/login-vectors.py).",
+        "note": "archon login-scheme conformance vectors (docs/login.md): the audience derivation (§2.1: one grammar, refused not normalised), the binding both proofs are made over, the person's login proof, the browser's collect proof, and their verification — all in the SDK's possession scheme, domain archon-login/1 — and the transaction fingerprint the page and the CLI both show (§5.3: a SHA-256 digest in domain archon-login-fingerprint/1, never signed). Scope entries are given as hex so that a non-UTF-8 entry can be a case; a lane decodes them before calling the scheme (a failed decode is the same refusal). Audience is a UTF-8 string. Entropy (nonce, id, keys) and time (valid_for) are case INPUTS — the scheme never sources them — which is what makes every output deterministic and pinnable. Signatures and digests derived with OpenSSL 3.2.4, outside all three cores (vectors/tools/login-vectors.py).",
         "login_audience": login_audience,
         "login_binding": login_binding,
         "login_prove": login_prove,
         "login_verify": login_verify,
         "login_collect_prove": login_collect_prove,
         "login_collect_verify": login_collect_verify,
+        "login_fingerprint": login_fingerprint,
     }
     out = json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
     sys.stdout.buffer.write(out.encode("utf-8"))  # never the console codepage

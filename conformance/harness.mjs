@@ -111,6 +111,10 @@ const LOGIN_FAMILIES = [
   // The browser's collect proof, only from the key the request names.
   { name: "login_collect_prove", want: (c) => c.result, got: (l) => l.result },
   { name: "login_collect_verify", want: (c) => c.valid, got: (l) => l.valid },
+  // The transaction fingerprint the page and the CLI both show (docs/login.md §5.3): SHA-256 in
+  // its own domain over the nonce and the login binding, its first 16 bytes, and the display
+  // form a person compares; every binding refusal and a short nonce refused.
+  { name: "login_fingerprint", want: (c) => c.result, got: (l) => l.result },
 ];
 
 // Request authentication and key enrollment (vectors/request.json, docs/request.md, ADR 0010),

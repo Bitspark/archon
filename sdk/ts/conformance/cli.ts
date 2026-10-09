@@ -29,7 +29,7 @@
 //   enroll_proof_decode      : in {name, text}        out {"name","result":{"ok":{proof_token}}|{"error":true}}
 
 import { readFileSync } from "node:fs";
-import { provePossession, verifyPossession, seal, open, loginBinding, proveLogin, verifyLogin, proveCollect, verifyCollect, deriveAudience, enrollBinding, proveEnroll, verifyEnroll, signRequest, verifyRequest, encodeEnrollIntent, decodeEnrollIntent, encodeEnrollChallenge, decodeEnrollChallenge, enrollChallengeRequest, encodeEnrollProof, decodeEnrollProof } from "../src/index.js";
+import { provePossession, verifyPossession, seal, open, loginBinding, proveLogin, verifyLogin, proveCollect, verifyCollect, deriveAudience, fingerprint, formatFingerprint, enrollBinding, proveEnroll, verifyEnroll, signRequest, verifyRequest, encodeEnrollIntent, decodeEnrollIntent, encodeEnrollChallenge, decodeEnrollChallenge, enrollChallengeRequest, encodeEnrollProof, decodeEnrollProof } from "../src/index.js";
 import type { EnrollIntent, EnrollRequest, LoginRequest } from "../src/index.js";
 
 function fromHex(s: string): Uint8Array {
@@ -165,6 +165,15 @@ for (const c of cases as Array<Record<string, string>>) {
       break;
     case "login_collect_verify":
       out = { name, valid: totally(() => verifyCollect(c["audience"]!, loginRequest(c), fromHex(c["sig"]!))) };
+      break;
+    case "login_fingerprint":
+      out = {
+        name,
+        result: attempt(() => {
+          const fp = fingerprint(c["audience"]!, loginRequest(c));
+          return { fingerprint: toHex(fp), display: formatFingerprint(fp) };
+        }),
+      };
       break;
     case "enroll_binding":
       out = { name, result: attempt(() => toHex(enrollBinding(c["audience"]!, enrollRequest(c)))) };

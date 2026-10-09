@@ -16,6 +16,7 @@
 //	login_verify         : in {name, pubkey, audience, request, sig} out {"name","valid":<bool>}
 //	login_collect_prove  : in {name, seed, audience, request}        out {"name","result":{"ok":"<128-hex>"}|{"error":true}}
 //	login_collect_verify : in {name, audience, request, sig}         out {"name","valid":<bool>}
+//	login_fingerprint    : in {name, audience, request}              out {"name","result":{"ok":{"fingerprint","display"}}|{"error":true}}
 //
 // vectors/request.json (same protocol; `request` is {nonce, transaction, purpose[hex], new_key, intent_digest}):
 //
@@ -254,6 +255,9 @@ func main() {
 			out["result"] = resultOf(hex.EncodeToString(sig), err)
 		case "login_collect_verify":
 			out["valid"] = login.VerifyCollect(c.Audience, c.login(), mustHex(c.Sig))
+		case "login_fingerprint":
+			fp, err := login.Fingerprint(c.Audience, c.login())
+			out["result"] = resultOf(map[string]any{"fingerprint": hex.EncodeToString(fp[:]), "display": login.FormatFingerprint(fp)}, err)
 		case "enroll_binding":
 			b, err := enroll.Binding(c.Audience, c.enroll())
 			out["result"] = resultOf(hex.EncodeToString(b), err)

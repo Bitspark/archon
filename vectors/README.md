@@ -3,10 +3,13 @@
 `sdk.json` — 38 cases in 4 families (`possession_prove` · `possession_verify` · `envelope_seal` ·
 `envelope_open`), the same contract one layer up, for `sdk/{rs,go,ts,py,java}` ([ADR 0004](../docs/architecture/decisions/0004-the-sdk-layer-above-the-floor.md)).
 
-`login.json` — 105 cases in 6 families (`login_audience` · `login_binding` · `login_prove` ·
-`login_verify` · `login_collect_prove` · `login_collect_verify`), the login scheme ([docs/login.md](../docs/login.md)),
-for the same `sdk/{rs,go,ts}` CLIs. Derived by [`tools/login-vectors.py`](tools/login-vectors.py):
-the layouts assembled by hand from the spec, every signature from OpenSSL 3.2.4 — regenerate with
+`login.json` — 118 cases in 7 families (`login_audience` · `login_binding` · `login_prove` ·
+`login_verify` · `login_collect_prove` · `login_collect_verify` · `login_fingerprint`), the login
+scheme ([docs/login.md](../docs/login.md)), for the same `sdk/{rs,go,ts}` CLIs. `login_fingerprint`
+(13) is the transaction fingerprint the page and the CLI both show (§5.3): SHA-256 in its own
+domain over the nonce and the login binding, its first 16 bytes and their display form, never
+signed. Derived by [`tools/login-vectors.py`](tools/login-vectors.py): the layouts assembled by
+hand from the spec, every signature and digest from OpenSSL 3.2.4 — regenerate with
 `python vectors/tools/login-vectors.py > vectors/login.json` from the repo root. Scope entries are
 hex so a non-UTF-8 entry can be a case; a lane decodes them before calling the scheme.
 
