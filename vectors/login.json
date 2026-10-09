@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "archon login-scheme conformance vectors (docs/login.md): the audience derivation (§2.1: one grammar, refused not normalised), the binding both proofs are made over, the person's login proof, the browser's collect proof, and their verification — all in the SDK's possession scheme, domain archon-login/1. Scope entries are given as hex so that a non-UTF-8 entry can be a case; a lane decodes them before calling the scheme (a failed decode is the same refusal). Audience is a UTF-8 string. Entropy (nonce, id, keys) and time (valid_for) are case INPUTS — the scheme never sources them — which is what makes every output deterministic and pinnable. Signatures derived with OpenSSL 3.2.4, outside all three cores (vectors/tools/login-vectors.py).",
+  "note": "archon login-scheme conformance vectors (docs/login.md): the audience derivation (§2.1: one grammar, refused not normalised), the binding both proofs are made over, the person's login proof, the browser's collect proof, and their verification — all in the SDK's possession scheme, domain archon-login/1 — and the transaction fingerprint the page and the CLI both show (§5.3: a SHA-256 digest in domain archon-login-fingerprint/1, never signed). Scope entries are given as hex so that a non-UTF-8 entry can be a case; a lane decodes them before calling the scheme (a failed decode is the same refusal). Audience is a UTF-8 string. Entropy (nonce, id, keys) and time (valid_for) are case INPUTS — the scheme never sources them — which is what makes every output deterministic and pinnable. Signatures and digests derived with OpenSSL 3.2.4, outside all three cores (vectors/tools/login-vectors.py).",
   "login_audience": [
     {
       "note": "derive_audience (docs/login.md §2.1): input {url}; expected {\"ok\": {audience, id hex}} or {\"error\": true}. The grammar is accepted exactly and everything else is REFUSED, never normalised — one URL yields one audience in every lane. The id is returned decoded.",
@@ -1787,6 +1787,259 @@
       },
       "sig": "61821eec3dbc91e83ecc0874ef436c630a25b1b70ff4d7f9af9dee70f0cae3e88d353c595f96135da55f75fb676f707dfb9ac3c5e29d8273b19586afc94489",
       "valid": false
+    }
+  ],
+  "login_fingerprint": [
+    {
+      "note": "the transaction fingerprint (docs/login.md §5.3): the first 16 bytes of SHA-256( u16 len ‖ \"archon-login-fingerprint/1\" ‖ u16 len ‖ nonce ‖ binding(0x01, audience, request) ), and its display form, 32 lowercase hex digits in eight groups of four separated by single spaces. The page that began the login computes it from its own K and the begin response, the CLI from the exact request it will sign, and the person compares the two. Inputs {audience, request} (the role is always login, 0x01); expected {\"ok\": {fingerprint (32 hex), display}} or {\"error\": true}. An encoding of its own, never signed: the proofs' bytes are untouched. Refused: everything the login binding refuses, and a nonce under 16 bytes or over the u16 field (the 65536-byte nonce is a per-lane unit test, not a 130 KB vector). SHA-256 from OpenSSL 3.2.4 (`dgst -sha256`), checked against hashlib.",
+      "name": "basic",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": {
+          "fingerprint": "bd1a5a25a2b44eb97dec6f03bddc96af",
+          "display": "bd1a 5a25 a2b4 4eb9 7dec 6f03 bddc 96af"
+        }
+      }
+    },
+    {
+      "note": "an empty scope list fingerprints (count 0), as it binds.",
+      "name": "empty-scope",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": {
+          "fingerprint": "6759cee636721e34a5ba12fc2a718dd0",
+          "display": "6759 cee6 3672 1e34 a5ba 12fc 2a71 8dd0"
+        }
+      }
+    },
+    {
+      "note": "five entries, three of them non-ASCII UTF-8 (Latin-1 accents and CJK), fingerprinted over their UTF-8 bytes, in order.",
+      "name": "unicode-scope",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "7075626c6973683a70726f6a656b74652fc3bc6265727369636874",
+          "6c6972653a646f6e6ec3a965732fc3a974c3a9",
+          "e996b2e8a6a73ae38397e383ade382b8e382a7e382afe38388",
+          "77726974653a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": {
+          "fingerprint": "5cfe7ba86c3f447eb84ae397a8115e4e",
+          "display": "5cfe 7ba8 6c3f 447e b84a e397 a811 5e4e"
+        }
+      }
+    },
+    {
+      "note": "a 1024-byte id: lengths are u16, never truncated.",
+      "name": "long-id",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": {
+          "fingerprint": "3c51571a8f776538b040432915285a6e",
+          "display": "3c51 571a 8f77 6538 b040 4329 1528 5a6e"
+        }
+      }
+    },
+    {
+      "note": "a 64-byte nonce, under its own u16 length prefix.",
+      "name": "nonce-64",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": {
+          "fingerprint": "a7f23a942d7ff7fc8b67f7a507ddfe3e",
+          "display": "a7f2 3a94 2d7f f7fc 8b67 f7a5 07dd fe3e"
+        }
+      }
+    },
+    {
+      "note": "the same request under another nonce has another fingerprint: the nonce is not in the binding, so the fingerprint names it separately.",
+      "name": "other-nonce",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "abababababababababababababababab",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "ok": {
+          "fingerprint": "8ba886ecce5d05e3ffaa022d560d78d5",
+          "display": "8ba8 86ec ce5d 05e3 ffaa 022d 560d 78d5"
+        }
+      }
+    },
+    {
+      "note": "a 15-byte nonce is refused, as the login proof refuses it.",
+      "name": "nonce-short-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "an empty nonce is refused.",
+      "name": "nonce-empty-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "every login-binding refusal is a fingerprint refusal: valid_for 0.",
+      "name": "validity-zero-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 0
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "every login-binding refusal is a fingerprint refusal: a 31-byte browser key.",
+      "name": "browser-short-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "every login-binding refusal is a fingerprint refusal: an empty audience.",
+      "name": "audience-empty-rejected",
+      "audience": "",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "every login-binding refusal is a fingerprint refusal: an empty id.",
+      "name": "id-empty-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643a70726f6a65637473",
+          "726561643a63616d706169676e73"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
+    },
+    {
+      "note": "every login-binding refusal is a fingerprint refusal: a scope entry that is not UTF-8 (0xff).",
+      "name": "scope-not-utf8-rejected",
+      "audience": "https://dawn.example/api",
+      "request": {
+        "id": "8f3c1d2e4b5a69780f1e2d3c4b5a6978",
+        "nonce": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browser": "a09aa5f47a6759802ff955f8dc2d2a14a5c99d23be97f864127ff9383455a4f0",
+        "scope": [
+          "726561643aff70726f6a65637473"
+        ],
+        "valid_for": 28800
+      },
+      "result": {
+        "error": true
+      }
     }
   ]
 }

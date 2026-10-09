@@ -22,8 +22,10 @@ use archon_core::crypto::{public_key_from_seed, PUBLIC_KEY_SIZE, SEED_SIZE, SIGN
 
 mod audience;
 mod display;
+mod fingerprint;
 pub use audience::derive_audience;
 pub use display::display_unsafe;
+pub use fingerprint::{fingerprint, format_fingerprint, FINGERPRINT_DOMAIN};
 
 use crate::possession;
 use crate::signer::{sign_with, Signer, SigningRequest};

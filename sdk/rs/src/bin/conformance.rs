@@ -225,6 +225,12 @@ fn main() {
                     .unwrap_or(false);
                 json!({ "name": name, "valid": valid })
             }
+            "login_fingerprint" => {
+                let r = login_request(c)
+                    .and_then(|req| login::fingerprint(s("audience"), &req))
+                    .map(|fp| json!({ "fingerprint": hex_encode(&fp), "display": login::format_fingerprint(&fp) }));
+                json!({ "name": name, "result": result_json(r) })
+            }
             // vectors/request.json — `request` is {nonce, transaction, purpose[hex], new_key,
             // intent_digest}.
             "enroll_binding" => {
