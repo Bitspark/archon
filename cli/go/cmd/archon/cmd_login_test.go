@@ -190,21 +190,100 @@ func TestServiceTextIsEscaped(t *testing.T) {
 // binaries must produce these bytes exactly.
 func TestRenderStatement(t *testing.T) {
 	now := time.Date(2026, 9, 10, 10, 4, 0, 0, time.UTC)
-	got := renderStatement("https://prover.core.example.dev/api", validRequest(), now, "the seed file /keys/julia")
+	const audience = "https://prover.core.example.dev/api"
+	fingerprint, err := transactionFingerprint(audience, validRequest())
+	if err != nil {
+		t.Fatalf("transactionFingerprint: %v", err)
+	}
+	got := renderStatement(audience, validRequest(), now, "the seed file /keys/julia", fingerprint)
+	// The fingerprint line's value is the sdk's, over a Request built HERE, independently of
+	// the lane's conversion: the id hex-decoded, the key decoded from its text.
+	r := validRequest()
+	nonce, _ := hex.DecodeString(r.Nonce)
+	browser, _ := keytext.DecodeKey(r.Browser)
+	idBytes, _ := hex.DecodeString(r.ID)
+	fp, err := login.Fingerprint(audience, &login.Request{ID: idBytes, Nonce: nonce, Browser: browser, Scope: r.Scope, ValidFor: r.ValidFor})
+	if err != nil {
+		t.Fatalf("login.Fingerprint: %v", err)
+	}
 	want := "https://prover.core.example.dev/api asks you to let browser key " + testBrowserKey + " act as you:\n" +
 		"  read:projects\n" +
 		"  read:campaigns\n" +
 		"for 8h0m0s, until about 2026-09-10T18:04:00Z\n" +
+		"transaction fingerprint: " + login.FormatFingerprint(fp) + " (compare it with the page you started)\n" +
 		"signing with the seed file /keys/julia\n"
 	if got != want {
 		t.Fatalf("statement mismatch\n got: %q\nwant: %q", got, want)
 	}
 }
 
+// The transaction fingerprint covers the request that will be SIGNED (docs/login.md §5.3):
+// change any field the proof binds, or the nonce, and the line the person compares changes.
+// It goes through schemeRequest, the proof's own conversion, so the id is bound as its decoded
+// bytes; a fingerprint over the ASCII of the id's hex must differ. What the sdk refuses, the
+// command refuses before anything is shown.
+func TestTransactionFingerprintCoversTheSignedRequest(t *testing.T) {
+	const audience = "https://prover.core.example.dev/api"
+	base, err := transactionFingerprint(audience, validRequest())
+	if err != nil {
+		t.Fatalf("transactionFingerprint: %v", err)
+	}
+	if len(base) != 39 || strings.Count(base, " ") != 7 {
+		t.Fatalf("fingerprint %q is not eight groups of four hex digits", base)
+	}
+	for _, c := range []struct {
+		name     string
+		audience string
+		alter    func(*loginRequest)
+	}{
+		{"another audience", "https://prover.core.example.dev/ap", func(*loginRequest) {}},
+		{"another browser key", audience, func(r *loginRequest) { r.Browser = "ed25519:" + strings.Repeat("11", 32) }},
+		{"another id", audience, func(r *loginRequest) { r.ID = "8f3d" }},
+		{"another nonce", audience, func(r *loginRequest) { r.Nonce = strings.Repeat("ab", 15) + "ac" }},
+		{"another scope entry", audience, func(r *loginRequest) { r.Scope = []string{"read:projects", "read:campaign"} }},
+		{"a reordered scope", audience, func(r *loginRequest) { r.Scope = []string{"read:campaigns", "read:projects"} }},
+		{"another validity", audience, func(r *loginRequest) { r.ValidFor++ }},
+	} {
+		r := validRequest()
+		c.alter(r)
+		got, err := transactionFingerprint(c.audience, r)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got == base {
+			t.Errorf("%s: the fingerprint did not change", c.name)
+		}
+	}
+	r := validRequest()
+	nonce, _ := hex.DecodeString(r.Nonce)
+	browser, _ := keytext.DecodeKey(r.Browser)
+	ascii, err := login.Fingerprint(audience, &login.Request{ID: []byte(r.ID), Nonce: nonce, Browser: browser, Scope: r.Scope, ValidFor: r.ValidFor})
+	if err != nil {
+		t.Fatalf("login.Fingerprint: %v", err)
+	}
+	if login.FormatFingerprint(ascii) == base {
+		t.Fatal("the fingerprint matches one over the id's ASCII hex; it must cover the DECODED bytes")
+	}
+	for _, c := range []struct {
+		name  string
+		alter func(*loginRequest)
+	}{
+		{"a nonce under the floor", func(r *loginRequest) { r.Nonce = strings.Repeat("ab", 8) }},
+		{"an empty id", func(r *loginRequest) { r.ID = "" }},
+		{"a zero validity", func(r *loginRequest) { r.ValidFor = 0 }},
+	} {
+		r := validRequest()
+		c.alter(r)
+		if got, err := transactionFingerprint(audience, r); err == nil {
+			t.Errorf("%s: fingerprinted as %q; want a refusal", c.name, got)
+		}
+	}
+}
+
 func TestRenderStatementKeepsScopeOrderAndVerbatim(t *testing.T) {
 	r := validRequest()
 	r.Scope = []string{"publish:projects/bun/workers/w1", "read:projects"}
-	got := renderStatement("https://h.example", r, time.Unix(0, 0).UTC(), "the seed given on the command line")
+	got := renderStatement("https://h.example", r, time.Unix(0, 0).UTC(), "the seed given on the command line", "0000 0000 0000 0000 0000 0000 0000 0000")
 	first := strings.Index(got, "publish:projects/bun/workers/w1")
 	second := strings.Index(got, "read:projects")
 	if first < 0 || second < 0 || first > second {
@@ -216,7 +295,7 @@ func TestRenderStatementKeepsScopeOrderAndVerbatim(t *testing.T) {
 func TestRenderStatementStatesAnEmptyScope(t *testing.T) {
 	r := validRequest()
 	r.Scope = nil
-	got := renderStatement("https://h.example", r, time.Unix(0, 0).UTC(), "the seed given on the command line")
+	got := renderStatement("https://h.example", r, time.Unix(0, 0).UTC(), "the seed given on the command line", "0000 0000 0000 0000 0000 0000 0000 0000")
 	if !strings.Contains(got, noScopeLine) {
 		t.Fatalf("an empty scope must be stated, not shown as a blank: %q", got)
 	}
@@ -280,13 +359,48 @@ func TestConfirmDefaultsToNo(t *testing.T) {
 		{"y\n", true}, {"Y\n", true}, {"yes\n", true}, {"YES\n", true}, {" y \n", true},
 		{"n\n", false}, {"\n", false}, {"", false}, {"maybe\n", false}, {"yolo\n", false},
 	} {
-		got, err := confirm(strings.NewReader(c.in))
+		var got bool
+		_, err := captureStdout(t, func() error {
+			var err error
+			got, err = confirm(strings.NewReader(c.in))
+			return err
+		})
 		if err != nil {
 			t.Fatalf("confirm(%q) errored: %v", c.in, err)
 		}
 		if got != c.want {
 			t.Errorf("confirm(%q) = %v, want %v", c.in, got, c.want)
 		}
+	}
+}
+
+// THE QUESTION STATES ITS CONSEQUENCE (ADR 0015, archon#123): between the statement and
+// `sign? [y/N] ` come the two lines saying what a yes does and who should give it, byte for
+// byte the shared fixture's `prompt`, so all three lanes print the same words. (That nothing
+// of it is printed with --yes is pinned end to end in TestLoginFromASealedStoreKey.)
+func TestConfirmStatesTheConsequenceFirst(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "testdata", "login-statement.json"))
+	if err != nil {
+		t.Fatalf("could not read the shared fixture: %v", err)
+	}
+	var fixture struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatalf("the shared fixture is not the expected JSON: %v", err)
+	}
+	if !strings.HasSuffix(fixture.Prompt, "sign? [y/N] ") || !strings.HasPrefix(fixture.Prompt, "This gives the browser key above authority to act as you.\n") {
+		t.Fatalf("the fixture's prompt is not the consequence and the question: %q", fixture.Prompt)
+	}
+	out, err := captureStdout(t, func() error {
+		_, err := confirm(strings.NewReader("n\n"))
+		return err
+	})
+	if err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	if out != fixture.Prompt {
+		t.Fatalf("confirm printed\n %q\nwant the fixture's prompt\n %q", out, fixture.Prompt)
 	}
 }
 
@@ -529,7 +643,13 @@ func TestStatementMatchesTheSharedFixture(t *testing.T) {
 	}
 	for _, c := range fixture.Cases {
 		t.Run(c.Name, func(t *testing.T) {
-			got := renderStatement(c.Audience, &c.Request, time.Unix(c.NowUnix, 0).UTC(), c.KeySource)
+			// The fingerprint through the lane's OWN conversion and sdk; the fixture's line was
+			// computed with sdk/ts, so this is also a cross-lane check of the conversion.
+			fingerprint, err := transactionFingerprint(c.Audience, &c.Request)
+			if err != nil {
+				t.Fatalf("transactionFingerprint: %v", err)
+			}
+			got := renderStatement(c.Audience, &c.Request, time.Unix(c.NowUnix, 0).UTC(), c.KeySource, fingerprint)
 			if got != c.Statement {
 				t.Fatalf("statement differs from the shared fixture\n got: %q\nwant: %q", got, c.Statement)
 			}
@@ -639,33 +759,94 @@ func TestLedgerMatchesTheSharedFixture(t *testing.T) {
 	}
 }
 
-// The page address is PRINTED AND MARKED, never opened (§4.1 rule 1; ADR 0007 §C.7 (6)):
-// "on the service's own origin" is a byte-exact comparison of scheme and host with the
-// audience's, so a differently spelled origin fails closed.
+// The page address is PRINTED only on a trusted transport AND a trusted origin, never opened
+// (§4.1 rule 1; ADR 0007 §C.7 (6); ADR 0015): https, or plain http on this machine; the
+// audience's own origin, or the one --page-origin names. Both comparisons are byte-exact, so
+// a differently spelled origin fails closed. Withheld, it is one line saying why — and that
+// line never carries the address, which carries the code.
 func TestDescribePage(t *testing.T) {
 	const audience = "https://dawn.example/api"
 	const on = " (on the service's own origin)"
-	const off = " (NOT on the service's origin — do not open it)"
-	for _, c := range []struct{ page, want string }{
-		{"https://dawn.example/login", "page: https://dawn.example/login" + on},
-		{"https://dawn.example/login#abc", "page: https://dawn.example/login#abc" + on},
-		{"https://dawn.example", "page: https://dawn.example" + on},
-		{"https://dawn.example.evil/login", "page: https://dawn.example.evil/login" + off},
-		{"https://evil.example/login", "page: https://evil.example/login" + off},
-		{"HTTPS://dawn.example/login", "page: HTTPS://dawn.example/login" + off},
-		{"http://dawn.example/login", "page: http://dawn.example/login" + off},
-		{"/login", "page: /login" + off},
+	const trusted = " (on the origin you trusted with --page-origin)"
+	for _, c := range []struct{ page, flag, want string }{
+		// on the audience's origin, over https: printed
+		{"https://dawn.example/login", "", "page: https://dawn.example/login" + on},
+		{"https://dawn.example/login#abc", "", "page: https://dawn.example/login#abc" + on},
+		{"https://dawn.example", "", "page: https://dawn.example" + on},
+		{"https://dawn.example?x#abc", "", "page: https://dawn.example?x#abc" + on},
+		// off it: withheld, naming the flag
+		{"https://dawn.example.evil/login#abc", "", pageOffOrigin},
+		{"https://evil.example/login#abc", "", pageOffOrigin},
+		{"https://user@dawn.example/login#abc", "", pageOffOrigin},
+		{"https://dawn.example:8443/login#abc", "", pageOffOrigin},
+		// off it, with a --page-origin that matches exactly: printed; one that does not: withheld
+		{"https://evil.example/login#abc", "https://evil.example", "page: https://evil.example/login#abc" + trusted},
+		{"https://evil.example/login#abc", "https://other.example", pageOffTrusted},
+		{"https://evil.example:8443/login#abc", "https://evil.example", pageOffTrusted},
+		// a flag never demotes the audience's own origin
+		{"https://dawn.example/login#abc", "https://evil.example", "page: https://dawn.example/login#abc" + on},
+		// plain http off this machine: withheld whatever the origin, and no flag rescues it
+		{"http://dawn.example/login#abc", "", pagePlainHTTP},
+		{"http://evil.example/login#abc", "http://evil.example", pagePlainHTTP},
+		{"http://localhost@evil.example/login#abc", "", pagePlainHTTP},
+		// not http(s) at all, or spelled otherwise: withheld
+		{"HTTPS://dawn.example/login#abc", "", pageNotHTTPS},
+		{"/login#abc", "", pageNotHTTPS},
+		{"javascript:alert(1)//#abc", "", pageNotHTTPS},
 	} {
-		if got := describePage(audience, c.page); got != c.want {
-			t.Errorf("describePage(%q) = %q, want %q", c.page, got, c.want)
+		got := describePage(audience, c.page, c.flag)
+		if got != c.want {
+			t.Errorf("describePage(%q, flag %q) = %q, want %q", c.page, c.flag, got, c.want)
+		}
+		if !strings.HasPrefix(got, "page: ") && strings.Contains(got, "abc") {
+			t.Errorf("a withheld page's line carries its fragment: %q", got)
 		}
 	}
-	// The port is part of the origin.
-	if got := describePage("http://127.0.0.1:8080/api", "http://127.0.0.1:8080/login"); !strings.HasSuffix(got, on) {
-		t.Errorf("same host and port must be on origin: %q", got)
+	// Plain http on this machine is a trusted transport; the origin still has to match, and the
+	// port is part of it.
+	const local = "http://127.0.0.1:8080/api"
+	for _, c := range []struct{ page, flag, want string }{
+		{"http://127.0.0.1:8080/login#abc", "", "page: http://127.0.0.1:8080/login#abc" + on},
+		{"http://127.0.0.1:8081/login#abc", "", pageOffOrigin},
+		{"http://localhost:8080/login#abc", "", pageOffOrigin},
+		{"http://localhost:8080/login#abc", "http://localhost:8080", "page: http://localhost:8080/login#abc" + trusted},
+		{"http://[::1]:8080/login#abc", "http://[::1]:8080", "page: http://[::1]:8080/login#abc" + trusted},
+		{"http://localhost.evil.example/login#abc", "http://localhost.evil.example", pagePlainHTTP},
+	} {
+		if got := describePage(local, c.page, c.flag); got != c.want {
+			t.Errorf("describePage(%q, %q, flag %q) = %q, want %q", local, c.page, c.flag, got, c.want)
+		}
 	}
-	if got := describePage("http://127.0.0.1:8080/api", "http://127.0.0.1:8081/login"); !strings.HasSuffix(got, off) {
-		t.Errorf("another port is another origin: %q", got)
+}
+
+// --page-origin is an ORIGIN, spelled the way the comparison can match: a fixed point of
+// §2.1's grammar with no path, query or fragment. Anything else is refused, naming the canonical
+// spelling where there is one.
+func TestPageOriginFlag(t *testing.T) {
+	for _, ok := range []string{"https://pages.example", "http://localhost:8080", "http://[::1]:8080", "https://pages.example:8443"} {
+		if got, err := pageOriginFlag(ok); err != nil || got != ok {
+			t.Errorf("pageOriginFlag(%q) = %q, %v; want it accepted", ok, got, err)
+		}
+	}
+	if got, err := pageOriginFlag(""); err != nil || got != "" {
+		t.Errorf(`pageOriginFlag("") = %q, %v; want not given`, got, err)
+	}
+	for _, c := range []struct{ value, want string }{
+		{"https://pages.example/login", "is not an origin"},
+		{"https://pages.example/", "is not an origin"},
+		{"https://pages.example?x", "is not an origin"},
+		{"https://pages.example#x", "is not an origin"},
+		{"pages.example", "is not an origin"},
+		{"https://", "is not an origin"},
+		{"https://u@pages.example", "is not valid"},
+		{"ftp://pages.example", "is not valid"},
+		{"https://Pages.example", `is not canonical — pass "https://pages.example"`},
+		{"https://pages.example:443", `is not canonical — pass "https://pages.example"`},
+		{"wss://pages.example", `is not canonical — pass "https://pages.example"`},
+	} {
+		if _, err := pageOriginFlag(c.value); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("pageOriginFlag(%q) = %v; want a refusal containing %q", c.value, err, c.want)
+		}
 	}
 }
 
@@ -1027,15 +1208,61 @@ func TestOffersFromASealedStoreKey(t *testing.T) {
 		}
 	})
 
-	t.Run("a page not on the service's origin is marked, and nothing is opened", func(t *testing.T) {
-		reset()
-		stub.page = "https://evil.example/login"
-		_, errOut, err := run(base...)
-		if err != nil {
-			t.Fatalf("runLogin: %v", err)
-		}
-		if !strings.Contains(errOut, "page: https://evil.example/login#"+stub.theCode(t)+" (NOT on the service's origin — do not open it)\n") {
-			t.Fatalf("the page was not marked off-origin:\n%s", errOut)
+	// ADR 0015: the page address carries the code, so it is printed only on a trusted transport
+	// AND a trusted origin. Withheld, one line says why, the code line is still there, and the
+	// login goes on — the person can finish on the service's own page. The happy path above is
+	// the plain-http-on-this-machine page on the audience's own origin, printed.
+	pageCases := []struct {
+		name, page, flag, want string
+	}{
+		{"an off-origin https page is withheld without --page-origin", "https://evil.example/login", "", pageOffOrigin + "\n"},
+		{"an off-origin https page is printed with a matching --page-origin", "https://evil.example/login", "https://evil.example",
+			"page: https://evil.example/login#<code> (on the origin you trusted with --page-origin)\n"},
+		{"a mismatching --page-origin does not print it", "https://evil.example/login", "https://other.example", pageOffTrusted + "\n"},
+		{"a plain-http page off this machine is withheld, even on the origin --page-origin names", "http://pages.example/login", "http://pages.example",
+			pagePlainHTTP + "\n"},
+	}
+	for _, c := range pageCases {
+		t.Run(c.name, func(t *testing.T) {
+			reset()
+			stub.page = c.page
+			args := append([]string{}, base...)
+			if c.flag != "" {
+				args = append(args, "--page-origin", c.flag)
+			}
+			out, errOut, err := run(args...)
+			if err != nil {
+				t.Fatalf("runLogin: %v\nstderr:\n%s", err, errOut)
+			}
+			code := stub.theCode(t)
+			if want := strings.ReplaceAll(c.want, "<code>", code); !strings.Contains(errOut, want) {
+				t.Fatalf("stderr lacks %q:\n%s", want, errOut)
+			}
+			printed := strings.HasPrefix(c.want, "page: ")
+			// Withheld means withheld: the code is on its own line and nowhere else, and the page's
+			// address is not on stderr at all.
+			if n := strings.Count(errOut, code); (!printed && n != 1) || (printed && n != 2) {
+				t.Fatalf("the code appears %d times on stderr:\n%s", n, errOut)
+			}
+			if !printed && strings.Contains(errOut, c.page) {
+				t.Fatalf("a withheld page address reached stderr:\n%s", errOut)
+			}
+			if !strings.Contains(errOut, "code: "+code+"\n") || !stub.verified || out != ledger("the service accepted the login. the browser is in.\n") {
+				t.Fatalf("the login did not go on to the ledger:\nstdout:\n%s\nstderr:\n%s", out, errOut)
+			}
+		})
+	}
+
+	t.Run("a --page-origin that is not an origin is refused before any request", func(t *testing.T) {
+		for _, bad := range []string{"https://evil.example/login", "https://Evil.example", "evil.example"} {
+			reset()
+			_, _, err := run(append(append([]string{}, base...), "--page-origin", bad)...)
+			if err == nil || !strings.Contains(err.Error(), "--page-origin") {
+				t.Fatalf("--page-origin %q: err = %v, want a refusal naming the flag", bad, err)
+			}
+			if n := len(stub.seen()); n != 0 {
+				t.Fatalf("--page-origin %q: %d requests were made", bad, n)
+			}
 		}
 	})
 
@@ -1213,7 +1440,51 @@ func TestLoginFromASealedStoreKey(t *testing.T) {
 		if !strings.HasSuffix(out, "signed as "+principal+". the browser is in.\n") {
 			t.Fatalf("the outcome line is wrong:\n%s", out)
 		}
+		// --yes asks nothing, so it states no consequence either (ADR 0015): the statement's
+		// last line is followed by the outcome and by nothing else.
+		if !strings.Contains(out, "signing with the store key julia\nsigned as ") || strings.Contains(out, consequenceLines) {
+			t.Fatalf("--yes printed something between the statement and the outcome:\n%s", out)
+		}
 		expectRequests(t, 1, 1)
+	})
+
+	t.Run("without --yes the consequence comes before the question, and a no signs nothing", func(t *testing.T) {
+		reset()
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		savedStdin := os.Stdin
+		os.Stdin = r
+		defer func() { os.Stdin = savedStdin; r.Close() }()
+		if _, err := w.WriteString("n\n"); err != nil {
+			t.Fatal(err)
+		}
+		w.Close()
+		out, err := captureStdout(t, func() error { return runLogin([]string{url, "--key", "julia"}) })
+		if err != nil {
+			t.Fatalf("runLogin: %v", err)
+		}
+		// The statement, then the two lines, then the unchanged question, then the refusal.
+		want := "signing with the store key julia\n" +
+			"This gives the browser key above authority to act as you.\n" +
+			"Approve only a client you started yourself.\n" +
+			"sign? [y/N] refused. nothing was signed.\n"
+		if !strings.HasSuffix(out, want) || !strings.HasPrefix(out, "http://") {
+			t.Fatalf("stdout is not the statement, the consequence, the question and the refusal:\n%s", out)
+		}
+		expectRequests(t, 1, 0)
+	})
+
+	t.Run("--page-origin with a URL is refused before any request", func(t *testing.T) {
+		reset()
+		_, err := captureStdout(t, func() error {
+			return runLogin([]string{url, "--key", "julia", "--page-origin", "https://pages.example", "--yes"})
+		})
+		if err == nil || !strings.Contains(err.Error(), "--page-origin applies only to the offers form") {
+			t.Fatalf("err = %v, want the misplaced-flag refusal", err)
+		}
+		expectRequests(t, 0, 0)
 	})
 
 	t.Run("no source flag falls back to the store's default", func(t *testing.T) {

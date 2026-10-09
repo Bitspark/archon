@@ -1,10 +1,11 @@
 {
-  "_why": "The statement is the one thing all three archon CLI lanes must print BYTE-IDENTICALLY, and it is the thing the person reads before signing. cli/smoke.mjs pins exactly ONE rendered statement — the store-key login it runs against the server it hosts itself — and this fixture pins every OTHER source line, with no network: each lane's unit suite reads THIS file and asserts its renderer reproduces `statement` exactly. Change the wording here and all three suites fail until all three lanes agree again. `offer_cases` is the same pin for the offers form (docs/login.md §4.1 rule 4): the LEDGER the CLI prints AFTER answering, the same fields the statement shows before signing, with the service's verdict as its last line — and never the code.",
+  "_why": "The statement is the one thing all three archon CLI lanes must print BYTE-IDENTICALLY, and it is the thing the person reads before signing. cli/smoke.mjs pins exactly ONE rendered statement — the store-key login it runs against the server it hosts itself — and this fixture pins every OTHER source line, with no network: each lane's unit suite reads THIS file and asserts its renderer reproduces `statement` exactly. Change the wording here and all three suites fail until all three lanes agree again. Each statement's `transaction fingerprint:` line (docs/login.md §5.3, ADR 0015 §4) was computed with the sdk (sdk/ts's fingerprint and formatFingerprint, over the case's audience and request), never written by hand, and each lane's suite recomputes it with its OWN sdk through the same conversion its proof is made from — so the line is a cross-lane check of that conversion as well as of the wording. `offer_cases` is the same pin for the offers form (docs/login.md §4.1 rule 4): the LEDGER the CLI prints AFTER answering, the same fields the statement shows before signing, with the service's verdict as its last line — and never the code. `prompt` is the same pin for what follows the statement when the question is asked (ADR 0015, archon#123): the consequence a yes has and who should give it, then the unchanged question — and nothing of it with --yes, which asks nothing.",
   "_read_by": [
     "cli/go/cmd/archon/cmd_login_test.go",
     "cli/rs/src/cmd/login.rs (mod tests)",
     "cli/ts/test/login.test.ts"
   ],
+  "prompt": "This gives the browser key above authority to act as you.\nApprove only a client you started yourself.\nsign? [y/N] ",
   "cases": [
     {
       "name": "a scope of two entries",
@@ -21,7 +22,7 @@
         ],
         "valid_for": 28800
       },
-      "statement": "https://prover.core.example.dev/api asks you to let browser key ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f act as you:\n  read:projects\n  read:campaigns\nfor 8h0m0s, until about 2026-09-10T18:04:00Z\nsigning with the seed file /keys/julia\n"
+      "statement": "https://prover.core.example.dev/api asks you to let browser key ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f act as you:\n  read:projects\n  read:campaigns\nfor 8h0m0s, until about 2026-09-10T18:04:00Z\ntransaction fingerprint: 119f 4b0b 6ff9 cc0a 25fe 75d5 f8de b6b0 (compare it with the page you started)\nsigning with the seed file /keys/julia\n"
     },
     {
       "name": "an empty scope (a proof-only service)",
@@ -35,7 +36,7 @@
         "scope": [],
         "valid_for": 300
       },
-      "statement": "https://h.example asks you to let browser key ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f act as you:\n  (no scope entries — the service asks only for proof of your key)\nfor 5m0s, until about 1970-01-01T00:05:00Z\nsigning with the seed given on the command line\n"
+      "statement": "https://h.example asks you to let browser key ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f act as you:\n  (no scope entries — the service asks only for proof of your key)\nfor 5m0s, until about 1970-01-01T00:05:00Z\ntransaction fingerprint: 24f5 73b2 5ee5 367b 3265 a2b4 7b1e 0667 (compare it with the page you started)\nsigning with the seed given on the command line\n"
     }
     ,
     {
@@ -52,7 +53,7 @@
         ],
         "valid_for": 3600
       },
-      "statement": "https://h.example/api asks you to let browser key ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f act as you:\n  read:projects\nfor 1h0m0s, until about 2026-09-10T11:04:00Z\nsigning with the store key julia\n"
+      "statement": "https://h.example/api asks you to let browser key ed25519:7a91b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f act as you:\n  read:projects\nfor 1h0m0s, until about 2026-09-10T11:04:00Z\ntransaction fingerprint: 3e08 576f 16ec 97f5 f752 5ab9 1478 22cd (compare it with the page you started)\nsigning with the store key julia\n"
     }
   ],
   "offer_cases": [

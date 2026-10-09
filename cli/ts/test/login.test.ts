@@ -10,6 +10,8 @@ import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Readable } from "node:stream";
+
 import {
   validateLoginRequest,
   fetchLoginRequest,
@@ -18,6 +20,13 @@ import {
   renderLedger,
   describeKeySource,
   describePage,
+  pageOriginFlag,
+  confirm,
+  transactionFingerprint,
+  PAGE_NOT_HTTPS,
+  PAGE_PLAIN_HTTP,
+  PAGE_OFF_ORIGIN,
+  PAGE_OFF_TRUSTED,
   configuredAudience,
   formatDuration,
   formatRfc3339Utc,
@@ -32,7 +41,7 @@ import {
 import { sealAndWrite } from "../src/cmd/key_store.js";
 import { allowlist } from "../src/keystore.js";
 import { encodeKey, getPublicKey } from "@bitspark/archon";
-import { deriveAudience, verifyLogin, type LoginRequest as SchemeRequest } from "@bitspark/archon-sdk";
+import { deriveAudience, fingerprint, formatFingerprint, verifyLogin, type LoginRequest as SchemeRequest } from "@bitspark/archon-sdk";
 
 const hexToBytes = (h: string): Uint8Array =>
   Uint8Array.from(h.match(/../g)!.map((b) => Number.parseInt(b, 16)));
@@ -156,21 +165,69 @@ test("the service's text is escaped", () => {
 // must come out of all three binaries.
 test("renders the statement", () => {
   const now = 1789034640; // 2026-09-10T10:04:00Z
-  const got = renderStatement("https://prover.core.example.dev/api", validRequest(), now, "the seed file /keys/julia");
+  const audience = "https://prover.core.example.dev/api";
+  const got = renderStatement(audience, validRequest(), now, "the seed file /keys/julia", transactionFingerprint(audience, validRequest()));
+  // The fingerprint line's value is the sdk's, over a request built HERE, independently of the
+  // lane's conversion: the id hex-decoded, the key decoded from its text.
+  const r = validRequest();
+  const fp = formatFingerprint(fingerprint(audience, {
+    id: hexToBytes(r.id), nonce: hexToBytes(r.nonce), browser: hexToBytes(r.browser.slice("ed25519:".length)), scope: r.scope, validFor: r.valid_for,
+  }));
   const want =
     `https://prover.core.example.dev/api asks you to let browser key ${BROWSER} act as you:\n` +
     "  read:projects\n" +
     "  read:campaigns\n" +
     "for 8h0m0s, until about 2026-09-10T18:04:00Z\n" +
+    `transaction fingerprint: ${fp} (compare it with the page you started)\n` +
     "signing with the seed file /keys/julia\n";
   assert.equal(got, want);
+});
+
+// The transaction fingerprint covers the request that will be SIGNED (docs/login.md §5.3):
+// change any field the proof binds, or the nonce, and the line the person compares changes. It
+// goes through schemeRequest, the proof's own conversion, so the id is bound as its decoded
+// bytes; a fingerprint over the ASCII of the id's hex must differ. What the sdk refuses, the
+// command refuses before anything is shown.
+test("the transaction fingerprint covers the signed request", () => {
+  const audience = "https://prover.core.example.dev/api";
+  const base = transactionFingerprint(audience, validRequest());
+  assert.ok(/^[0-9a-f]{4}( [0-9a-f]{4}){7}$/.test(base), `fingerprint ${base} is not eight groups of four hex digits`);
+  const alterations: [string, string, (r: LoginRequest) => void][] = [
+    ["another audience", "https://prover.core.example.dev/ap", () => {}],
+    ["another browser key", audience, (r) => { r.browser = `ed25519:${"11".repeat(32)}`; }],
+    ["another id", audience, (r) => { r.id = "8f3d"; }],
+    ["another nonce", audience, (r) => { r.nonce = `${"ab".repeat(15)}ac`; }],
+    ["another scope entry", audience, (r) => { r.scope = ["read:projects", "read:campaign"]; }],
+    ["a reordered scope", audience, (r) => { r.scope.reverse(); }],
+    ["another validity", audience, (r) => { r.valid_for += 1; }],
+  ];
+  for (const [name, aud, alter] of alterations) {
+    const r = validRequest();
+    alter(r);
+    assert.notEqual(transactionFingerprint(aud, r), base, `${name}: the fingerprint did not change`);
+  }
+  const r = validRequest();
+  const ascii = formatFingerprint(fingerprint(audience, {
+    id: new TextEncoder().encode(r.id), nonce: hexToBytes(r.nonce), browser: hexToBytes(r.browser.slice("ed25519:".length)), scope: r.scope, validFor: r.valid_for,
+  }));
+  assert.notEqual(ascii, base, "the fingerprint matches one over the id's ASCII hex; it must cover the DECODED bytes");
+  const refusals: [string, (r: LoginRequest) => void][] = [
+    ["a nonce under the floor", (q) => { q.nonce = "ab".repeat(8); }],
+    ["an empty id", (q) => { q.id = ""; }],
+    ["a zero validity", (q) => { q.valid_for = 0; }],
+  ];
+  for (const [name, alter] of refusals) {
+    const q = validRequest();
+    alter(q);
+    assert.throws(() => transactionFingerprint(audience, q), `${name}: fingerprinted; want a refusal`);
+  }
 });
 
 // An empty scope is VALID (docs/login.md §3.1) and must still say so on screen.
 test("states an empty scope rather than showing a blank", () => {
   const r = validRequest();
   r.scope = [];
-  const got = renderStatement("https://h.example", r, 0, "the seed given on the command line");
+  const got = renderStatement("https://h.example", r, 0, "the seed given on the command line", "0000 0000 0000 0000 0000 0000 0000 0000");
   assert.match(got, /no scope entries/, "an empty scope must be stated");
 });
 
@@ -342,7 +399,9 @@ test("statement matches the shared fixture", () => {
   };
   assert.ok(doc.cases.length > 0, "the shared fixture holds no cases — a fixture nobody can fail is not a pin");
   for (const c of doc.cases) {
-    const got = renderStatement(c.audience, c.request, c.nowUnix, c.keySource);
+    // The fingerprint through the lane's OWN conversion and sdk; the fixture's line was computed
+    // with sdk/ts directly, so this also checks the lane's conversion against it.
+    const got = renderStatement(c.audience, c.request, c.nowUnix, c.keySource, transactionFingerprint(c.audience, c.request));
     assert.equal(got, c.statement, `statement differs from the shared fixture for case ${JSON.stringify(c.name)}`);
   }
 });
@@ -361,19 +420,46 @@ test("describes the key source by its name, never a principal", () => {
   for (const [src, want] of cases) assert.equal(describeKeySource(src), want, JSON.stringify(src));
 });
 
+// Default-no is the whole point of a confirmation prompt: a login must never complete because
+// stdin happened to be closed or held something unexpected.
+test("confirm defaults to no", async () => {
+  const cases: [string, boolean][] = [
+    ["y\n", true], ["Y\n", true], ["yes\n", true], ["YES\n", true], [" y \n", true],
+    ["n\n", false], ["\n", false], ["", false], ["maybe\n", false], ["yolo\n", false],
+  ];
+  for (const [input, want] of cases) {
+    assert.equal(await confirm(() => {}, Readable.from(input === "" ? [] : [input])), want, JSON.stringify(input));
+  }
+});
+
+// THE QUESTION STATES ITS CONSEQUENCE (ADR 0015, archon#123): between the statement and
+// `sign? [y/N] ` come the two lines saying what a yes does and who should give it, byte for byte
+// the shared fixture's `prompt`, so all three lanes print the same words. (That nothing of it is
+// printed with --yes, and that it follows the statement, is pinned end to end below.)
+test("confirm states the consequence before the question", async () => {
+  const doc = JSON.parse(readFileSync("../testdata/login-statement.json", "utf8")) as { prompt: string };
+  assert.ok(
+    doc.prompt.startsWith("This gives the browser key above authority to act as you.\n") && doc.prompt.endsWith("sign? [y/N] "),
+    `the fixture's prompt is not the consequence and the question: ${JSON.stringify(doc.prompt)}`,
+  );
+  const out: string[] = [];
+  assert.equal(await confirm((t) => { out.push(t); }, Readable.from(["n\n"])), false);
+  assert.equal(out.join(""), doc.prompt);
+});
+
 // Runs the command with its output collected through run's injected writer, and its error
 // returned rather than thrown. NEVER by patching process.stdout.write: under `node --test`
 // this file is a child that reports each test's events to the runner over its own stdout,
 // flushed lazily — a patch swallowed the queued events of the three tests that had just
 // finished, and they vanished from the run's count without a skip or a failure. Pinning
 // what a person would have SEEN is the point of the test below, so the seam is explicit.
-async function runCollecting(args: string[]): Promise<{ out: string; error: Error | undefined }> {
+async function runCollecting(args: string[], io?: LoginIo): Promise<{ out: string; error: Error | undefined }> {
   const chunks: string[] = [];
   let error: Error | undefined;
   try {
     await run(args, (text) => {
       chunks.push(text);
-    });
+    }, io);
   } catch (e) {
     error = e instanceof Error ? e : new Error(String(e));
   }
@@ -386,7 +472,8 @@ async function runCollecting(args: string[]): Promise<{ out: string; error: Erro
 // "not yet true" until this test could pass.
 //
 // `--yes` short-circuits before confirm() is ever constructed, so nothing here touches
-// stdin; with ARCHON_KEY_PASSWORD set, readPassword returns before the prompt path too.
+// stdin — and the one scenario without it answers through LoginIo's injected `stdin`; with
+// ARCHON_KEY_PASSWORD set, readPassword returns before the prompt path too.
 // The stub records every request BEFORE it answers, and each scenario says how many it
 // expects, because WHERE a refusal lands is the point: a bad name and a missing default are
 // refused before any request; a wrong password after the GET but before any POST — the
@@ -447,6 +534,10 @@ test("logs in from a sealed store key", async () => {
       "the service must have verified a proof for the sealed key's principal");
     assert.match(r.out, /signing with the store key julia\n/, "the statement did not name the store key");
     assert.ok(r.out.endsWith(`signed as ${principal}. the browser is in.\n`), `the outcome line is wrong:\n${r.out}`);
+    // --yes asks nothing, so it states no consequence either (ADR 0015): the statement's last
+    // line is followed by the outcome and by nothing else.
+    assert.ok(r.out.includes("signing with the store key julia\nsigned as ") && !r.out.includes("This gives the browser key"),
+      `--yes printed something between the statement and the outcome:\n${r.out}`);
 
     // No source flag falls back to the store's default; the statement names the NAME the
     // pointer resolved to, exactly as --key would.
@@ -497,6 +588,29 @@ test("logs in from a sealed store key", async () => {
     r = await runCollecting([url, "--key", "julia", "--authority-file", join(home, "no-such-file"), "--yes"]);
     assert.match(r.error?.message ?? "", /ENOENT|no such file/i);
     assert.equal(seen.length, 5);
+
+    // Without --yes the consequence comes before the question, and a no signs nothing: the
+    // statement, the two lines, the unchanged question, the refusal — all through run's writer.
+    r = await runCollecting([url, "--key", "julia"], {
+      writeErr: () => {},
+      sleep: async () => {},
+      now: () => Math.floor(Date.now() / 1000),
+      stdin: () => Readable.from(["n\n"]),
+    });
+    assert.equal(r.error, undefined, r.error?.message ?? "expected the command to succeed");
+    assert.ok(r.out.startsWith("http://") && r.out.endsWith(
+      "signing with the store key julia\n" +
+      "This gives the browser key above authority to act as you.\n" +
+      "Approve only a client you started yourself.\n" +
+      "sign? [y/N] refused. nothing was signed.\n"),
+    `stdout is not the statement, the consequence, the question and the refusal:\n${r.out}`);
+    assert.equal(seen.length, 6, "the GET happened, nothing was posted");
+    assert.equal(seen[5]?.method, "GET");
+
+    // --page-origin with a URL: the offers form's flag, refused before any request.
+    r = await runCollecting([url, "--key", "julia", "--page-origin", "https://pages.example", "--yes"]);
+    assert.match(r.error?.message ?? "", /--page-origin applies only to the offers form/);
+    assert.equal(seen.length, 6);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     if (savedHome === undefined) delete process.env["ARCHON_HOME"]; else process.env["ARCHON_HOME"] = savedHome;
@@ -523,27 +637,84 @@ test("ledger matches the shared fixture", () => {
   }
 });
 
-// The page address is PRINTED AND MARKED, never opened (§4.1 rule 1; ADR 0007 §C.7 (6)):
-// "on the service's own origin" is a byte-exact comparison of scheme and host with the
-// audience's, so a differently spelled origin fails closed.
-test("describes the page by origin", () => {
+// The page address is PRINTED only on a trusted transport AND a trusted origin, never opened
+// (§4.1 rule 1; ADR 0007 §C.7 (6); ADR 0015): https, or plain http on this machine; the
+// audience's own origin, or the one --page-origin names. Both comparisons are byte-exact, so a
+// differently spelled origin fails closed. Withheld, it is one line saying why — and that line
+// never carries the address, which carries the code.
+test("describes the page by transport and origin", () => {
   const audience = "https://dawn.example/api";
-  const on = " (on the service's own origin)";
-  const off = " (NOT on the service's origin — do not open it)";
-  const cases: [string, string][] = [
-    ["https://dawn.example/login", on],
-    ["https://dawn.example/login#abc", on],
-    ["https://dawn.example", on],
-    ["https://dawn.example.evil/login", off],
-    ["https://evil.example/login", off],
-    ["HTTPS://dawn.example/login", off],
-    ["http://dawn.example/login", off],
-    ["/login", off],
+  const on = (page: string): string => `page: ${page} (on the service's own origin)`;
+  const trusted = (page: string): string => `page: ${page} (on the origin you trusted with --page-origin)`;
+  const cases: [string, string | undefined, string][] = [
+    // on the audience's origin, over https: printed
+    ["https://dawn.example/login", undefined, on("https://dawn.example/login")],
+    ["https://dawn.example/login#abc", undefined, on("https://dawn.example/login#abc")],
+    ["https://dawn.example", undefined, on("https://dawn.example")],
+    ["https://dawn.example?x#abc", undefined, on("https://dawn.example?x#abc")],
+    // off it: withheld, naming the flag
+    ["https://dawn.example.evil/login#abc", undefined, PAGE_OFF_ORIGIN],
+    ["https://evil.example/login#abc", undefined, PAGE_OFF_ORIGIN],
+    ["https://user@dawn.example/login#abc", undefined, PAGE_OFF_ORIGIN],
+    ["https://dawn.example:8443/login#abc", undefined, PAGE_OFF_ORIGIN],
+    // off it, with a --page-origin that matches exactly: printed; one that does not: withheld
+    ["https://evil.example/login#abc", "https://evil.example", trusted("https://evil.example/login#abc")],
+    ["https://evil.example/login#abc", "https://other.example", PAGE_OFF_TRUSTED],
+    ["https://evil.example:8443/login#abc", "https://evil.example", PAGE_OFF_TRUSTED],
+    // a flag never demotes the audience's own origin
+    ["https://dawn.example/login#abc", "https://evil.example", on("https://dawn.example/login#abc")],
+    // plain http off this machine: withheld whatever the origin, and no flag rescues it
+    ["http://dawn.example/login#abc", undefined, PAGE_PLAIN_HTTP],
+    ["http://evil.example/login#abc", "http://evil.example", PAGE_PLAIN_HTTP],
+    ["http://localhost@evil.example/login#abc", undefined, PAGE_PLAIN_HTTP],
+    // not http(s) at all, or spelled otherwise: withheld
+    ["HTTPS://dawn.example/login#abc", undefined, PAGE_NOT_HTTPS],
+    ["/login#abc", undefined, PAGE_NOT_HTTPS],
+    ["javascript:alert(1)//#abc", undefined, PAGE_NOT_HTTPS],
   ];
-  for (const [page, mark] of cases) assert.equal(describePage(audience, page), `page: ${page}${mark}`, page);
-  // The port is part of the origin.
-  assert.ok(describePage("http://127.0.0.1:8080/api", "http://127.0.0.1:8080/login").endsWith(on));
-  assert.ok(describePage("http://127.0.0.1:8080/api", "http://127.0.0.1:8081/login").endsWith(off));
+  for (const [page, flag, want] of cases) {
+    const got = describePage(audience, page, flag);
+    assert.equal(got, want, `${page} with flag ${flag}`);
+    assert.ok(got.startsWith("page: ") || !got.includes("abc"), `a withheld page's line carries its fragment: ${got}`);
+  }
+  // Plain http on this machine is a trusted transport; the origin still has to match, and the
+  // port is part of it.
+  const local = "http://127.0.0.1:8080/api";
+  const localCases: [string, string | undefined, string][] = [
+    ["http://127.0.0.1:8080/login#abc", undefined, on("http://127.0.0.1:8080/login#abc")],
+    ["http://127.0.0.1:8081/login#abc", undefined, PAGE_OFF_ORIGIN],
+    ["http://localhost:8080/login#abc", undefined, PAGE_OFF_ORIGIN],
+    ["http://localhost:8080/login#abc", "http://localhost:8080", trusted("http://localhost:8080/login#abc")],
+    ["http://[::1]:8080/login#abc", "http://[::1]:8080", trusted("http://[::1]:8080/login#abc")],
+    ["http://localhost.evil.example/login#abc", "http://localhost.evil.example", PAGE_PLAIN_HTTP],
+  ];
+  for (const [page, flag, want] of localCases) assert.equal(describePage(local, page, flag), want, `${page} with flag ${flag}`);
+});
+
+// --page-origin is an ORIGIN, spelled the way the comparison can match: a fixed point of §2.1's
+// grammar with no path, query or fragment. Anything else is refused, naming the canonical
+// spelling where there is one.
+test("checks the --page-origin flag", () => {
+  for (const ok of ["https://pages.example", "http://localhost:8080", "http://[::1]:8080", "https://pages.example:8443"]) {
+    assert.equal(pageOriginFlag(ok), ok);
+  }
+  assert.equal(pageOriginFlag(undefined), undefined);
+  const refused: [string, string][] = [
+    ["https://pages.example/login", "is not an origin"],
+    ["https://pages.example/", "is not an origin"],
+    ["https://pages.example?x", "is not an origin"],
+    ["https://pages.example#x", "is not an origin"],
+    ["pages.example", "is not an origin"],
+    ["https://", "is not an origin"],
+    ["https://u@pages.example", "is not valid"],
+    ["ftp://pages.example", "is not valid"],
+    ["https://Pages.example", 'is not canonical — pass "https://pages.example"'],
+    ["https://pages.example:443", 'is not canonical — pass "https://pages.example"'],
+    ["wss://pages.example", 'is not canonical — pass "https://pages.example"'],
+  ];
+  for (const [value, want] of refused) {
+    assert.throws(() => pageOriginFlag(value), (e: Error) => e.message.includes(want), `${value}: want a refusal containing ${want}`);
+  }
 });
 
 // §4.1 rule 1, the flag half: a fixed point of §2.1's grammar, refused otherwise naming the
@@ -755,10 +926,39 @@ test("offers from a sealed store key", async () => {
     assert.equal(r.error, undefined, r.error?.message ?? "expected the command to succeed");
     assert.ok(r.out.startsWith(`you offered ${audience} `) && stub.verified, "the environment's audience was not used");
 
-    // A page not on the service's origin is marked, and nothing is opened.
-    r = await go(base, (s) => { s.page = "https://evil.example/login"; });
-    assert.equal(r.error, undefined, r.error?.message ?? "expected the command to succeed");
-    assert.ok(r.err.includes(`page: https://evil.example/login#${theCode()} (NOT on the service's origin — do not open it)\n`), r.err);
+    // ADR 0015: the page address carries the code, so it is printed only on a trusted transport
+    // AND a trusted origin. Withheld, one line says why, the code line is still there, and the
+    // login goes on — the person can finish on the service's own page. The happy path above is
+    // the plain-http-on-this-machine page on the audience's own origin, printed.
+    const pageCases: [string, string, string | undefined, string][] = [
+      ["an off-origin https page, no --page-origin", "https://evil.example/login", undefined, `${PAGE_OFF_ORIGIN}\n`],
+      ["an off-origin https page, a matching --page-origin", "https://evil.example/login", "https://evil.example",
+        "page: https://evil.example/login#<code> (on the origin you trusted with --page-origin)\n"],
+      ["an off-origin https page, a mismatching --page-origin", "https://evil.example/login", "https://other.example", `${PAGE_OFF_TRUSTED}\n`],
+      ["a plain-http page off this machine, on the origin --page-origin names", "http://pages.example/login", "http://pages.example",
+        `${PAGE_PLAIN_HTTP}\n`],
+    ];
+    for (const [name, page, flag, wantTemplate] of pageCases) {
+      r = await go(flag === undefined ? base : [...base, "--page-origin", flag], (s) => { s.page = page; });
+      assert.equal(r.error, undefined, `${name}: ${r.error?.message}\n${r.err}`);
+      const code = theCode();
+      const want = wantTemplate.replace("<code>", code);
+      assert.ok(r.err.includes(want), `${name}: stderr lacks ${JSON.stringify(want)}:\n${r.err}`);
+      // Withheld means withheld: the code is on its own line and nowhere else, and the page's
+      // address is not on stderr at all.
+      const printed = want.startsWith("page: ");
+      assert.equal(r.err.split(code).length - 1, printed ? 2 : 1, `${name}: the code's count on stderr:\n${r.err}`);
+      assert.ok(printed || !r.err.includes(page), `${name}: a withheld page address reached stderr:\n${r.err}`);
+      assert.ok(r.err.includes(`code: ${code}\n`) && stub.verified && r.out === ledger("the service accepted the login. the browser is in.\n"),
+        `${name}: the login did not go on to the ledger:\n${r.out}\n${r.err}`);
+    }
+
+    // A --page-origin that is not an origin is refused before any request.
+    for (const bad of ["https://evil.example/login", "https://Evil.example", "evil.example"]) {
+      r = await go([...base, "--page-origin", bad]);
+      assert.match(r.error?.message ?? "", /--page-origin/, bad);
+      assert.equal(stub.requests.length, 0, `${bad}: requests were made`);
+    }
 
     // A page address that would not show as itself is refused, and never echoed.
     r = await go(base, (s) => { s.page = "https://dawn.example/\u202elogin"; });

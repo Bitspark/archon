@@ -29,20 +29,21 @@ use crate::cmd::key_store::{
     read_default_key_name, require_named_key, take_password_fd, unlock_named_key,
 };
 use crate::cmd::resolve_seed;
-use crate::io::{shown, wants_help};
+use crate::io::{json_string, shown, wants_help};
 use zeroize::Zeroizing;
 
 const USAGE: &str =
     "usage: archon login <url> [--key <name> | --seed <hex> | --key-file <pkcs8.pem> | --seed-file <file>] \
 [--authority-file <file>] [--yes]\n       \
 archon login --audience <base> [--scope <entry>]... --valid-for <seconds> \
-[--key <name> | --seed <hex> | --key-file <pkcs8.pem> | --seed-file <file>] [--authority-file <file>]\n  \
+[--key <name> | --seed <hex> | --key-file <pkcs8.pem> | --seed-file <file>] [--authority-file <file>] [--page-origin <origin>]\n  \
 proves possession of your key to the service at <url> so the browser key it names may act for you. \
 <url> is the invocation URL <audience>/login/<id>; the audience is derived from it, never taken from the server. \
 --key names a key in the store and is the default (archon key default); --key-file is a PKCS#8 file. \
 Store password: interactive prompt, or ARCHON_KEY_PASSWORD / --password-fd <n>, never argv.\n  \
 with no URL, the CLI OFFERS what you typed and the page finishes: the audience is --audience or ARCHON_AUDIENCE, \
-never a page's word; the code and the page address go to stderr, the ledger to stdout after the service answers; \
+never a page's word; the code goes to stderr, the page address with it only when it is https (or http on this machine) \
+on the audience's origin or the one --page-origin names, the ledger to stdout after the service answers; \
 no confirmation is asked — what you typed is what you sign.";
 
 // The signing domain (`archon-login/1`) is deliberately NOT declared here. It is the
@@ -205,6 +206,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
             i += 1;
             continue;
         }
+        if flag == "--page-origin" {
+            // The offers form's flag (ADR 0015). Here it would do nothing — the page started this
+            // login, and no page address is printed — and a flag that does nothing is a flag
+            // someone will come to rely on.
+            return Err(format!(
+                "--page-origin applies only to the offers form (no URL): with a URL the page started the login, \
+and no page address is printed\n{USAGE}"
+            ));
+        }
         let value = rest
             .get(i + 1)
             .filter(|v| !v.is_empty())
@@ -251,20 +261,23 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let id = to_hex(&id_bytes);
     let request = fetch_login_request(&audience, &id)?;
     validate_login_request(&request, &id)?;
+    // THE TRANSACTION FINGERPRINT (docs/login.md §5.3; ADR 0015 §4): over the derived audience
+    // and the exact request that will be signed, for the person to compare with the page they
+    // started. Computed before anything is shown, so a request it cannot cover is refused like
+    // any other malformed one, and the person never reads a statement without it.
+    let fingerprint = transaction_fingerprint(&audience, &request)?;
 
     // SHOW BEFORE SIGN. The person confirms the statement, not the URL.
     let key_source = describe_key_source(&src);
-    print!(
-        "{}",
-        render_statement(&audience, &request, now_unix(), &key_source)
-    );
-    if !assume_yes {
-        let stdin = std::io::stdin();
-        let mut locked = stdin.lock();
-        if !confirm(&mut locked)? {
-            println!("refused. nothing was signed.");
-            return Ok(());
-        }
+    let statement = render_statement(&audience, &request, now_unix(), &key_source, &fingerprint);
+    if !show_and_ask(
+        &mut std::io::stdout(),
+        &mut std::io::stdin().lock(),
+        &statement,
+        assume_yes,
+    )? {
+        println!("refused. nothing was signed.");
+        return Ok(());
     }
 
     // ONLY NOW is the key touched. For a store key this is where the password is asked for.
@@ -347,18 +360,25 @@ fn refuse_undisplayable(field: &str, s: &str) -> Result<(), String> {
 
 /// EXACTLY what the person is asked to approve, and the text all three lanes must print
 /// byte-identically. `now_unix` is a parameter so the wall-clock end is testable rather
-/// than dependent on when the suite runs.
+/// than dependent on when the suite runs. `fingerprint` is the formatted transaction
+/// fingerprint ([`transaction_fingerprint`]) of this audience and request: computed by the
+/// caller, which must refuse the request when it cannot be, rather than here, so rendering
+/// stays total.
 pub fn render_statement(
     audience: &str,
     r: &LoginRequest,
     now_unix: i64,
     key_source: &str,
+    fingerprint: &str,
 ) -> String {
     let mut out = format!(
         "{audience} asks you to let browser key {} act as you:\n",
         r.browser
     );
     push_scope_and_validity(&mut out, r, now_unix);
+    out.push_str(&format!(
+        "transaction fingerprint: {fingerprint} (compare it with the page you started)\n"
+    ));
     out.push_str(&format!("signing with {key_source}\n"));
     out
 }
@@ -482,12 +502,40 @@ fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
-/// Read a y/N answer. Default is NO: anything that is not an explicit yes refuses,
-/// including EOF, so a login cannot be completed by a closed stdin.
-pub fn confirm(input: &mut impl BufRead) -> Result<bool, String> {
-    print!("sign? [y/N] ");
-    use std::io::Write;
-    let _ = std::io::stdout().flush();
+/// Printed between the statement and the question (ADR 0015, archon#123). The statement says
+/// WHAT is asked; these say what a yes DOES, and who should be giving it: a login request
+/// reaching a person who did not start the client behind it is the phishing shape, and the one
+/// defence the CLI has at this moment is the person declining it. Pinned across the three lanes
+/// by `cli/testdata/login-statement.json`'s `prompt`.
+const CONSEQUENCE_LINES: &str = "This gives the browser key above authority to act as you.\n\
+Approve only a client you started yourself.\n";
+
+/// SHOW BEFORE SIGN: writes the statement and — unless `--yes` was given — the consequence and
+/// the question, and returns whether to go on and sign. Apart from `run` because libtest cannot
+/// read its own captured stdout: this is what lets the suite pin what a person sees, with
+/// `--yes` (the statement and nothing after it) and without.
+fn show_and_ask(
+    out: &mut impl Write,
+    input: &mut impl BufRead,
+    statement: &str,
+    assume_yes: bool,
+) -> Result<bool, String> {
+    out.write_all(statement.as_bytes())
+        .map_err(|e| format!("login: could not write to stdout: {e}"))?;
+    if assume_yes {
+        return Ok(true);
+    }
+    confirm(input, out)
+}
+
+/// States the consequence, then reads a y/N answer. Default is NO: anything that is not an
+/// explicit yes refuses, including EOF, so a login cannot be completed by a closed stdin. With
+/// `--yes` it is never called, so nothing of it is printed.
+pub fn confirm(input: &mut impl BufRead, out: &mut impl Write) -> Result<bool, String> {
+    out.write_all(CONSEQUENCE_LINES.as_bytes())
+        .and_then(|()| out.write_all(b"sign? [y/N] "))
+        .and_then(|()| out.flush())
+        .map_err(|e| format!("login: could not write to stdout: {e}"))?;
     let mut line = String::new();
     if input.read_line(&mut line).is_err() {
         return Ok(false);
@@ -729,6 +777,7 @@ pub fn run_offer(args: &[String], io: &mut LoginIo) -> Result<(), String> {
     let mut authority_file: Option<String> = None;
     let mut audience_flag: Option<String> = None;
     let mut valid_for_text: Option<String> = None;
+    let mut page_origin_text: Option<String> = None;
     let mut scope: Vec<String> = Vec::new();
     let mut i = 0;
     while i < rest.len() {
@@ -753,6 +802,7 @@ pub fn run_offer(args: &[String], io: &mut LoginIo) -> Result<(), String> {
             "--key-file" => src.key_file = Some(value.clone()),
             "--seed-file" => src.seed_file = Some(value.clone()),
             "--authority-file" => authority_file = Some(value.clone()),
+            "--page-origin" => page_origin_text = Some(value.clone()),
             other => return Err(format!("unknown flag {other:?}\n{USAGE}")),
         }
         i += 2;
@@ -776,6 +826,9 @@ pub fn run_offer(args: &[String], io: &mut LoginIo) -> Result<(), String> {
     // RULE 1: the audience is the CLI's own configuration, a fixed point of §2.1's grammar,
     // refused before anything is fetched.
     let audience = configured_audience(audience_flag.as_deref())?;
+    // The one other origin whose page may be printed is the person's own word, checked here,
+    // before anything is sent, the way the audience is (ADR 0015).
+    let page_origin = page_origin_flag(page_origin_text.as_deref())?;
 
     // The code is the CLI's own entropy, registered under it. The service echoes the offer
     // back; an echo that differs is a service that altered what was offered, and nothing of it
@@ -800,10 +853,11 @@ pub fn run_offer(args: &[String], io: &mut LoginIo) -> Result<(), String> {
     say(io, format!("offer registered at {audience}"))?;
     say(io, format!("code: {code}"))?;
     if let Some(page) = &offered.page {
-        // The address a person would open, printed beside a warning about itself: one that
-        // would not show as itself is refused, not escaped (docs/login.md §5).
+        // The address a person would open: one that would not show as itself is refused, not
+        // escaped (docs/login.md §5) — first, before it is judged — and one on an origin nobody
+        // trusted is withheld rather than printed (describe_page).
         refuse_undisplayable("the service's page address", page)?;
-        say(io, describe_page(&audience, page))?;
+        say(io, describe_page(&audience, page, page_origin.as_deref()))?;
     }
     say(
         io,
@@ -964,22 +1018,103 @@ fn check_offer_echo(
     Ok(())
 }
 
-/// The one line about the page address, printed and MARKED, never opened (§4.1 rule 1; ADR
-/// 0007 §C.7 (6)). "On the service's own origin" is a byte-exact comparison of scheme and host
-/// with the audience's — a differently spelled origin fails closed, the right direction for an
-/// address a person is about to click — and launching a browser is the person's action, never
-/// this command's: spawning a platform opener by name is the PATH surface §C.5 refuses.
-pub fn describe_page(audience: &str, page: &str) -> String {
-    let origin = origin_of(audience);
-    let on_origin = page == origin
-        || page.starts_with(&format!("{origin}/"))
-        || page.starts_with(&format!("{origin}#"))
-        || page.starts_with(&format!("{origin}?"));
-    if on_origin {
-        format!("page: {page} (on the service's own origin)")
-    } else {
-        format!("page: {page} (NOT on the service's origin — do not open it)")
+/// The lines `describe_page` prints when it withholds the page address. Each says why, and none
+/// carries the address: it holds the code, and the code is already on the line above it.
+const PAGE_NOT_HTTPS: &str = "the service's page is not an https address, so its address (which carries the code) is not printed";
+const PAGE_PLAIN_HTTP: &str = "the service's page is plain HTTP off this machine, so its address (which carries the code) is not printed; only https, or http on localhost, 127.0.0.1 or [::1], is printed";
+const PAGE_OFF_ORIGIN: &str = "the service's page is not on the service's own origin, so its address (which carries the code) is not printed; pass --page-origin <origin> to trust that origin";
+const PAGE_OFF_TRUSTED: &str = "the service's page is on neither the service's own origin nor the one --page-origin names, so its address (which carries the code) is not printed";
+
+/// The one stderr line about the page address (§4.1 rule 1; ADR 0007 §C.7 (6); ADR 0015). The
+/// address carries the code in its fragment, and a person shown an address can open it whatever
+/// label sits beside it (archon#123) — so it is PRINTED only when it is both (a) on a trusted
+/// transport, https or plain http on this machine (localhost, 127.0.0.1, [::1]), and (b) on a
+/// trusted origin: the audience's own, or the one the person named with `--page-origin`.
+/// Otherwise one line says why it was withheld and the flow goes on: the code line above it lets
+/// the person finish on the service's own page.
+///
+/// Both comparisons are byte-exact, of the page's scheme and authority as it spells them with
+/// the audience's (canonical by construction) and with `--page-origin` (canonical,
+/// `page_origin_flag` made sure) — a differently spelled origin fails closed, the right
+/// direction for an address carrying a secret. It is never opened: launching a browser is the
+/// person's action, never this command's — spawning a platform opener by name is the PATH
+/// surface §C.5 refuses.
+pub fn describe_page(audience: &str, page: &str, trusted: Option<&str>) -> String {
+    let Some((scheme, rest)) = page.split_once("://") else {
+        return PAGE_NOT_HTTPS.to_string();
+    };
+    if scheme != "https" && scheme != "http" {
+        return PAGE_NOT_HTTPS.to_string();
     }
+    let authority = match rest.find(['/', '?', '#']) {
+        Some(i) => &rest[..i],
+        None => rest,
+    };
+    if scheme == "http" && !is_loopback(authority) {
+        return PAGE_PLAIN_HTTP.to_string();
+    }
+    let origin = format!("{scheme}://{authority}");
+    if origin == origin_of(audience) {
+        format!("page: {page} (on the service's own origin)")
+    } else if trusted == Some(origin.as_str()) {
+        format!("page: {page} (on the origin you trusted with --page-origin)")
+    } else if trusted.is_some() {
+        PAGE_OFF_TRUSTED.to_string()
+    } else {
+        PAGE_OFF_ORIGIN.to_string()
+    }
+}
+
+/// Whether an authority, as a page spells it, names this machine: exactly localhost, 127.0.0.1
+/// or [::1], with any port. Userinfo is never this machine — it is how
+/// `http://localhost@elsewhere` reads as one host and goes to another.
+fn is_loopback(authority: &str) -> bool {
+    if authority.contains('@') {
+        return false;
+    }
+    let host = if authority.starts_with('[') {
+        match authority.find(']') {
+            Some(i) => &authority[..=i],
+            None => authority,
+        }
+    } else {
+        authority.split(':').next().unwrap_or(authority)
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]")
+}
+
+/// Checks `--page-origin` (ADR 0015) before anything is sent: an ORIGIN — scheme://host[:port],
+/// with no path, query or fragment — spelled canonically, as an audience must be: a fixed point
+/// of §2.1's grammar, fed through the scheme's derivation exactly as `selected_audience` feeds
+/// the audience. `describe_page` compares it byte for byte, so a spelling the comparison could
+/// never match is refused here, naming the one it could.
+pub fn page_origin_flag(value: Option<&str>) -> Result<Option<String>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    match value.split_once("://") {
+        Some((_, rest)) if !rest.is_empty() && !rest.contains(['/', '?', '#']) => {}
+        _ => {
+            return Err(format!(
+                "login: --page-origin {} is not an origin — give scheme://host[:port], with no path, query or fragment",
+                json_string(value)
+            ))
+        }
+    }
+    let (derived, _) = login::derive_audience(&format!("{value}/login/00")).map_err(|e| {
+        format!(
+            "login: --page-origin {} is not valid: {e} (docs/login.md §2.1)",
+            json_string(value)
+        )
+    })?;
+    if derived != value {
+        return Err(format!(
+            "login: --page-origin {} is not canonical — pass {} (docs/login.md §2.1)",
+            json_string(value),
+            json_string(&derived)
+        ));
+    }
+    Ok(Some(value.to_string()))
 }
 
 /// The audience up to its path: scheme, host and port, as the audience spells them (canonical
@@ -1119,6 +1254,25 @@ pub fn prove_login(
     request: &LoginRequest,
 ) -> Result<(Vec<u8>, String), String> {
     let principal = encode_key(&public_key_from_seed(seed));
+    let proof = login::prove(seed, audience, &scheme_request(request)?)?;
+    Ok((proof.to_vec(), principal))
+}
+
+/// The login's transaction fingerprint (docs/login.md §5.3; ADR 0015 §4) as the person reads
+/// it, over the derived audience and the SAME scheme request the proof is made from —
+/// [`scheme_request`], once — so the fingerprint the person compares with the page they started
+/// covers exactly the request that will be signed. The digest and its spelling are the sdk's;
+/// this lane only converts the wire values, as for the proof. An error is the sdk refusing what
+/// the binding refuses, or a nonce under the scheme's floor: the caller refuses the request
+/// before anything is shown.
+pub fn transaction_fingerprint(audience: &str, request: &LoginRequest) -> Result<String, String> {
+    let fp = login::fingerprint(audience, &scheme_request(request)?)?;
+    Ok(login::format_fingerprint(&fp))
+}
+
+/// The wire request as the scheme's: hex and key text in, bytes out. The one conversion both
+/// the proof and the transaction fingerprint are made from.
+fn scheme_request(request: &LoginRequest) -> Result<login::Request, String> {
     let nonce = from_hex(&request.nonce).map_err(|e| format!("login: nonce is not hex: {e}"))?;
     let browser = decode_key(&request.browser)
         .map_err(|e| format!("login: browser key is not canonical key text: {e}"))?;
@@ -1130,18 +1284,13 @@ pub fn prove_login(
     // expected Request the same wrong way still passes, which is how it survived; the test
     // below decodes independently and asserts the ASCII form does NOT verify.
     let id_bytes = from_hex(&request.id).map_err(|e| format!("login: id is not hex: {e}"))?;
-    let proof = login::prove(
-        seed,
-        audience,
-        &login::Request {
-            id: id_bytes,
-            nonce,
-            browser,
-            scope: request.scope.clone(),
-            valid_for: request.valid_for,
-        },
-    )?;
-    Ok((proof.to_vec(), principal))
+    Ok(login::Request {
+        id: id_bytes,
+        nonce,
+        browser,
+        scope: request.scope.clone(),
+        valid_for: request.valid_for,
+    })
 }
 
 #[cfg(test)]
@@ -1381,18 +1530,108 @@ mod tests {
     fn renders_the_statement() {
         // 2026-09-10T10:04:00Z
         let now = 1_789_034_640;
+        const AUD: &str = "https://prover.core.example.dev/api";
+        let fingerprint = transaction_fingerprint(AUD, &valid_request()).expect("fingerprint");
         let got = render_statement(
-            "https://prover.core.example.dev/api",
+            AUD,
             &valid_request(),
             now,
             "the seed file /keys/julia",
+            &fingerprint,
         );
+        // The fingerprint line's value is the sdk's, over a Request built HERE, independently
+        // of the lane's conversion: the id hex-decoded, the key decoded from its text.
+        let r = valid_request();
+        let fp = login::fingerprint(
+            AUD,
+            &login::Request {
+                id: from_hex(&r.id).unwrap(),
+                nonce: from_hex(&r.nonce).unwrap(),
+                browser: decode_key(&r.browser).unwrap(),
+                scope: r.scope.clone(),
+                valid_for: r.valid_for,
+            },
+        )
+        .expect("login::fingerprint");
         let want = format!(
             "https://prover.core.example.dev/api asks you to let browser key {BROWSER} act as you:\n  \
 read:projects\n  read:campaigns\nfor 8h0m0s, until about 2026-09-10T18:04:00Z\n\
-signing with the seed file /keys/julia\n"
+transaction fingerprint: {} (compare it with the page you started)\n\
+signing with the seed file /keys/julia\n",
+            login::format_fingerprint(&fp)
         );
         assert_eq!(got, want);
+    }
+
+    // The transaction fingerprint covers the request that will be SIGNED (docs/login.md
+    // §5.3): change any field the proof binds, or the nonce, and the line the person compares
+    // changes. It goes through scheme_request, the proof's own conversion, so the id is bound
+    // as its decoded bytes; a fingerprint over the ASCII of the id's hex must differ. What the
+    // sdk refuses, the command refuses before anything is shown.
+    #[test]
+    fn the_transaction_fingerprint_covers_the_signed_request() {
+        const AUD: &str = "https://prover.core.example.dev/api";
+        let base = transaction_fingerprint(AUD, &valid_request()).expect("fingerprint");
+        assert!(
+            base.len() == 39 && base.matches(' ').count() == 7,
+            "fingerprint {base:?} is not eight groups of four hex digits"
+        );
+        type Alter = fn(&mut LoginRequest);
+        let alterations: [(&str, &str, Alter); 7] = [
+            (
+                "another audience",
+                "https://prover.core.example.dev/ap",
+                |_| {},
+            ),
+            ("another browser key", AUD, |r| {
+                r.browser = format!("ed25519:{}", "11".repeat(32))
+            }),
+            ("another id", AUD, |r| r.id = "8f3d".to_string()),
+            ("another nonce", AUD, |r| {
+                r.nonce = format!("{}ac", "ab".repeat(15))
+            }),
+            ("another scope entry", AUD, |r| {
+                r.scope = vec!["read:projects".into(), "read:campaign".into()]
+            }),
+            ("a reordered scope", AUD, |r| r.scope.reverse()),
+            ("another validity", AUD, |r| r.valid_for += 1),
+        ];
+        for (name, audience, alter) in alterations {
+            let mut r = valid_request();
+            alter(&mut r);
+            let got = transaction_fingerprint(audience, &r).expect(name);
+            assert_ne!(got, base, "{name}: the fingerprint did not change");
+        }
+        let r = valid_request();
+        let ascii = login::fingerprint(
+            AUD,
+            &login::Request {
+                id: r.id.as_bytes().to_vec(),
+                nonce: from_hex(&r.nonce).unwrap(),
+                browser: decode_key(&r.browser).unwrap(),
+                scope: r.scope.clone(),
+                valid_for: r.valid_for,
+            },
+        )
+        .expect("login::fingerprint");
+        assert_ne!(
+            login::format_fingerprint(&ascii),
+            base,
+            "the fingerprint matches one over the id's ASCII hex; it must cover the DECODED bytes"
+        );
+        let refusals: [(&str, Alter); 3] = [
+            ("a nonce under the floor", |r| r.nonce = "ab".repeat(8)),
+            ("an empty id", |r| r.id = String::new()),
+            ("a zero validity", |r| r.valid_for = 0),
+        ];
+        for (name, alter) in refusals {
+            let mut r = valid_request();
+            alter(&mut r);
+            assert!(
+                transaction_fingerprint(AUD, &r).is_err(),
+                "{name}: fingerprinted; want a refusal"
+            );
+        }
     }
 
     // An empty scope is VALID (docs/login.md §3.1) and must still say so on screen.
@@ -1405,6 +1644,7 @@ signing with the seed file /keys/julia\n"
             &r,
             0,
             "the seed given on the command line",
+            "0000 0000 0000 0000 0000 0000 0000 0000",
         );
         assert!(
             got.contains(NO_SCOPE_LINE),
@@ -1485,8 +1725,60 @@ signing with the seed file /keys/julia\n"
             ("yolo\n", false),
         ] {
             let mut cursor = std::io::Cursor::new(input.as_bytes().to_vec());
-            assert_eq!(confirm(&mut cursor).unwrap(), want, "input {input:?}");
+            let mut out: Vec<u8> = Vec::new();
+            assert_eq!(
+                confirm(&mut cursor, &mut out).unwrap(),
+                want,
+                "input {input:?}"
+            );
         }
+    }
+
+    // THE QUESTION STATES ITS CONSEQUENCE (ADR 0015, archon#123): between the statement and
+    // `sign? [y/N] ` come the two lines saying what a yes does and who should give it, byte for
+    // byte the shared fixture's `prompt` — and with --yes nothing of it, because nothing is
+    // asked. `show_and_ask` is what `run` writes through, so this is what a person would see.
+    #[test]
+    fn states_the_consequence_before_the_question() {
+        let raw = std::fs::read_to_string("../testdata/login-statement.json")
+            .expect("could not read the shared fixture");
+        let doc: serde_json::Value = serde_json::from_str(&raw).expect("fixture is not JSON");
+        let prompt = doc["prompt"].as_str().expect("the fixture's prompt");
+        assert!(
+            prompt.starts_with("This gives the browser key above authority to act as you.\n")
+                && prompt.ends_with("sign? [y/N] "),
+            "the fixture's prompt is not the consequence and the question: {prompt:?}"
+        );
+
+        let mut out: Vec<u8> = Vec::new();
+        let said = confirm(&mut std::io::Cursor::new(b"n\n".to_vec()), &mut out).unwrap();
+        assert!(!said);
+        assert_eq!(String::from_utf8(out).unwrap(), prompt);
+
+        const STATEMENT: &str = "https://h.example asks you to let browser key ed25519:00 act as you:\n  read:projects\nfor 1m0s, until about 1970-01-01T00:01:00Z\nsigning with the store key julia\n";
+        for (answer, want) in [("n\n", false), ("y\n", true), ("", false)] {
+            let mut out: Vec<u8> = Vec::new();
+            let go_on = show_and_ask(
+                &mut out,
+                &mut std::io::Cursor::new(answer.as_bytes().to_vec()),
+                STATEMENT,
+                false,
+            )
+            .unwrap();
+            assert_eq!(go_on, want, "answer {answer:?}");
+            assert_eq!(
+                String::from_utf8(out).unwrap(),
+                format!("{STATEMENT}{prompt}"),
+                "the statement, then the consequence and the question"
+            );
+        }
+
+        // --yes: the statement and nothing after it, and stdin is never read.
+        let mut out: Vec<u8> = Vec::new();
+        let mut input = std::io::Cursor::new(b"n\n".to_vec());
+        assert!(show_and_ask(&mut out, &mut input, STATEMENT, true).unwrap());
+        assert_eq!(String::from_utf8(out).unwrap(), STATEMENT);
+        assert_eq!(input.position(), 0, "--yes read stdin");
     }
 
     #[test]
@@ -1707,11 +1999,16 @@ Connection: close
                 valid_for: req["valid_for"].as_u64().unwrap() as u32,
                 expires: String::new(),
             };
+            // The fingerprint through the lane's OWN conversion and sdk; the fixture's line was
+            // computed with sdk/ts, so this is also a cross-lane check of the conversion.
+            let audience = case["audience"].as_str().unwrap();
+            let fingerprint = transaction_fingerprint(audience, &r).expect("fingerprint");
             let got = render_statement(
-                case["audience"].as_str().unwrap(),
+                audience,
                 &r,
                 case["nowUnix"].as_i64().unwrap(),
                 case["keySource"].as_str().unwrap(),
+                &fingerprint,
             );
             assert_eq!(
                 got,
@@ -1946,6 +2243,22 @@ Connection: close
         assert!(err.contains("mutually exclusive"), "{err}");
         assert_eq!(requests().len(), 5);
 
+        // --page-origin with a URL: the offers form's flag, refused before any request.
+        let err = run(&args(&[
+            &url,
+            "--key",
+            "julia",
+            "--page-origin",
+            "https://pages.example",
+            "--yes",
+        ]))
+        .expect_err("--page-origin with a URL");
+        assert!(
+            err.contains("--page-origin applies only to the offers form"),
+            "{err}"
+        );
+        assert_eq!(requests().len(), 5);
+
         // --password-fd beside a seed file is refused.
         let err = run(&args(&[
             &url,
@@ -2044,38 +2357,196 @@ Connection: close
         }
     }
 
-    // The page address is PRINTED AND MARKED, never opened (§4.1 rule 1; ADR 0007 §C.7 (6)):
-    // "on the service's own origin" is a byte-exact comparison of scheme and host with the
-    // audience's, so a differently spelled origin fails closed.
+    // The page address is PRINTED only on a trusted transport AND a trusted origin, never opened
+    // (§4.1 rule 1; ADR 0007 §C.7 (6); ADR 0015): https, or plain http on this machine; the
+    // audience's own origin, or the one --page-origin names. Both comparisons are byte-exact, so
+    // a differently spelled origin fails closed. Withheld, it is one line saying why — and that
+    // line never carries the address, which carries the code.
     #[test]
-    fn describes_the_page_by_origin() {
+    fn describes_the_page_by_transport_and_origin() {
         const AUD: &str = "https://dawn.example/api";
-        const ON: &str = " (on the service's own origin)";
-        const OFF: &str = " (NOT on the service's origin — do not open it)";
-        for (page, mark) in [
-            ("https://dawn.example/login", ON),
-            ("https://dawn.example/login#abc", ON),
-            ("https://dawn.example", ON),
-            ("https://dawn.example.evil/login", OFF),
-            ("https://evil.example/login", OFF),
-            ("HTTPS://dawn.example/login", OFF),
-            ("http://dawn.example/login", OFF),
-            ("/login", OFF),
+        let on = |page: &str| format!("page: {page} (on the service's own origin)");
+        let trusted =
+            |page: &str| format!("page: {page} (on the origin you trusted with --page-origin)");
+        for (page, flag, want) in [
+            // on the audience's origin, over https: printed
+            (
+                "https://dawn.example/login",
+                None,
+                on("https://dawn.example/login"),
+            ),
+            (
+                "https://dawn.example/login#abc",
+                None,
+                on("https://dawn.example/login#abc"),
+            ),
+            ("https://dawn.example", None, on("https://dawn.example")),
+            (
+                "https://dawn.example?x#abc",
+                None,
+                on("https://dawn.example?x#abc"),
+            ),
+            // off it: withheld, naming the flag
+            (
+                "https://dawn.example.evil/login#abc",
+                None,
+                PAGE_OFF_ORIGIN.to_string(),
+            ),
+            (
+                "https://evil.example/login#abc",
+                None,
+                PAGE_OFF_ORIGIN.to_string(),
+            ),
+            (
+                "https://user@dawn.example/login#abc",
+                None,
+                PAGE_OFF_ORIGIN.to_string(),
+            ),
+            (
+                "https://dawn.example:8443/login#abc",
+                None,
+                PAGE_OFF_ORIGIN.to_string(),
+            ),
+            // off it, with a --page-origin that matches exactly: printed; one that does not: withheld
+            (
+                "https://evil.example/login#abc",
+                Some("https://evil.example"),
+                trusted("https://evil.example/login#abc"),
+            ),
+            (
+                "https://evil.example/login#abc",
+                Some("https://other.example"),
+                PAGE_OFF_TRUSTED.to_string(),
+            ),
+            (
+                "https://evil.example:8443/login#abc",
+                Some("https://evil.example"),
+                PAGE_OFF_TRUSTED.to_string(),
+            ),
+            // a flag never demotes the audience's own origin
+            (
+                "https://dawn.example/login#abc",
+                Some("https://evil.example"),
+                on("https://dawn.example/login#abc"),
+            ),
+            // plain http off this machine: withheld whatever the origin, and no flag rescues it
+            (
+                "http://dawn.example/login#abc",
+                None,
+                PAGE_PLAIN_HTTP.to_string(),
+            ),
+            (
+                "http://evil.example/login#abc",
+                Some("http://evil.example"),
+                PAGE_PLAIN_HTTP.to_string(),
+            ),
+            (
+                "http://localhost@evil.example/login#abc",
+                None,
+                PAGE_PLAIN_HTTP.to_string(),
+            ),
+            // not http(s) at all, or spelled otherwise: withheld
+            (
+                "HTTPS://dawn.example/login#abc",
+                None,
+                PAGE_NOT_HTTPS.to_string(),
+            ),
+            ("/login#abc", None, PAGE_NOT_HTTPS.to_string()),
+            (
+                "javascript:alert(1)//#abc",
+                None,
+                PAGE_NOT_HTTPS.to_string(),
+            ),
         ] {
-            assert_eq!(
-                describe_page(AUD, page),
-                format!("page: {page}{mark}"),
-                "{page}"
+            let got = describe_page(AUD, page, flag);
+            assert_eq!(got, want, "{page} with flag {flag:?}");
+            assert!(
+                got.starts_with("page: ") || !got.contains("abc"),
+                "a withheld page's line carries its fragment: {got}"
             );
         }
-        // The port is part of the origin.
-        assert!(
-            describe_page("http://127.0.0.1:8080/api", "http://127.0.0.1:8080/login").ends_with(ON)
-        );
-        assert!(
-            describe_page("http://127.0.0.1:8080/api", "http://127.0.0.1:8081/login")
-                .ends_with(OFF)
-        );
+        // Plain http on this machine is a trusted transport; the origin still has to match, and
+        // the port is part of it.
+        const LOCAL: &str = "http://127.0.0.1:8080/api";
+        for (page, flag, want) in [
+            (
+                "http://127.0.0.1:8080/login#abc",
+                None,
+                on("http://127.0.0.1:8080/login#abc"),
+            ),
+            (
+                "http://127.0.0.1:8081/login#abc",
+                None,
+                PAGE_OFF_ORIGIN.to_string(),
+            ),
+            (
+                "http://localhost:8080/login#abc",
+                None,
+                PAGE_OFF_ORIGIN.to_string(),
+            ),
+            (
+                "http://localhost:8080/login#abc",
+                Some("http://localhost:8080"),
+                trusted("http://localhost:8080/login#abc"),
+            ),
+            (
+                "http://[::1]:8080/login#abc",
+                Some("http://[::1]:8080"),
+                trusted("http://[::1]:8080/login#abc"),
+            ),
+            (
+                "http://localhost.evil.example/login#abc",
+                Some("http://localhost.evil.example"),
+                PAGE_PLAIN_HTTP.to_string(),
+            ),
+        ] {
+            assert_eq!(
+                describe_page(LOCAL, page, flag),
+                want,
+                "{page} with flag {flag:?}"
+            );
+        }
+    }
+
+    // --page-origin is an ORIGIN, spelled the way the comparison can match: a fixed point of
+    // §2.1's grammar with no path, query or fragment. Anything else is refused, naming the
+    // canonical spelling where there is one.
+    #[test]
+    fn checks_the_page_origin_flag() {
+        for ok in [
+            "https://pages.example",
+            "http://localhost:8080",
+            "http://[::1]:8080",
+            "https://pages.example:8443",
+        ] {
+            assert_eq!(page_origin_flag(Some(ok)).unwrap().as_deref(), Some(ok));
+        }
+        assert_eq!(page_origin_flag(None).unwrap(), None);
+        for (value, want) in [
+            ("https://pages.example/login", "is not an origin"),
+            ("https://pages.example/", "is not an origin"),
+            ("https://pages.example?x", "is not an origin"),
+            ("https://pages.example#x", "is not an origin"),
+            ("pages.example", "is not an origin"),
+            ("https://", "is not an origin"),
+            ("https://u@pages.example", "is not valid"),
+            ("ftp://pages.example", "is not valid"),
+            (
+                "https://Pages.example",
+                "is not canonical — pass \"https://pages.example\"",
+            ),
+            (
+                "https://pages.example:443",
+                "is not canonical — pass \"https://pages.example\"",
+            ),
+            (
+                "wss://pages.example",
+                "is not canonical — pass \"https://pages.example\"",
+            ),
+        ] {
+            let err = page_origin_flag(Some(value)).expect_err(value);
+            assert!(err.contains(want), "{value}: {err}");
+        }
     }
 
     // §4.1 rule 1, the flag half: a fixed point of §2.1's grammar, refused otherwise naming
@@ -2483,16 +2954,81 @@ Connection: close
         r.expect("the environment's audience");
         assert!(out.starts_with(&format!("you offered {audience} ")) && snapshot().3);
 
-        // A page not on the service's origin is marked, and nothing is opened.
-        let (r, _, err, _) = go(&base, &|s| {
-            s.page = Some("https://evil.example/login".to_string())
-        });
-        r.expect("off-origin page");
-        let code = snapshot().4.unwrap();
-        assert!(
-            err.contains(&format!("page: https://evil.example/login#{code} (NOT on the service's origin — do not open it)\n")),
-            "{err}"
-        );
+        // ADR 0015: the page address carries the code, so it is printed only on a trusted
+        // transport AND a trusted origin. Withheld, one line says why, the code line is still
+        // there, and the login goes on — the person can finish on the service's own page. The
+        // happy path above is the plain-http-on-this-machine page on the audience's own origin,
+        // printed.
+        for (name, page, flag, want) in [
+            (
+                "an off-origin https page, no --page-origin",
+                "https://evil.example/login",
+                None,
+                format!("{PAGE_OFF_ORIGIN}\n"),
+            ),
+            (
+                "an off-origin https page, a matching --page-origin",
+                "https://evil.example/login",
+                Some("https://evil.example"),
+                "page: https://evil.example/login#<code> (on the origin you trusted with --page-origin)\n"
+                    .to_string(),
+            ),
+            (
+                "an off-origin https page, a mismatching --page-origin",
+                "https://evil.example/login",
+                Some("https://other.example"),
+                format!("{PAGE_OFF_TRUSTED}\n"),
+            ),
+            (
+                "a plain-http page off this machine, on the origin --page-origin names",
+                "http://pages.example/login",
+                Some("http://pages.example"),
+                format!("{PAGE_PLAIN_HTTP}\n"),
+            ),
+        ] {
+            let mut args = base.clone();
+            if let Some(flag) = flag {
+                args.extend_from_slice(&["--page-origin", flag]);
+            }
+            let (r, out, err, _) = go(&args, &|s| s.page = Some(page.to_string()));
+            r.unwrap_or_else(|e| panic!("{name}: {e}\n{err}"));
+            let (_, _, _, verified, code) = snapshot();
+            let code = code.expect("one offer");
+            let want = want.replace("<code>", &code);
+            assert!(err.contains(&want), "{name}: stderr lacks {want:?}:\n{err}");
+            // Withheld means withheld: the code is on its own line and nowhere else, and the
+            // page's address is not on stderr at all.
+            let printed = want.starts_with("page: ");
+            assert_eq!(
+                err.matches(code.as_str()).count(),
+                if printed { 2 } else { 1 },
+                "{name}: the code's count on stderr:\n{err}"
+            );
+            assert!(
+                printed || !err.contains(page),
+                "{name}: a withheld page address reached stderr:\n{err}"
+            );
+            assert!(
+                err.contains(&format!("code: {code}\n"))
+                    && verified
+                    && out == ledger("the service accepted the login. the browser is in.\n"),
+                "{name}: the login did not go on to the ledger:\n{out}\n{err}"
+            );
+        }
+
+        // A --page-origin that is not an origin is refused before any request.
+        for bad in [
+            "https://evil.example/login",
+            "https://Evil.example",
+            "evil.example",
+        ] {
+            let mut args = base.clone();
+            args.extend_from_slice(&["--page-origin", bad]);
+            let (r, _, _, _) = go(&args, &|_| {});
+            let e = r.expect_err(bad);
+            assert!(e.contains("--page-origin"), "{bad}: {e}");
+            assert!(snapshot().0.is_empty(), "{bad}: requests were made");
+        }
 
         // A page address that would not show as itself is refused, and never echoed.
         let (r, _, err, _) = go(&base, &|s| {

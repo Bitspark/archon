@@ -22,7 +22,7 @@ archon <keygen|key|login|enroll|sign|verify|version> [args]
 | `sign --key <name> --domain <d> --expect <ed25519:…> [--in <file>] [--json]` | sign with a key in the store, for a tool that is not archon — [below](#sign---key-signing-for-another-tool) |
 | `verify --pubkey <ed25519:…\|hex> --sig <hex> [--domain <d>] [--in <file>]` | `valid` (exit 0) / `invalid` (exit 1) |
 | `login <url> [--key <name>\|--seed <hex>\|--key-file <pem>\|--seed-file <file>] [--authority-file <f>] [--yes]` | prove possession to a service so a browser key may act for you, within a scope you are shown first; with no key flag, the store's default key signs |
-| `login --audience <base> [--scope <entry>]... --valid-for <seconds> [--key <name>\|--seed <hex>\|--key-file <pem>\|--seed-file <file>] [--authority-file <f>]` | the offers form ([§4.1](../docs/login.md)): with no URL, *you* start and the page finishes — the code and the page address on stderr, no confirmation, the ledger on stdout after the service answers |
+| `login --audience <base> [--scope <entry>]... --valid-for <seconds> [--key <name>\|--seed <hex>\|--key-file <pem>\|--seed-file <file>] [--authority-file <f>] [--page-origin <origin>]` | the offers form ([§4.1](../docs/login.md)): with no URL, *you* start and the page finishes — the code on stderr (and the page address, only on a trusted origin), no confirmation, the ledger on stdout after the service answers |
 | `enroll [--challenge-file <file>] [--audience <base>] [--key <name>] [--password-fd <n>]` | make the enrollment proof for a key in the store, after showing on the terminal which account it joins; the challenge and the proof travel by hand as one-line tokens, and success means a proof was produced, not that the key is enrolled — [docs/enroll.md](../docs/enroll.md) |
 | `key add <name> [--seed <hex>\|--seed-file <file>\|--pkcs8 <file>] (--allow <context>…\|--unrestricted)` | keep a seed under a name in the password-protected store, with the contexts it may sign in; generates one when no source is given, and refuses an existing name |
 | `key list [--json]` | every stored key as `{name, principal, status, claimed_policy}` — read from each file's header, so it never asks for a password |
@@ -123,8 +123,23 @@ carrying one is refused rather than half-read.
 
 The order is the security order: derive, fetch, validate, **show**, confirm, only then
 unlock and sign. You are shown the audience, the browser key, every scope entry verbatim,
-the validity and which key will sign, and nothing is signed until you answer `y` — the
-default, including on a closed stdin, is no.
+the validity, the login's transaction fingerprint and which key will sign, and nothing is
+signed until you answer `y` — the default, including on a closed stdin, is no. The
+fingerprint line, `transaction fingerprint: 7a91 b2c3 … (compare it with the page you
+started)`, is computed by the sdk over the audience and the exact request that will be signed
+([`docs/login.md` §5.3](../docs/login.md)); the page that began the login shows the same 32
+digits only if every bound field and the nonce agree. A request it cannot be computed for is
+refused before anything is shown. Between the statement and the question, two
+lines say what a yes does and who should give it (ADR 0015, archon#123):
+
+```
+This gives the browser key above authority to act as you.
+Approve only a client you started yourself.
+sign? [y/N]
+```
+
+A login request that reaches you from a client you did not start is the phishing shape, and
+declining it is the defence. `--yes` asks nothing, so it prints neither.
 
 Which key signs is decided before anything is fetched, and the statement names it by its
 source: `--key <name>` picks a key in the store, and with no key flag at all the store's
@@ -153,9 +168,13 @@ The rules the command keeps, in this order:
    Never a page's word.
 2. **The code is yours and confidential until the page takes it.** It comes from the
    command's own entropy (16 bytes) and is printed on **stderr** — the interactive channel,
-   where the password prompt lives — together with the page address, which is printed and
-   **marked** (*on the service's own origin*, or *NOT on the service's origin — do not open
-   it*) and never opened for you. So `archon login … > file` never writes the code into a log.
+   where the password prompt lives — so `archon login … > file` never writes the code into a
+   log. The service's page address carries the code too, so it is printed beside it **only**
+   when it is `https` (or plain `http` on `localhost`, `127.0.0.1` or `[::1]`) **and** on the
+   audience's own origin, or on the origin you name with `--page-origin <origin>` (an origin
+   spelled canonically: scheme, host and port, no path; beside a URL the flag is refused).
+   Otherwise one line on stderr says the address was not printed and why, and you finish on
+   the service's own page with the code (ADR 0015). The address is never opened for you.
 3. **You typed the scope; nobody confirms it.** `--scope <entry>` repeated, in order, and
    `--valid-for <seconds>` (required) are what is offered and what is signed. `--yes` is
    refused: there is no confirmation to skip.

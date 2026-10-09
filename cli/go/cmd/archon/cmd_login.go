@@ -43,13 +43,14 @@ import (
 const loginUsage = "usage: archon login <url> [--key <name> | --seed <hex> | --key-file <pkcs8.pem> | --seed-file <file>] " +
 	"[--authority-file <file>] [--yes]\n" +
 	"       archon login --audience <base> [--scope <entry>]... --valid-for <seconds> " +
-	"[--key <name> | --seed <hex> | --key-file <pkcs8.pem> | --seed-file <file>] [--authority-file <file>]\n  " +
+	"[--key <name> | --seed <hex> | --key-file <pkcs8.pem> | --seed-file <file>] [--authority-file <file>] [--page-origin <origin>]\n  " +
 	"proves possession of your key to the service at <url> so the browser key it names may act for you. " +
 	"<url> is the invocation URL <audience>/login/<id>; the audience is derived from it, never taken from the server. " +
 	"--key names a key in the store and is the default (archon key default); --key-file is a PKCS#8 file. " +
 	"Store password: interactive prompt, or ARCHON_KEY_PASSWORD / --password-fd <n>, never argv.\n  " +
 	"with no URL, the CLI OFFERS what you typed and the page finishes: the audience is --audience or ARCHON_AUDIENCE, " +
-	"never a page's word; the code and the page address go to stderr, the ledger to stdout after the service answers; " +
+	"never a page's word; the code goes to stderr, the page address with it only when it is https (or http on this machine) " +
+	"on the audience's origin or the one --page-origin names, the ledger to stdout after the service answers; " +
 	"no confirmation is asked — what you typed is what you sign."
 
 // clockNow and sleepFor are the two places this command meets wall-clock time. Package
@@ -184,6 +185,13 @@ func runLogin(args []string) error {
 			assumeYes = true
 			continue
 		}
+		if flag == "--page-origin" {
+			// The offers form's flag (ADR 0015). Here it would do nothing — the page started this
+			// login, and no page address is printed — and a flag that does nothing is a flag
+			// someone will come to rely on.
+			return fmt.Errorf("--page-origin applies only to the offers form (no URL): with a URL the page started the login, "+
+				"and no page address is printed\n%s", loginUsage)
+		}
 		if i+1 >= len(rest) || rest[i+1] == "" {
 			return fmt.Errorf("flag %q needs a value\n%s", flag, loginUsage)
 		}
@@ -245,9 +253,17 @@ func runLogin(args []string) error {
 	if err := validateLoginRequest(request, id); err != nil {
 		return err
 	}
+	// THE TRANSACTION FINGERPRINT (docs/login.md §5.3; ADR 0015 §4): over the derived audience
+	// and the exact request that will be signed, for the person to compare with the page they
+	// started. Computed before anything is shown, so a request it cannot cover is refused like
+	// any other malformed one, and the person never reads a statement without it.
+	fingerprint, err := transactionFingerprint(audience, request)
+	if err != nil {
+		return err
+	}
 
 	// SHOW BEFORE SIGN. The person confirms the statement, not the URL.
-	fmt.Print(renderStatement(audience, request, clockNow().UTC(), describeKeySource(src)))
+	fmt.Print(renderStatement(audience, request, clockNow().UTC(), describeKeySource(src), fingerprint))
 	if !assumeYes {
 		ok, err := confirm(os.Stdin)
 		if err != nil {
@@ -340,11 +356,15 @@ func refuseUndisplayable(field, s string) error {
 
 // renderStatement is EXACTLY what the person is asked to approve, and is the text all
 // three lanes must print byte-identically. now is a parameter so the wall-clock end is
-// testable rather than dependent on when the suite runs.
-func renderStatement(audience string, r *loginRequest, now time.Time, keySource string) string {
+// testable rather than dependent on when the suite runs. fingerprint is the formatted
+// transaction fingerprint (transactionFingerprint) of this audience and request: computed by
+// the caller, which must refuse the request when it cannot be, rather than here, so rendering
+// stays total.
+func renderStatement(audience string, r *loginRequest, now time.Time, keySource, fingerprint string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s asks you to let browser key %s act as you:\n", audience, r.Browser)
 	writeScopeAndValidity(&b, r, now)
+	fmt.Fprintf(&b, "transaction fingerprint: %s (compare it with the page you started)\n", fingerprint)
 	fmt.Fprintf(&b, "signing with %s\n", keySource)
 	return b.String()
 }
@@ -430,9 +450,19 @@ func formatDuration(seconds uint32) string {
 	}
 }
 
-// confirm reads a y/N answer. Default is NO: anything that is not an explicit yes refuses,
-// including EOF, so a login cannot be completed by a closed stdin.
+// consequenceLines are printed between the statement and the question (ADR 0015, archon#123).
+// The statement says WHAT is asked; these say what a yes DOES, and who should be giving it: a
+// login request reaching a person who did not start the client behind it is the phishing
+// shape, and the one defence the CLI has at this moment is the person declining it. Pinned
+// across the three lanes by cli/testdata/login-statement.json's `prompt`.
+const consequenceLines = "This gives the browser key above authority to act as you.\n" +
+	"Approve only a client you started yourself.\n"
+
+// confirm states the consequence, then reads a y/N answer. Default is NO: anything that is
+// not an explicit yes refuses, including EOF, so a login cannot be completed by a closed
+// stdin. With --yes it is never called, so nothing of it is printed.
 func confirm(in io.Reader) (bool, error) {
+	fmt.Print(consequenceLines)
 	fmt.Print("sign? [y/N] ")
 	line, err := bufio.NewReader(in).ReadString('\n')
 	if err != nil && line == "" {
@@ -637,7 +667,7 @@ func runOffer(args []string) error {
 		return err
 	}
 	var src loginSource
-	var authorityFile, audienceFlag, validForText string
+	var authorityFile, audienceFlag, validForText, pageOriginText string
 	scope := []string{}
 	for i := 0; i < len(rest); i++ {
 		flag := rest[i]
@@ -668,6 +698,8 @@ func runOffer(args []string) error {
 			src.seedFile = value
 		case "--authority-file":
 			authorityFile = value
+		case "--page-origin":
+			pageOriginText = value
 		default:
 			return fmt.Errorf("unknown flag %q\n%s", flag, loginUsage)
 		}
@@ -702,6 +734,12 @@ func runOffer(args []string) error {
 	if err != nil {
 		return err
 	}
+	// The one other origin whose page may be printed is the person's own word, checked here,
+	// before anything is sent, the way the audience is (ADR 0015).
+	pageOrigin, err := pageOriginFlag(pageOriginText)
+	if err != nil {
+		return err
+	}
 
 	// The code is the CLI's own entropy, registered under it. The service echoes the offer
 	// back; an echo that differs is a service that altered what was offered, and nothing of
@@ -722,12 +760,13 @@ func runOffer(args []string) error {
 	fmt.Fprintf(os.Stderr, "offer registered at %s\n", audience)
 	fmt.Fprintf(os.Stderr, "code: %s\n", code)
 	if offered.Page != "" {
-		// The address a person would open, printed beside a warning about itself: one that would
-		// not show as itself is refused, not escaped (docs/login.md §5).
+		// The address a person would open: one that would not show as itself is refused, not
+		// escaped (docs/login.md §5) — first, before it is judged — and one on an origin nobody
+		// trusted is withheld rather than printed (describePage).
 		if err := refuseUndisplayable("the service's page address", offered.Page); err != nil {
 			return err
 		}
-		fmt.Fprintln(os.Stderr, describePage(audience, offered.Page))
+		fmt.Fprintln(os.Stderr, describePage(audience, offered.Page, pageOrigin))
 	}
 	fmt.Fprintf(os.Stderr, "waiting for the page to take the offer, up to %ds\n", offered.ExpiresIn)
 
@@ -884,22 +923,92 @@ func checkOfferEcho(offered *offerResponse, code string, scope []string, validFo
 	return nil
 }
 
-// describePage is the one line about the page address, printed and MARKED, never opened
-// (§4.1 rule 1; ADR 0007 §C.7 (6)). "On the service's own origin" is a byte-exact comparison
-// of scheme and host with the audience's — a differently spelled origin fails closed, which
-// is the right direction for an address a person is about to click — and launching a browser
-// is the person's action, never this command's: spawning a platform opener by name is the
-// PATH surface §C.5 refuses.
-func describePage(audience, page string) string {
-	origin := originOf(audience)
-	onOrigin := page == origin ||
-		strings.HasPrefix(page, origin+"/") ||
-		strings.HasPrefix(page, origin+"#") ||
-		strings.HasPrefix(page, origin+"?")
-	if onOrigin {
-		return "page: " + page + " (on the service's own origin)"
+// The lines describePage prints when it withholds the page address. Each says why, and none
+// carries the address: it holds the code, and the code is already on the line above it.
+const (
+	pageNotHTTPS   = "the service's page is not an https address, so its address (which carries the code) is not printed"
+	pagePlainHTTP  = "the service's page is plain HTTP off this machine, so its address (which carries the code) is not printed; only https, or http on localhost, 127.0.0.1 or [::1], is printed"
+	pageOffOrigin  = "the service's page is not on the service's own origin, so its address (which carries the code) is not printed; pass --page-origin <origin> to trust that origin"
+	pageOffTrusted = "the service's page is on neither the service's own origin nor the one --page-origin names, so its address (which carries the code) is not printed"
+)
+
+// describePage is the one stderr line about the page address (§4.1 rule 1; ADR 0007 §C.7 (6);
+// ADR 0015). The address carries the code in its fragment, and a person shown an address can
+// open it whatever label sits beside it (archon#123) — so it is PRINTED only when it is both
+// (a) on a trusted transport, https or plain http on this machine (localhost, 127.0.0.1,
+// [::1]), and (b) on a trusted origin: the audience's own, or the one the person named with
+// --page-origin. Otherwise one line says why it was withheld and the flow goes on: the code
+// line above it lets the person finish on the service's own page.
+//
+// Both comparisons are byte-exact, of the page's scheme and authority as it spells them with
+// the audience's (canonical by construction) and with --page-origin (canonical, pageOriginFlag
+// made sure) — a differently spelled origin fails closed, the right direction for an address
+// carrying a secret. It is never opened: launching a browser is the person's action, never
+// this command's — spawning a platform opener by name is the PATH surface §C.5 refuses.
+func describePage(audience, page, trustedOrigin string) string {
+	scheme, authority, ok := strings.Cut(page, "://")
+	if !ok || (scheme != "https" && scheme != "http") {
+		return pageNotHTTPS
 	}
-	return "page: " + page + " (NOT on the service's origin — do not open it)"
+	if i := strings.IndexAny(authority, "/?#"); i >= 0 {
+		authority = authority[:i]
+	}
+	if scheme == "http" && !isLoopback(authority) {
+		return pagePlainHTTP
+	}
+	origin := scheme + "://" + authority
+	switch {
+	case origin == originOf(audience):
+		return "page: " + page + " (on the service's own origin)"
+	case trustedOrigin != "" && origin == trustedOrigin:
+		return "page: " + page + " (on the origin you trusted with --page-origin)"
+	case trustedOrigin != "":
+		return pageOffTrusted
+	default:
+		return pageOffOrigin
+	}
+}
+
+// isLoopback reports whether an authority, as a page spells it, names this machine: exactly
+// localhost, 127.0.0.1 or [::1], with any port. Userinfo is never this machine — it is how
+// `http://localhost@elsewhere` reads as one host and goes to another.
+func isLoopback(authority string) bool {
+	if strings.Contains(authority, "@") {
+		return false
+	}
+	host := authority
+	if strings.HasPrefix(host, "[") {
+		if i := strings.IndexByte(host, ']'); i >= 0 {
+			host = host[:i+1]
+		}
+	} else if i := strings.IndexByte(host, ':'); i >= 0 {
+		host = host[:i]
+	}
+	return host == "localhost" || host == "127.0.0.1" || host == "[::1]"
+}
+
+// pageOriginFlag checks --page-origin (ADR 0015) before anything is sent: an ORIGIN —
+// scheme://host[:port], with no path, query or fragment — spelled canonically, as an audience
+// must be: a fixed point of §2.1's grammar, fed through the scheme's derivation exactly as
+// selectedAudience feeds the audience. describePage compares it byte for byte, so a spelling
+// the comparison could never match is refused here, naming the one it could. "" is not given.
+func pageOriginFlag(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	_, rest, ok := strings.Cut(value, "://")
+	if !ok || rest == "" || strings.ContainsAny(rest, "/?#") {
+		return "", fmt.Errorf("login: --page-origin %s is not an origin — give scheme://host[:port], with no path, query or fragment",
+			jsonString(value))
+	}
+	derived, _, err := login.DeriveAudience(value + "/login/00")
+	if err != nil {
+		return "", fmt.Errorf("login: --page-origin %s is not valid: %w (docs/login.md §2.1)", jsonString(value), err)
+	}
+	if derived != value {
+		return "", fmt.Errorf("login: --page-origin %s is not canonical — pass %s (docs/login.md §2.1)", jsonString(value), jsonString(derived))
+	}
+	return value, nil
 }
 
 // originOf is the audience up to its path: scheme, host and port, as the audience spells them
