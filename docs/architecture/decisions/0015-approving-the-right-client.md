@@ -15,7 +15,8 @@ separate encoding, the transaction fingerprint, with its own vectors.
 
 **Who decided it.** Decided by archon-0b on 2026-10-09, under the operator's ruling of 2026-10-04
 that such decisions are the agents'. It rests on the external advice taken in the 0008 consultation
-(`research-docs/0008-*`, internal). To be reviewed by archon-2a on its pull request.
+(`research-docs/0008-*`, internal). Reviewed by archon-2a on its pull request; its three points (the account binding with the shipped
+handler, renewal beside ADR 0014, and the fingerprint's audience) are folded in.
 
 ## Context
 
@@ -116,8 +117,10 @@ conforming levels together.
 - **The transaction fingerprint.** It is the first 16 bytes of
   `SHA-256(u16be(len d) ‖ d ‖ u16be(len nonce) ‖ nonce ‖ Binding(0x01, audience, request))`, with
   `d = "archon-login-fingerprint/1"`. It is shown as eight groups of four lowercase hex digits.
-  - The page computes it from the K it generated and its own begin response. The CLI computes it
-    from the exact request it will sign.
+  - The page computes it from the K it generated and its own begin response. It takes the
+    audience from that response's `verification_uri` with derive-audience (§2.1), never from its
+    own configured spelling, so a spelling difference cannot make every fingerprint mismatch.
+  - The CLI computes it from the exact request it will sign.
   - It covers the whole transcript, not K alone, so it distinguishes requests that reuse a key and
     shows any difference in scope or validity.
   - At 128 bits there is no offline search for a match.
@@ -145,6 +148,14 @@ conforming levels together.
   - provide a way to find and end issued authority;
   - where accounts exist, bind a pending request to the account that began it, and admit only that
     account's P.
+
+  With the shipped handler, the service binds the account by wrapping begin:
+  - it authenticates the session on its own begin route;
+  - it takes `id` from the handler's `201`;
+  - it records `id` → the account;
+  - `AdmitAuthority` refuses any P that is not that account's bound key.
+
+  It never puts the account into a scope entry (§1).
 
 ### 5. The offers form
 
@@ -230,6 +241,9 @@ equality with a clock reading taken later is not required.
 **Renewal.**
 - A replacement is a new immutable admission, switched in atomically. The old admission's deadline
   is never mutated.
+- A replacement's authority is bounded by what authorized it, a fresh approval or a mandate's end,
+  never by extending the login it replaces. So ADR 0014's "renewing never restarts `valid_for`"
+  holds.
 - A switched session pointer does not invalidate a published grant. So superseded grants are
   retracted, or every accepting route enforces the current generation.
 - If replacement grants keep going to the same K, a stolen K keeps receiving them, so a short grant

@@ -445,8 +445,11 @@ sign it (ADR 0015 §4):
 
 It is shown as eight groups of four lowercase hex digits: `7a91 b2c3 d4e5 f607 1829 3a4b 5c6d 7e8f`.
 - **Inputs.** The page computes it from the K it generated and its own begin response (`id`,
-  `nonce`, `scope`, `valid_for`) at its configured audience. The prover computes it from the request
-  it will sign (`login.Fingerprint`, `login::fingerprint`, `fingerprint`).
+  `nonce`, `scope`, `valid_for`). It takes the audience from that response's `verification_uri`
+  with the sdk's derive-audience function (§2.1), never from its own configured spelling. That
+  gives the page exactly the string the CLI binds, so a trailing slash, a port or a case difference
+  cannot make every fingerprint mismatch and teach people to approve past one. The prover computes
+  it from the request it will sign (`login.Fingerprint`, `login::fingerprint`, `fingerprint`).
 - **Coverage.** It covers the whole transcript, not K alone, so it tells apart requests that reuse a
   key, and changes with any difference in scope or validity. At 128 bits a match cannot be searched
   for offline.
@@ -493,6 +496,16 @@ It is shown as eight groups of four lowercase hex digits: `7a91 b2c3 d4e5 f607 1
     - provide a way to find and end issued authority;
     - where it has accounts, bind a pending request to the account that began it, and admit only that
       account's P.
+  - **How to bind the account with this handler.** The handler's begin is unauthenticated and has no
+    hook, so the service wraps it:
+    - it authenticates the session on its own begin route;
+    - it forwards the request to the handler and takes `id` from the `201`;
+    - it records `id` → the account;
+    - `AdmitAuthority`, which receives `Admitted.ID`, refuses any P that is not that account's bound
+      key.
+
+    The same applies to a begin on an offer. Never put the account into a scope entry. It is not
+    a scope, and §1.1's claim does not extend to it (ADR 0015 §1).
   - **Rollout.** An old and a new prover make the same v1 proofs, so a service cannot read the
     stronger ceremony from the signature. A service that requires it enforces its own initiation
     state and refuses the paths that bypass it. A CLI version string is not proof.
@@ -568,6 +581,9 @@ It is shown as eight groups of four lowercase hex digits: `7a91 b2c3 d4e5 f607 1
   - **Renewal** (ADR 0015 §6).
     - A replacement is a new immutable admission, switched in atomically. The old admission's
       deadline is never mutated.
+    - A replacement's authority is bounded by what authorized it, a fresh approval or a mandate's
+      end, never by extending the login it replaces. So it does not restart that login's
+      `valid_for`.
     - A switched session pointer does not invalidate a published grant. Superseded grants are
       retracted, or every accepting route enforces the current generation.
     - Replacements that keep going to the same K keep going to a stolen copy of it too. A short

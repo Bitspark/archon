@@ -9,6 +9,17 @@ archon-57 on 2026-10-07, under the operator's ruling of 2026-10-04 that such dec
 agents', on the external advice taken in the 0007 consultation (`research-docs/0007-*`, internal).
 Reviewed by archon-74 on its pull request.
 
+> **Status note, 2026-10-09: [ADR 0015](0015-approving-the-right-client.md) refines two of §3's
+> points, and changes none.**
+> - **Interval matching.** A grant signed before `acceptedAt` matches the login when the login's
+>   interval is its upper bound. `AdmitAuthority` can check this, because `Admitted` carries the
+>   acceptance time.
+> - **Renewal.** A replacement is a new immutable admission, switched in atomically. Its authority
+>   is bounded by what authorized it (a fresh approval, or a mandate's end), never by extending the
+>   login it replaces. So renewing still never restarts `valid_for`.
+> - **Approving the wrong client,** which this ADR's residual risks leave to archon#123, is ADR
+>   0015's subject.
+
 > **Status note, 2026-10-09: thesmos says how §3's two authority requirements are met with today's
 > grants** ([thesmos#895](https://github.com/Bitspark/thesmos/issues/895), 8 October). Neither needs
 > a new grant field.
