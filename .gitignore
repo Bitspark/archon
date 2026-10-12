@@ -1,3 +1,14 @@
+# >>> atlas-managed — `atlas workflow sync` owns this block; do not edit inside >>>
+# Dependencies + build noise.
+node_modules/
+*.log
+.DS_Store
+# Worktrees (the canonical dev workflow) + per-agent local state.
+.worktrees/
+.claude/worktrees
+.claude/settings.local.json
+# <<< atlas-managed <<<
+
 node_modules/
 *.log
 .DS_Store
