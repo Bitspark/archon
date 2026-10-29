@@ -27,9 +27,20 @@
 // Like the login handler, nothing here opens a socket, starts a timer or depends on a framework.
 import { REQUEST_TAG, verifyRequest, type RequestPolicy, type VerifiedRequest } from "@bitspark/archon-sdk";
 
-/** The largest body a verifier reads to recompute the digest. A larger one is refused, never
- *  truncated: a digest over part of a body verifies nothing. */
+/** The largest body a verifier reads to recompute the digest, unless it is configured with
+ *  another bound (`maxBodyBytes`). A larger one is refused, never truncated: a digest over part
+ *  of a body verifies nothing. */
 export const REQUEST_MAX_BODY_BYTES = 1 << 20;
+
+/** A configured body bound, checked: a positive whole number of bytes. Zero, a fraction,
+ *  Infinity or NaN is a configuration error, never "no limit". */
+function bodyBound(maxBodyBytes: number | undefined): number {
+  if (maxBodyBytes === undefined) return REQUEST_MAX_BODY_BYTES;
+  if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1) {
+    throw new RangeError(`request: maxBodyBytes must be a positive whole number of bytes, not ${maxBodyBytes}`);
+  }
+  return maxBodyBytes;
+}
 
 export type ReplayOutcome = "inserted" | "alreadyPresent" | "unavailable";
 
@@ -161,25 +172,34 @@ function tooLarge(): RequestRefusal {
   return new RequestRefusal(413, "request: the body is over the verifier's limit");
 }
 
+export interface ReadOptions {
+  /** The largest body to read, in bytes; REQUEST_MAX_BODY_BYTES (1 MiB) if absent. Pass the
+   *  verifier's own `maxBodyBytes`: a reader's bound never widens a verifier's, which refuses
+   *  past its bound whatever it is handed, but a narrower reader refuses what the verifier would
+   *  accept. */
+  maxBodyBytes?: number;
+}
+
 /** Read a node:http request as received: its raw request-target, its raw header lines, its body
- *  (refused, not truncated, past REQUEST_MAX_BODY_BYTES) and its trailers.
+ *  (refused, not truncated, past `maxBodyBytes`) and its trailers.
  *
  *  Past the limit it keeps no more bytes but reads on to the end, as node:http itself drains an
  *  unread body: abandoning the stream would destroy the socket, and the client would get a reset
  *  instead of the 413. The server's request timeout bounds how long that can take. */
-export async function readNodeRequest(req: NodeRequestLike): Promise<RawRequest> {
+export async function readNodeRequest(req: NodeRequestLike, options: ReadOptions = {}): Promise<RawRequest> {
+  const max = bodyBound(options.maxBodyBytes);
   const chunks: Uint8Array[] = [];
   let total = 0;
   for await (const chunk of req) {
     const bytes = typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
     total += bytes.length;
-    if (total > REQUEST_MAX_BODY_BYTES) {
+    if (total > max) {
       chunks.length = 0;
       continue;
     }
     chunks.push(bytes);
   }
-  if (total > REQUEST_MAX_BODY_BYTES) throw tooLarge();
+  if (total > max) throw tooLarge();
   return {
     method: req.method ?? "",
     requestTarget: req.url ?? "",
@@ -189,7 +209,7 @@ export async function readNodeRequest(req: NodeRequestLike): Promise<RawRequest>
   };
 }
 
-async function readBounded(body: ReadableStream<Uint8Array> | null): Promise<Uint8Array<ArrayBuffer>> {
+async function readBounded(body: ReadableStream<Uint8Array> | null, max: number): Promise<Uint8Array<ArrayBuffer>> {
   if (body === null) return new Uint8Array(0);
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
@@ -198,7 +218,7 @@ async function readBounded(body: ReadableStream<Uint8Array> | null): Promise<Uin
     const { done, value } = await reader.read();
     if (done) break;
     total += value.length;
-    if (total > REQUEST_MAX_BODY_BYTES) {
+    if (total > max) {
       await reader.cancel().catch(() => {});
       throw tooLarge();
     }
@@ -212,6 +232,11 @@ export interface VerifierConfig {
   store: ReplayStore;
   /** Seconds since the epoch; defaults to the system clock. */
   clock?: () => number;
+  /** The largest body this verifier accepts, in bytes; REQUEST_MAX_BODY_BYTES (1 MiB) if absent.
+   *  An operational bound, not part of the proof: the digest is still recomputed over the whole
+   *  body, which is held in memory to do it. The constructor throws a RangeError for anything
+   *  but a positive whole number. */
+  maxBodyBytes?: number;
 }
 
 /** Authenticates requests under one policy against one replay store. */
@@ -219,16 +244,20 @@ export class RequestVerifier {
   readonly #policy: RequestPolicy;
   readonly #store: ReplayStore;
   readonly #clock: () => number;
+  /** The largest body this verifier accepts, in bytes: what to pass `readNodeRequest`. */
+  readonly maxBodyBytes: number;
 
   constructor(config: VerifierConfig) {
     this.#policy = config.policy;
     this.#store = config.store;
     this.#clock = config.clock ?? (() => Math.floor(Date.now() / 1000));
+    this.maxBodyBytes = bodyBound(config.maxBodyBytes);
   }
 
-  /** Authenticate a request as received. Throws a RequestRefusal. */
+  /** Authenticate a request as received. Throws a RequestRefusal. The body bound is checked
+   *  here again, so a RawRequest read under a wider bound, or built by hand, is still refused. */
   async authenticateRaw(raw: RawRequest): Promise<AuthenticatedRequest> {
-    if (raw.body.length > REQUEST_MAX_BODY_BYTES) throw tooLarge();
+    if (raw.body.length > this.maxBodyBytes) throw tooLarge();
     // v1 accepts no content coding and no trailers (ADR 0010 §4): the digest is over the content
     // as received, and a coded body would make "as received" ambiguous.
     if (raw.headers.some(([n]) => n.toLowerCase() === "content-encoding") || (raw.trailers?.length ?? 0) > 0) {
@@ -270,7 +299,7 @@ export class RequestVerifier {
   /** Authenticate a fetch Request — the normalised request a fetch application routes on — and
    *  return the body it read alongside. Throws a RequestRefusal. */
   async authenticate(request: Request): Promise<{ auth: AuthenticatedRequest; body: Uint8Array<ArrayBuffer> }> {
-    const body = await readBounded(request.body);
+    const body = await readBounded(request.body, this.maxBodyBytes);
     const url = new URL(request.url);
     const auth = await this.authenticateRaw({
       method: request.method,

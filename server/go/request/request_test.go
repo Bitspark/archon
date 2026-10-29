@@ -71,7 +71,9 @@ type harness struct {
 	store *Memory
 }
 
-func newHarness(t *testing.T, store ReplayStore) *harness {
+// newHarness serves the application behind a verifier; maxBody, if given, is the verifier's
+// MaxBodyBytes.
+func newHarness(t *testing.T, store ReplayStore, maxBody ...int) *harness {
 	t.Helper()
 	clock := &fixedClock{at: t0.Add(5 * time.Second)}
 	mem, _ := store.(*Memory)
@@ -80,6 +82,9 @@ func newHarness(t *testing.T, store ReplayStore) *harness {
 		Policy: sdk.Policy{Audience: audience, Declared: []string{"idempotency-key"}, MaxLifetime: 300, Skew: 30},
 		Store:  store,
 		Clock:  clock.now,
+	}
+	if len(maxBody) > 0 {
+		v.MaxBodyBytes = maxBody[0]
 	}
 	h.srv = httptest.NewServer(v.Middleware(h.app))
 	t.Cleanup(h.srv.Close)
@@ -92,6 +97,8 @@ type signed struct {
 	method, target string
 	body           []byte
 	headers        [][2]string
+	// trailers, if not nil, sends the body chunked, with these trailer fields.
+	trailers [][2]string
 }
 
 func newNonce() []byte {
@@ -138,12 +145,30 @@ func (h *harness) send(t *testing.T, s signed) int {
 	}
 	defer conn.Close()
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "%s %s HTTP/1.1\r\nHost: dawn.example\r\nContent-Length: %d\r\nConnection: close\r\n", s.method, s.target, len(s.body))
+	fmt.Fprintf(&b, "%s %s HTTP/1.1\r\nHost: dawn.example\r\nConnection: close\r\n", s.method, s.target)
 	for _, kv := range s.headers {
 		fmt.Fprintf(&b, "%s: %s\r\n", kv[0], kv[1])
 	}
-	b.WriteString("\r\n")
-	b.Write(s.body)
+	if s.trailers == nil {
+		fmt.Fprintf(&b, "Content-Length: %d\r\n\r\n", len(s.body))
+		b.Write(s.body)
+	} else {
+		b.WriteString("Transfer-Encoding: chunked\r\n")
+		if len(s.trailers) > 0 {
+			names := make([]string, len(s.trailers))
+			for i, kv := range s.trailers {
+				names[i] = kv[0]
+			}
+			fmt.Fprintf(&b, "Trailer: %s\r\n", strings.Join(names, ", "))
+		}
+		fmt.Fprintf(&b, "\r\n%x\r\n", len(s.body))
+		b.Write(s.body)
+		b.WriteString("\r\n0\r\n")
+		for _, kv := range s.trailers {
+			fmt.Fprintf(&b, "%s: %s\r\n", kv[0], kv[1])
+		}
+		b.WriteString("\r\n")
+	}
 	if _, err := conn.Write(b.Bytes()); err != nil {
 		t.Fatal(err)
 	}
@@ -359,6 +384,150 @@ func TestAnOversizedBodyIsRefusedNotTruncated(t *testing.T) {
 	big := bytes.Repeat([]byte("a"), MaxBodyBytes+1)
 	if got := h.send(t, sign(t, "POST", "/api/v1/things", big)); got != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status %d, want 413", got)
+	}
+}
+
+// large is the bound a consumer opts in to in #137: 8 MiB.
+const large = 8 << 20
+
+// largeBody is n bytes that vary from byte to byte and from megabyte to megabyte, so a body
+// altered or cut anywhere differs from the one signed.
+func largeBody(n int) []byte {
+	out := make([]byte, n)
+	for i := range out {
+		out[i] = byte(i*31 + i>>20)
+	}
+	return out
+}
+
+func TestAnEightMiBBoundAdmitsExactlyEightMiBWhole(t *testing.T) {
+	h := newHarness(t, NewMemory(t0.Add(-time.Hour)), large)
+	big := largeBody(large)
+	if got := h.send(t, sign(t, "POST", "/api/v1/things", big)); got != http.StatusNoContent {
+		t.Fatalf("status %d, want 204", got)
+	}
+	if h.app.hits.Load() != 1 {
+		t.Fatalf("the application ran %d times, want 1", h.app.hits.Load())
+	}
+	h.app.mu.Lock()
+	defer h.app.mu.Unlock()
+	if !bytes.Equal(h.app.reads, big) {
+		t.Fatalf("the application read %d bytes, not the %d signed", len(h.app.reads), len(big))
+	}
+}
+
+func TestAnEightMiBBoundRefusesOneByteMore(t *testing.T) {
+	h := newHarness(t, NewMemory(t0.Add(-time.Hour)), large)
+	if got := h.send(t, sign(t, "POST", "/api/v1/things", largeBody(large+1))); got != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status %d, want 413", got)
+	}
+	if n := h.app.hits.Load(); n != 0 {
+		t.Fatalf("the application ran %d times", n)
+	}
+}
+
+// Under an 8 MiB bound, every other check still runs, over the whole body.
+func TestAnEightMiBBodyIsRefusedForEverythingElse(t *testing.T) {
+	cases := []struct {
+		name string
+		make func(t *testing.T) signed
+		want int
+	}{
+		// The last byte, past every default bound: a digest over a prefix would not see it.
+		{"its last byte altered", func(t *testing.T) signed {
+			s := sign(t, "POST", "/api/v1/things", largeBody(large))
+			s.body = bytes.Clone(s.body)
+			s.body[len(s.body)-1] ^= 0x01
+			return s
+		}, http.StatusUnauthorized},
+		{"a content coding", func(t *testing.T) signed {
+			s := sign(t, "POST", "/api/v1/things", largeBody(large))
+			s.headers = append(s.headers, [2]string{"Content-Encoding", "identity"})
+			return s
+		}, http.StatusBadRequest},
+		{"a malformed Content-Digest", func(t *testing.T) signed {
+			s := sign(t, "POST", "/api/v1/things", largeBody(large))
+			s.headers = replace(s.headers, "Content-Digest", "sha-256=:not base64:")
+			return s
+		}, http.StatusUnauthorized},
+		{"a missing covered header", func(t *testing.T) signed {
+			s := sign(t, "POST", "/api/v1/things", largeBody(large))
+			s.headers = without(s.headers, "Idempotency-Key")
+			return s
+		}, http.StatusUnauthorized},
+		{"sent chunked, with a trailer", func(t *testing.T) signed {
+			s := sign(t, "POST", "/api/v1/things", largeBody(large))
+			s.trailers = [][2]string{{"Idempotency-Key", "k-2"}}
+			return s
+		}, http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t, NewMemory(t0.Add(-time.Hour)), large)
+			if got := h.send(t, c.make(t)); got != c.want {
+				t.Fatalf("status %d, want %d", got, c.want)
+			}
+			if n := h.app.hits.Load(); n != 0 {
+				t.Fatalf("the application ran %d times", n)
+			}
+		})
+	}
+}
+
+// The digest is over the content after transfer framing is removed: chunking changes nothing.
+func TestAnEightMiBBodySentChunkedWithoutATrailerIsAdmitted(t *testing.T) {
+	h := newHarness(t, NewMemory(t0.Add(-time.Hour)), large)
+	s := sign(t, "POST", "/api/v1/things", largeBody(large))
+	s.trailers = [][2]string{}
+	if got := h.send(t, s); got != http.StatusNoContent {
+		t.Fatalf("status %d, want 204", got)
+	}
+}
+
+func TestABodyPastTheDefaultIsStillUsableOnce(t *testing.T) {
+	h := newHarness(t, NewMemory(t0.Add(-time.Hour)), large)
+	s := sign(t, "POST", "/api/v1/things", largeBody(2*MaxBodyBytes))
+	if got := h.send(t, s); got != http.StatusNoContent {
+		t.Fatalf("first: status %d, want 204", got)
+	}
+	if got := h.send(t, s); got != http.StatusUnauthorized {
+		t.Fatalf("a replay: status %d, want 401", got)
+	}
+	if n := h.app.hits.Load(); n != 1 {
+		t.Fatalf("the application ran %d times, want 1", n)
+	}
+}
+
+// A bound below the default is honoured too: the bound is the verifier's, whichever way it moves.
+func TestABodyBoundBelowTheDefaultIsHonoured(t *testing.T) {
+	h := newHarness(t, NewMemory(t0.Add(-time.Hour)), len(body))
+	if got := h.send(t, sign(t, "POST", "/api/v1/things", body)); got != http.StatusNoContent {
+		t.Fatalf("exactly at the bound: status %d, want 204", got)
+	}
+	longer := append(bytes.Clone(body), ' ')
+	if got := h.send(t, sign(t, "POST", "/api/v1/things", longer)); got != http.StatusRequestEntityTooLarge {
+		t.Fatalf("one byte over: status %d, want 413", got)
+	}
+}
+
+func TestANegativeBodyBoundRefusesEveryRequest(t *testing.T) {
+	h := newHarness(t, NewMemory(t0.Add(-time.Hour)), -1)
+	if got := h.send(t, sign(t, "POST", "/api/v1/things", body)); got != http.StatusInternalServerError {
+		t.Fatalf("status %d, want 500", got)
+	}
+	if n := h.app.hits.Load(); n != 0 {
+		t.Fatalf("the application ran %d times", n)
+	}
+}
+
+// Zero is the default bound, as the zero value of every other field is its default.
+func TestAZeroBodyBoundIsTheDefault(t *testing.T) {
+	h := newHarness(t, NewMemory(t0.Add(-time.Hour)), 0)
+	if got := h.send(t, sign(t, "POST", "/api/v1/things", largeBody(MaxBodyBytes))); got != http.StatusNoContent {
+		t.Fatalf("at the default: status %d, want 204", got)
+	}
+	if got := h.send(t, sign(t, "POST", "/api/v1/things", largeBody(MaxBodyBytes+1))); got != http.StatusRequestEntityTooLarge {
+		t.Fatalf("past the default: status %d, want 413", got)
 	}
 }
 

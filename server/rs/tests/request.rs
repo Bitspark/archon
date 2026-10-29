@@ -9,6 +9,7 @@
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -57,15 +58,20 @@ struct Harness {
 }
 
 fn harness(store: Arc<dyn ReplayStore>) -> Harness {
+    harness_within(store, None)
+}
+
+/// A harness whose verifier bounds bodies at `max`, or at its default.
+fn harness_within(store: Arc<dyn ReplayStore>, max: Option<NonZeroUsize>) -> Harness {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let clock = Arc::new(AtomicU64::new(T0 + 5));
     let at = Arc::clone(&clock);
-    let verifier = Arc::new(Verifier::new(
-        policy(),
-        store,
-        Box::new(move || at.load(Ordering::SeqCst)),
-    ));
+    let mut verifier = Verifier::new(policy(), store, Box::new(move || at.load(Ordering::SeqCst)));
+    if let Some(max) = max {
+        verifier = verifier.with_max_body_bytes(max);
+    }
+    let verifier = Arc::new(verifier);
     let hits = Arc::new(AtomicUsize::new(0));
     let last = Arc::new(Mutex::new(None));
     let (h, l) = (Arc::clone(&hits), Arc::clone(&last));
@@ -109,7 +115,7 @@ fn serve(verifier: &Verifier, mut stream: TcpStream, hits: &AtomicUsize, last: &
             body: Vec::new(),
             headers: Vec::new(),
         },
-        Ok(head) => match body_length(&head) {
+        Ok(head) => match verifier.body_length(&head) {
             Err(refusal) => refusal.response(),
             Ok(want) => {
                 let mut body = buf[head_end + 4..].to_vec();
@@ -534,6 +540,179 @@ fn authenticate_refuses_an_oversized_body_handed_to_it_directly() {
         .authenticate(&head, &vec![0; MAX_REQUEST_BODY_BYTES + 1])
         .unwrap_err();
     assert_eq!(refusal.status, 413);
+}
+
+/// The bound a consumer opts in to in #137: 8 MiB.
+const LARGE: usize = 8 << 20;
+
+fn large_bound() -> Option<NonZeroUsize> {
+    NonZeroUsize::new(LARGE)
+}
+
+/// `n` bytes that vary from byte to byte and from megabyte to megabyte, so a body altered or
+/// cut anywhere differs from the one signed.
+fn large(n: usize) -> Vec<u8> {
+    (0..n).map(|i| (i * 31 + (i >> 20)) as u8).collect()
+}
+
+#[test]
+fn an_8_mib_bound_admits_a_body_of_exactly_8_mib_whole() {
+    let h = harness_within(fresh(), large_bound());
+    let big = large(LARGE);
+    assert_eq!(send(&h, &signed("POST", "/api/v1/things", &big)), 204);
+    assert_eq!(h.hits.load(Ordering::SeqCst), 1);
+    let last = h.last.lock().unwrap();
+    assert!(
+        last.as_ref().is_some_and(|(_, body)| *body == big),
+        "the application saw another body than the one signed"
+    );
+}
+
+#[test]
+fn an_8_mib_bound_refuses_one_byte_more() {
+    let h = harness_within(fresh(), large_bound());
+    assert_eq!(
+        send(&h, &signed("POST", "/api/v1/things", &large(LARGE + 1))),
+        413
+    );
+    assert_eq!(h.hits.load(Ordering::SeqCst), 0);
+}
+
+// Under an 8 MiB bound, every other check still runs, over the whole body.
+#[test]
+fn an_8_mib_body_is_refused_for_everything_else() {
+    type Make = fn() -> (Signed, bool);
+    let cases: Vec<(&str, Make, u16)> = vec![
+        (
+            // The last byte, past every default bound: a digest over a prefix would not see it.
+            "its last byte altered",
+            || {
+                let mut s = signed("POST", "/api/v1/things", &large(LARGE));
+                *s.body.last_mut().unwrap() ^= 0x01;
+                (s, true)
+            },
+            401,
+        ),
+        (
+            "a content coding",
+            || {
+                let mut s = signed("POST", "/api/v1/things", &large(LARGE));
+                s.headers
+                    .push(("Content-Encoding".to_string(), "identity".to_string()));
+                (s, true)
+            },
+            400,
+        ),
+        (
+            "a malformed Content-Digest",
+            || {
+                let mut s = signed("POST", "/api/v1/things", &large(LARGE));
+                s.headers = replace(&s.headers, "Content-Digest", "sha-256=:not base64:");
+                (s, true)
+            },
+            401,
+        ),
+        (
+            "a missing covered header",
+            || {
+                let mut s = signed("POST", "/api/v1/things", &large(LARGE));
+                s.headers = without(&s.headers, "Idempotency-Key");
+                (s, true)
+            },
+            401,
+        ),
+        (
+            "sent chunked, with a trailer",
+            || {
+                let mut s = signed("POST", "/api/v1/things", &large(LARGE));
+                s.headers
+                    .push(("Transfer-Encoding".to_string(), "chunked".to_string()));
+                s.headers
+                    .push(("Trailer".to_string(), "Idempotency-Key".to_string()));
+                let mut chunked = format!("{:x}\r\n", s.body.len()).into_bytes();
+                chunked.extend_from_slice(&s.body);
+                chunked.extend_from_slice(b"\r\n0\r\nIdempotency-Key: k-2\r\n\r\n");
+                s.body = chunked;
+                (s, false)
+            },
+            400,
+        ),
+    ];
+    for (name, make, want) in cases {
+        let h = harness_within(fresh(), large_bound());
+        let (s, frame) = make();
+        assert_eq!(send_bytes(&h, &s, frame), want, "{name}");
+        assert_eq!(
+            h.hits.load(Ordering::SeqCst),
+            0,
+            "{name}: the application ran"
+        );
+    }
+}
+
+#[test]
+fn a_body_past_the_default_is_still_usable_once() {
+    let h = harness_within(fresh(), large_bound());
+    let s = signed("POST", "/api/v1/things", &large(2 * MAX_REQUEST_BODY_BYTES));
+    assert_eq!(send(&h, &s), 204);
+    assert_eq!(send(&h, &s), 401, "a replay was admitted");
+    assert_eq!(h.hits.load(Ordering::SeqCst), 1);
+}
+
+// The verifier re-checks its own bound, whatever framed the body: a caller that framed it under
+// a wider bound (the default reader in front of a narrower verifier, here) is still refused.
+#[test]
+fn authenticate_refuses_past_its_own_bound_not_the_default() {
+    let head = http::parse_head(b"POST /api HTTP/1.1\r\nHost: dawn.example").unwrap();
+    let within = |max: usize, n: usize| {
+        Verifier::new(policy(), fresh(), Box::new(|| T0))
+            .with_max_body_bytes(NonZeroUsize::new(max).unwrap())
+            .authenticate(&head, &vec![0; n])
+            .map(|_| ())
+            .map_err(|r| r.status)
+    };
+    assert_eq!(within(LARGE, LARGE + 1), Err(413));
+    // Past the default and within the bound, a body reaches the proof check (401: it carries
+    // none).
+    assert_eq!(within(LARGE, MAX_REQUEST_BODY_BYTES + 1), Err(401));
+    assert_eq!(within(16, 17), Err(413));
+    assert_eq!(within(16, 16), Err(401));
+}
+
+#[test]
+fn a_verifier_reports_and_frames_by_its_own_bound() {
+    let default = Verifier::new(policy(), fresh(), Box::new(|| T0));
+    assert_eq!(default.max_body_bytes(), MAX_REQUEST_BODY_BYTES);
+    let wide = Verifier::new(policy(), fresh(), Box::new(|| T0))
+        .with_max_body_bytes(large_bound().unwrap());
+    assert_eq!(wide.max_body_bytes(), LARGE);
+    let length = |v: &Verifier, n: usize| {
+        let head =
+            http::parse_head(format!("POST /api HTTP/1.1\r\nContent-Length: {n}\r\n").as_bytes())
+                .unwrap();
+        v.body_length(&head).map_err(|r| r.status)
+    };
+    assert_eq!(
+        length(&default, MAX_REQUEST_BODY_BYTES + 1),
+        Err(413),
+        "the default verifier framed past its bound"
+    );
+    assert_eq!(
+        length(&wide, MAX_REQUEST_BODY_BYTES + 1),
+        Ok(MAX_REQUEST_BODY_BYTES + 1)
+    );
+    assert_eq!(length(&wide, LARGE), Ok(LARGE));
+    assert_eq!(length(&wide, LARGE + 1), Err(413));
+    // The free function keeps the default, whatever a verifier was given.
+    let head = http::parse_head(
+        format!(
+            "POST /api HTTP/1.1\r\nContent-Length: {}\r\n",
+            MAX_REQUEST_BODY_BYTES + 1
+        )
+        .as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(body_length(&head).map_err(|r| r.status), Err(413));
 }
 
 // And body_length's own refusals, which authenticate's re-checks mask through a server: a

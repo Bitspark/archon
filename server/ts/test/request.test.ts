@@ -56,12 +56,21 @@ test.after(() => {
   }
 });
 
-async function harness(mode: Mode, store: ReplayStore): Promise<Harness> {
+/** A harness's body bounds: the verifier's maxBodyBytes, and the raw reader's. Absent, the
+ *  verifier keeps its default and the reader is handed nothing — the defaults as a caller who
+ *  configures neither gets them. */
+interface Bounds {
+  verifier?: number;
+  reader?: number;
+}
+
+async function harness(mode: Mode, store: ReplayStore, bounds: Bounds = {}): Promise<Harness> {
   const clock = { at: T0 + 5 };
   const verifier = new RequestVerifier({
     policy: { audience: AUDIENCE, declared: ["idempotency-key"], maxLifetime: 300, skew: 30 },
     store,
     clock: () => clock.at,
+    ...(bounds.verifier === undefined ? {} : { maxBodyBytes: bounds.verifier }),
   });
   let hits = 0;
   let last: Seen | undefined;
@@ -72,7 +81,7 @@ async function harness(mode: Mode, store: ReplayStore): Promise<Harness> {
 
   const raw = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
-      const request = await readNodeRequest(req);
+      const request = await readNodeRequest(req, bounds.reader === undefined ? {} : { maxBodyBytes: bounds.reader });
       const auth = await verifier.authenticateRaw(request);
       app({ auth, body: request.body, target: request.requestTarget });
       res.writeHead(204).end();
@@ -187,6 +196,17 @@ function send(h: Harness, s: Signed): Promise<number> {
 }
 
 const fresh = (): MemoryReplayStore => new MemoryReplayStore(T0 - 3600);
+
+/** The bound a consumer opts in to in #137: 8 MiB. */
+const LARGE = 8 << 20;
+
+/** A body of n bytes that varies from byte to byte and from megabyte to megabyte, so a body
+ *  altered or cut anywhere differs from the one signed. */
+function large(n: number): Uint8Array {
+  const out = new Uint8Array(n);
+  for (let i = 0; i < n; i++) out[i] = (i * 31 + (i >>> 20)) & 0xff;
+  return out;
+}
 
 for (const mode of MODES) {
   test(`${mode}: an authenticated request reaches the application with what was verified`, async () => {
@@ -362,7 +382,105 @@ for (const mode of MODES) {
     assert.equal(await send(h, signed("POST", "/api/v1/things", big)), 413);
     assert.equal(h.hits(), 0);
   });
+
+  // A verifier configured for 8 MiB (#137), its reader handed the same bound, as a caller wires
+  // the two: every check still runs, over the whole body.
+  const wide: Bounds = { verifier: LARGE, reader: LARGE };
+
+  test(`${mode}: an 8 MiB bound admits a body of exactly 8 MiB, whole`, async () => {
+    const h = await harness(mode, fresh(), wide);
+    const big = large(LARGE);
+    assert.equal(await send(h, signed("POST", "/api/v1/things", big)), 204);
+    assert.equal(h.hits(), 1);
+    assert.deepEqual(h.last()!.body, big, "the application saw another body than the one signed");
+  });
+
+  test(`${mode}: an 8 MiB bound refuses one byte more`, async () => {
+    const h = await harness(mode, fresh(), wide);
+    assert.equal(await send(h, signed("POST", "/api/v1/things", large(LARGE + 1))), 413);
+    assert.equal(h.hits(), 0);
+  });
+
+  const largeCases: Array<{ name: string; make: () => Signed; want: number }> = [
+    {
+      // The last byte, past every default bound: a digest over a prefix would not see it.
+      name: "its last byte altered",
+      make: () => {
+        const s = signed("POST", "/api/v1/things", large(LARGE));
+        const altered = s.body.slice();
+        altered[altered.length - 1]! ^= 0x01;
+        return { ...s, body: altered };
+      },
+      want: 401,
+    },
+    {
+      name: "a content coding",
+      make: () => {
+        const s = signed("POST", "/api/v1/things", large(LARGE));
+        return { ...s, headers: [...s.headers, ["Content-Encoding", "identity"]] };
+      },
+      want: 400,
+    },
+    {
+      name: "a malformed Content-Digest",
+      make: () => {
+        const s = signed("POST", "/api/v1/things", large(LARGE));
+        return { ...s, headers: replace(s.headers, "Content-Digest", "sha-256=:not base64:") };
+      },
+      want: 401,
+    },
+    {
+      name: "a missing covered header",
+      make: () => {
+        const s = signed("POST", "/api/v1/things", large(LARGE));
+        return { ...s, headers: without(s.headers, "Idempotency-Key") };
+      },
+      want: 401,
+    },
+  ];
+  for (const c of largeCases) {
+    test(`${mode}: an 8 MiB body with ${c.name}`, async () => {
+      const h = await harness(mode, fresh(), wide);
+      assert.equal(await send(h, c.make()), c.want);
+      assert.equal(h.hits(), 0, "the application ran");
+    });
+  }
+
+  test(`${mode}: a body past the default is still usable once`, async () => {
+    const h = await harness(mode, fresh(), wide);
+    const s = signed("POST", "/api/v1/things", large(2 * REQUEST_MAX_BODY_BYTES));
+    assert.equal(await send(h, s), 204);
+    assert.equal(await send(h, s), 401, "a replay was admitted");
+    assert.equal(h.hits(), 1);
+  });
 }
+
+test("raw: an 8 MiB body sent chunked, with a trailer, is refused", async () => {
+  const h = await harness("raw", fresh(), { verifier: LARGE, reader: LARGE });
+  const s = { ...signed("POST", "/api/v1/things", large(LARGE)), trailers: [["Idempotency-Key", "k-2"]] as Array<[string, string]> };
+  assert.equal(await send(h, s), 400);
+  assert.equal(h.hits(), 0);
+});
+
+test("raw: the same 8 MiB body, chunked without a trailer, is admitted", async () => {
+  // The digest is over the content after transfer framing is removed: chunking changes nothing.
+  const h = await harness("raw", fresh(), { verifier: LARGE, reader: LARGE });
+  const s = { ...signed("POST", "/api/v1/things", large(LARGE)), trailers: [] };
+  assert.equal(await send(h, s), 204);
+  assert.equal(h.hits(), 1);
+});
+
+test("raw: a reader wider than its verifier does not widen what the verifier accepts", async () => {
+  const h = await harness("raw", fresh(), { reader: LARGE });
+  assert.equal(await send(h, signed("POST", "/api/v1/things", large(REQUEST_MAX_BODY_BYTES + 1))), 413);
+  assert.equal(h.hits(), 0);
+});
+
+test("raw: a reader narrower than its verifier refuses first", async () => {
+  const h = await harness("raw", fresh(), { verifier: LARGE });
+  assert.equal(await send(h, signed("POST", "/api/v1/things", large(REQUEST_MAX_BODY_BYTES + 1))), 413);
+  assert.equal(h.hits(), 0);
+});
 
 test("raw: a trailer field is refused", async () => {
   const h = await harness("raw", fresh());
@@ -384,17 +502,70 @@ test("fetch: the verified target is the normalised one the application routes on
 // The body bound, below HTTP: each reader enforces it itself, and authenticateRaw again for a
 // caller that builds a RawRequest by hand — so no one of them can be pinned through a server
 // alone, where the next would still answer 413.
-const verifier = (): RequestVerifier =>
+const verifier = (maxBodyBytes?: number): RequestVerifier =>
   new RequestVerifier({
     policy: { audience: AUDIENCE, declared: [], maxLifetime: 300, skew: 30 },
     store: fresh(),
     clock: () => T0,
+    ...(maxBodyBytes === undefined ? {} : { maxBodyBytes }),
   });
 const status = (e: unknown): number | undefined => (e instanceof RequestRefusal ? e.status : undefined);
 
 test("authenticateRaw refuses an oversized body handed to it directly", async () => {
   const big = new Uint8Array(REQUEST_MAX_BODY_BYTES + 1);
   await assert.rejects(verifier().authenticateRaw({ method: "POST", requestTarget: "/api", headers: [], body: big }), (e) => status(e) === 413);
+});
+
+test("authenticateRaw refuses past its own configured bound, not the default", async () => {
+  const raw = (n: number) => ({ method: "POST", requestTarget: "/api", headers: [], body: new Uint8Array(n) });
+  await assert.rejects(verifier(LARGE).authenticateRaw(raw(LARGE + 1)), (e) => status(e) === 413);
+  // Past the default and within the bound, a body reaches the proof check (401: it carries none).
+  await assert.rejects(verifier(LARGE).authenticateRaw(raw(REQUEST_MAX_BODY_BYTES + 1)), (e) => status(e) === 401);
+  await assert.rejects(verifier(16).authenticateRaw(raw(17)), (e) => status(e) === 413);
+});
+
+test("a body bound is a positive whole number of bytes, or the configuration is refused", async () => {
+  assert.equal(verifier().maxBodyBytes, REQUEST_MAX_BODY_BYTES);
+  assert.equal(verifier(LARGE).maxBodyBytes, LARGE);
+  assert.equal(verifier(1).maxBodyBytes, 1);
+  const req = { method: "POST", url: "/api", rawHeaders: [], rawTrailers: [], async *[Symbol.asyncIterator]() {} };
+  for (const bad of [0, -1, 1.5, Number.POSITIVE_INFINITY, Number.NaN, 2 ** 53]) {
+    assert.throws(() => verifier(bad), RangeError, `the verifier took ${bad}`);
+    await assert.rejects(readNodeRequest(req, { maxBodyBytes: bad }), RangeError, `the reader took ${bad}`);
+  }
+});
+
+test("readNodeRequest reads exactly its bound, across chunks", async () => {
+  const req = {
+    method: "POST",
+    url: "/api",
+    rawHeaders: [],
+    rawTrailers: [],
+    async *[Symbol.asyncIterator]() {
+      for (let i = 0; i < 8; i++) yield new Uint8Array(LARGE / 8).fill(i);
+    },
+  };
+  const got = await readNodeRequest(req, { maxBodyBytes: LARGE });
+  assert.equal(got.body.length, LARGE);
+  assert.equal(got.body[LARGE - 1], 7);
+});
+
+test("readNodeRequest refuses past a configured bound, having read to the end", async () => {
+  let drained = false;
+  const req = {
+    method: "POST",
+    url: "/api",
+    rawHeaders: [],
+    rawTrailers: [],
+    async *[Symbol.asyncIterator]() {
+      yield new Uint8Array(LARGE);
+      yield new Uint8Array(1);
+      yield new Uint8Array(4096);
+      drained = true;
+    },
+  };
+  await assert.rejects(readNodeRequest(req, { maxBodyBytes: LARGE }), (e) => status(e) === 413);
+  assert.ok(drained, "the reader abandoned the stream, which would reset the connection");
 });
 
 test("readNodeRequest refuses past the limit, having read to the end", async () => {
@@ -431,6 +602,28 @@ test("fetch: a long body is refused without being read to its end", async () => 
   const request = new Request("http://localhost/api", { method: "POST", body: stream, duplex: "half" } as RequestInit);
   await assert.rejects(verifier().authenticate(request), (e) => status(e) === 413);
   assert.ok(pulls <= REQUEST_MAX_BODY_BYTES / chunk + 2, `${pulls} chunks pulled`);
+  assert.ok(cancelled, "the body stream was left open");
+});
+
+test("fetch: a configured bound is the one the body is read to", async () => {
+  // 160 chunks of 64 KiB is 10 MiB: refused once the 8 MiB bound is crossed, not at the 1 MiB
+  // default and not at the end.
+  let pulls = 0;
+  let cancelled = false;
+  const chunk = 64 * 1024;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (++pulls > 160) controller.close();
+      else controller.enqueue(new Uint8Array(chunk));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const request = new Request("http://localhost/api", { method: "POST", body: stream, duplex: "half" } as RequestInit);
+  await assert.rejects(verifier(LARGE).authenticate(request), (e) => status(e) === 413);
+  assert.ok(pulls > REQUEST_MAX_BODY_BYTES / chunk + 2, `refused after ${pulls} chunks: at the default, not the bound`);
+  assert.ok(pulls <= LARGE / chunk + 2, `${pulls} chunks pulled`);
   assert.ok(cancelled, "the body stream was left open");
 });
 
