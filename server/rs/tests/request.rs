@@ -9,7 +9,6 @@
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
-use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -19,7 +18,7 @@ use archon_sdk::request::{self as sdk, Policy, ToSign};
 use archon_server::http;
 use archon_server::request::{
     body_length, Authenticated, MemoryReplayStore, Outcome, ReplayEntry, ReplayStore, Verifier,
-    MAX_REQUEST_BODY_BYTES,
+    MAX_REQUEST_BODY_BYTES, REQUEST_BODY_BOUND_CEILING,
 };
 use archon_server::Response;
 
@@ -62,14 +61,14 @@ fn harness(store: Arc<dyn ReplayStore>) -> Harness {
 }
 
 /// A harness whose verifier bounds bodies at `max`, or at its default.
-fn harness_within(store: Arc<dyn ReplayStore>, max: Option<NonZeroUsize>) -> Harness {
+fn harness_within(store: Arc<dyn ReplayStore>, max: Option<usize>) -> Harness {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let clock = Arc::new(AtomicU64::new(T0 + 5));
     let at = Arc::clone(&clock);
     let mut verifier = Verifier::new(policy(), store, Box::new(move || at.load(Ordering::SeqCst)));
     if let Some(max) = max {
-        verifier = verifier.with_max_body_bytes(max);
+        verifier = verifier.with_max_body_bytes(max).unwrap();
     }
     let verifier = Arc::new(verifier);
     let hits = Arc::new(AtomicUsize::new(0));
@@ -545,8 +544,8 @@ fn authenticate_refuses_an_oversized_body_handed_to_it_directly() {
 /// The bound a consumer opts in to in #137: 8 MiB.
 const LARGE: usize = 8 << 20;
 
-fn large_bound() -> Option<NonZeroUsize> {
-    NonZeroUsize::new(LARGE)
+fn large_bound() -> Option<usize> {
+    Some(LARGE)
 }
 
 /// `n` bytes that vary from byte to byte and from megabyte to megabyte, so a body altered or
@@ -604,7 +603,8 @@ fn an_8_mib_body_is_refused_for_everything_else() {
             400,
         ),
         (
-            "a malformed Content-Digest",
+            // A covered field altered after signing: the signature refuses it, as at any size.
+            "its Content-Digest altered after signing",
             || {
                 let mut s = signed("POST", "/api/v1/things", &large(LARGE));
                 s.headers = replace(&s.headers, "Content-Digest", "sha-256=:not base64:");
@@ -666,7 +666,8 @@ fn authenticate_refuses_past_its_own_bound_not_the_default() {
     let head = http::parse_head(b"POST /api HTTP/1.1\r\nHost: dawn.example").unwrap();
     let within = |max: usize, n: usize| {
         Verifier::new(policy(), fresh(), Box::new(|| T0))
-            .with_max_body_bytes(NonZeroUsize::new(max).unwrap())
+            .with_max_body_bytes(max)
+            .unwrap()
             .authenticate(&head, &vec![0; n])
             .map(|_| ())
             .map_err(|r| r.status)
@@ -680,11 +681,30 @@ fn authenticate_refuses_past_its_own_bound_not_the_default() {
 }
 
 #[test]
+fn a_body_bound_is_a_length_up_to_the_ceiling_or_it_is_refused() {
+    assert_eq!(REQUEST_BODY_BOUND_CEILING, 1 << 30);
+    let with = |max: usize| {
+        Verifier::new(policy(), fresh(), Box::new(|| T0))
+            .with_max_body_bytes(max)
+            .map(|v| v.max_body_bytes())
+    };
+    assert_eq!(with(1), Ok(1));
+    assert_eq!(
+        with(REQUEST_BODY_BOUND_CEILING),
+        Ok(REQUEST_BODY_BOUND_CEILING)
+    );
+    for bad in [0, REQUEST_BODY_BOUND_CEILING + 1, usize::MAX] {
+        assert!(with(bad).is_err(), "the verifier took {bad}");
+    }
+}
+
+#[test]
 fn a_verifier_reports_and_frames_by_its_own_bound() {
     let default = Verifier::new(policy(), fresh(), Box::new(|| T0));
     assert_eq!(default.max_body_bytes(), MAX_REQUEST_BODY_BYTES);
     let wide = Verifier::new(policy(), fresh(), Box::new(|| T0))
-        .with_max_body_bytes(large_bound().unwrap());
+        .with_max_body_bytes(LARGE)
+        .unwrap();
     assert_eq!(wide.max_body_bytes(), LARGE);
     let length = |v: &Verifier, n: usize| {
         let head =

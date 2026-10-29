@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -445,7 +446,8 @@ func TestAnEightMiBBodyIsRefusedForEverythingElse(t *testing.T) {
 			s.headers = append(s.headers, [2]string{"Content-Encoding", "identity"})
 			return s
 		}, http.StatusBadRequest},
-		{"a malformed Content-Digest", func(t *testing.T) signed {
+		// A covered field altered after signing: the signature refuses it, as at any size.
+		{"its Content-Digest altered after signing", func(t *testing.T) signed {
 			s := sign(t, "POST", "/api/v1/things", largeBody(large))
 			s.headers = replace(s.headers, "Content-Digest", "sha-256=:not base64:")
 			return s
@@ -510,13 +512,36 @@ func TestABodyBoundBelowTheDefaultIsHonoured(t *testing.T) {
 	}
 }
 
-func TestANegativeBodyBoundRefusesEveryRequest(t *testing.T) {
-	h := newHarness(t, NewMemory(t0.Add(-time.Hour)), -1)
-	if got := h.send(t, sign(t, "POST", "/api/v1/things", body)); got != http.StatusInternalServerError {
-		t.Fatalf("status %d, want 500", got)
+// A bound out of range refuses every request rather than reading under it. math.MaxInt is the
+// usual Go spelling of "no limit", and bound+1 overflows: read under it, the verifier would
+// digest an empty prefix of what arrived.
+func TestABodyBoundOutOfRangeRefusesEveryRequest(t *testing.T) {
+	for _, bound := range []int{-1, math.MinInt, BodyBoundCeiling + 1, math.MaxInt - 1, math.MaxInt} {
+		t.Run(fmt.Sprint(bound), func(t *testing.T) {
+			h := newHarness(t, NewMemory(t0.Add(-time.Hour)), bound)
+			if got := h.send(t, sign(t, "POST", "/api/v1/things", body)); got != http.StatusInternalServerError {
+				t.Fatalf("a signed request: status %d, want 500", got)
+			}
+			// A proof over the empty body, sent with content: what an overflowed read would admit.
+			s := sign(t, "POST", "/api/v1/things", nil)
+			s.body = []byte("evil")
+			if got := h.send(t, s); got != http.StatusInternalServerError {
+				t.Fatalf("a proof over an empty prefix: status %d, want 500", got)
+			}
+			if n := h.app.hits.Load(); n != 0 {
+				t.Fatalf("the application ran %d times", n)
+			}
+		})
 	}
-	if n := h.app.hits.Load(); n != 0 {
-		t.Fatalf("the application ran %d times", n)
+}
+
+func TestTheCeilingIsABoundAVerifierMayBeGiven(t *testing.T) {
+	if BodyBoundCeiling != 1<<30 {
+		t.Fatalf("BodyBoundCeiling is %d, want 1 GiB as in every lane", BodyBoundCeiling)
+	}
+	h := newHarness(t, NewMemory(t0.Add(-time.Hour)), BodyBoundCeiling)
+	if got := h.send(t, sign(t, "POST", "/api/v1/things", body)); got != http.StatusNoContent {
+		t.Fatalf("status %d, want 204", got)
 	}
 }
 

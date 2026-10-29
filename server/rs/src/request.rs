@@ -26,7 +26,6 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 use archon_sdk::request::{self as sdk, Policy, Received, Verified};
@@ -38,6 +37,11 @@ use crate::{Clock, Response};
 /// ([`Verifier::with_max_body_bytes`]). A larger one is refused, never truncated: a digest over
 /// part of a body verifies nothing.
 pub const MAX_REQUEST_BODY_BYTES: usize = 1 << 20;
+
+/// The largest bound a verifier may be given: 1 GiB, the same in every lane. Not a
+/// recommendation — the body is held in memory to digest it — but the line past which a bound
+/// is "no limit" in effect.
+pub const REQUEST_BODY_BOUND_CEILING: usize = 1 << 30;
 
 fn too_large() -> Refusal {
     Refusal::new(413, "request: the body is over the verifier's limit")
@@ -273,11 +277,16 @@ impl Verifier {
 
     /// The same verifier, accepting bodies up to `max` bytes instead. An operational bound, not
     /// part of the proof: the digest is still recomputed over the whole body, which the caller
-    /// holds in memory to pass it. A bound of zero cannot be asked for, and there is no
-    /// unbounded verifier.
-    pub fn with_max_body_bytes(mut self, max: NonZeroUsize) -> Self {
-        self.max_body_bytes = max.get();
-        self
+    /// holds in memory to pass it. Refuses a bound outside 1 to [`REQUEST_BODY_BOUND_CEILING`]:
+    /// there is no empty and no unbounded verifier.
+    pub fn with_max_body_bytes(mut self, max: usize) -> Result<Self, String> {
+        if max == 0 || max > REQUEST_BODY_BOUND_CEILING {
+            return Err(format!(
+                "request: the body bound is {max} bytes, not a length from 1 to {REQUEST_BODY_BOUND_CEILING}"
+            ));
+        }
+        self.max_body_bytes = max;
+        Ok(self)
     }
 
     pub fn policy(&self) -> &Policy {

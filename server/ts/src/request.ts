@@ -32,12 +32,20 @@ import { REQUEST_TAG, verifyRequest, type RequestPolicy, type VerifiedRequest } 
  *  of a body verifies nothing. */
 export const REQUEST_MAX_BODY_BYTES = 1 << 20;
 
-/** A configured body bound, checked: a positive whole number of bytes. Zero, a fraction,
- *  Infinity or NaN is a configuration error, never "no limit". */
+/** The largest bound a verifier may be given: 1 GiB, the same in every lane. Not a
+ *  recommendation — the body is held in memory to digest it — but the line past which a bound
+ *  is "no limit" in effect. */
+export const REQUEST_BODY_BOUND_CEILING = 1 << 30;
+
+/** A configured body bound, checked: a whole number of bytes from 1 to
+ *  REQUEST_BODY_BOUND_CEILING. Anything else — zero, a fraction, Infinity, NaN — is a
+ *  configuration error, never "no limit". */
 function bodyBound(maxBodyBytes: number | undefined): number {
   if (maxBodyBytes === undefined) return REQUEST_MAX_BODY_BYTES;
-  if (!Number.isSafeInteger(maxBodyBytes) || maxBodyBytes < 1) {
-    throw new RangeError(`request: maxBodyBytes must be a positive whole number of bytes, not ${maxBodyBytes}`);
+  if (!Number.isInteger(maxBodyBytes) || maxBodyBytes < 1 || maxBodyBytes > REQUEST_BODY_BOUND_CEILING) {
+    throw new RangeError(
+      `request: maxBodyBytes must be a whole number of bytes from 1 to ${REQUEST_BODY_BOUND_CEILING}, not ${maxBodyBytes}`,
+    );
   }
   return maxBodyBytes;
 }
@@ -173,10 +181,11 @@ function tooLarge(): RequestRefusal {
 }
 
 export interface ReadOptions {
-  /** The largest body to read, in bytes; REQUEST_MAX_BODY_BYTES (1 MiB) if absent. Pass the
-   *  verifier's own `maxBodyBytes`: a reader's bound never widens a verifier's, which refuses
-   *  past its bound whatever it is handed, but a narrower reader refuses what the verifier would
-   *  accept. */
+  /** The largest body to read, in bytes; REQUEST_MAX_BODY_BYTES (1 MiB) if absent, and checked
+   *  as the verifier's is (a RangeError, here a rejection). Pass the verifier's own
+   *  `maxBodyBytes`, which its constructor has already checked: a reader's bound never widens a
+   *  verifier's, which refuses past its bound whatever it is handed, but a narrower reader
+   *  refuses what the verifier would accept. */
   maxBodyBytes?: number;
 }
 
@@ -235,7 +244,7 @@ export interface VerifierConfig {
   /** The largest body this verifier accepts, in bytes; REQUEST_MAX_BODY_BYTES (1 MiB) if absent.
    *  An operational bound, not part of the proof: the digest is still recomputed over the whole
    *  body, which is held in memory to do it. The constructor throws a RangeError for anything
-   *  but a positive whole number. */
+   *  but a whole number from 1 to REQUEST_BODY_BOUND_CEILING (1 GiB). */
   maxBodyBytes?: number;
 }
 
@@ -244,20 +253,25 @@ export class RequestVerifier {
   readonly #policy: RequestPolicy;
   readonly #store: ReplayStore;
   readonly #clock: () => number;
-  /** The largest body this verifier accepts, in bytes: what to pass `readNodeRequest`. */
-  readonly maxBodyBytes: number;
+  readonly #maxBodyBytes: number;
 
   constructor(config: VerifierConfig) {
     this.#policy = config.policy;
     this.#store = config.store;
     this.#clock = config.clock ?? (() => Math.floor(Date.now() / 1000));
-    this.maxBodyBytes = bodyBound(config.maxBodyBytes);
+    this.#maxBodyBytes = bodyBound(config.maxBodyBytes);
+  }
+
+  /** The largest body this verifier accepts, in bytes: what to pass `readNodeRequest`. Fixed at
+   *  construction, as the policy and the store are. */
+  get maxBodyBytes(): number {
+    return this.#maxBodyBytes;
   }
 
   /** Authenticate a request as received. Throws a RequestRefusal. The body bound is checked
    *  here again, so a RawRequest read under a wider bound, or built by hand, is still refused. */
   async authenticateRaw(raw: RawRequest): Promise<AuthenticatedRequest> {
-    if (raw.body.length > this.maxBodyBytes) throw tooLarge();
+    if (raw.body.length > this.#maxBodyBytes) throw tooLarge();
     // v1 accepts no content coding and no trailers (ADR 0010 §4): the digest is over the content
     // as received, and a coded body would make "as received" ambiguous.
     if (raw.headers.some(([n]) => n.toLowerCase() === "content-encoding") || (raw.trailers?.length ?? 0) > 0) {
@@ -299,7 +313,7 @@ export class RequestVerifier {
   /** Authenticate a fetch Request — the normalised request a fetch application routes on — and
    *  return the body it read alongside. Throws a RequestRefusal. */
   async authenticate(request: Request): Promise<{ auth: AuthenticatedRequest; body: Uint8Array<ArrayBuffer> }> {
-    const body = await readBounded(request.body, this.maxBodyBytes);
+    const body = await readBounded(request.body, this.#maxBodyBytes);
     const url = new URL(request.url);
     const auth = await this.authenticateRaw({
       method: request.method,

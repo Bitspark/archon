@@ -34,6 +34,11 @@ import (
 // digest over part of a body verifies nothing.
 const MaxBodyBytes = 1 << 20
 
+// BodyBoundCeiling is the largest bound a Verifier may be given: 1 GiB, the same in every lane.
+// It is not a recommendation (the body is held in memory to digest it) but the line past which
+// a bound is "no limit" in effect, and it keeps the read's bound+1 from overflowing.
+const BodyBoundCeiling = 1 << 30
+
 // Outcome is what a replay store answers.
 type Outcome int
 
@@ -77,7 +82,7 @@ type Authenticated struct {
 // Refusal says why a request was not authenticated. Status is the HTTP status a middleware
 // answers with: 400 for a request that does not parse as the profile, 401 for one that parses
 // but does not authenticate, 413 for an oversized body, 500 for a Verifier whose body bound is
-// negative, 503 when the replay store is unavailable.
+// out of range, 503 when the replay store is unavailable.
 type Refusal struct {
 	Status int
 	Err    error
@@ -93,8 +98,9 @@ type Verifier struct {
 	Clock func() time.Time
 	// MaxBodyBytes is the largest body this verifier accepts; zero means the package's
 	// MaxBodyBytes (1 MiB). It is an operational bound, not part of the proof: the digest is
-	// still recomputed over the whole body, which is held in memory to do it. A negative bound
-	// is a configuration error, and every request is refused (500) rather than read without one.
+	// still recomputed over the whole body, which is held in memory to do it. A negative bound,
+	// or one over BodyBoundCeiling, is a configuration error, and every request is refused (500)
+	// rather than read without a bound.
 	MaxBodyBytes int
 }
 
@@ -109,8 +115,8 @@ func (v *Verifier) maxBodyBytes() (int, error) {
 	switch {
 	case v.MaxBodyBytes == 0:
 		return MaxBodyBytes, nil
-	case v.MaxBodyBytes < 0:
-		return 0, &Refusal{http.StatusInternalServerError, fmt.Errorf("request: the verifier's body bound is %d bytes, not a positive length", v.MaxBodyBytes)}
+	case v.MaxBodyBytes < 0 || v.MaxBodyBytes > BodyBoundCeiling:
+		return 0, &Refusal{http.StatusInternalServerError, fmt.Errorf("request: the verifier's body bound is %d bytes, not a length from 1 to %d", v.MaxBodyBytes, BodyBoundCeiling)}
 	}
 	return v.MaxBodyBytes, nil
 }

@@ -19,6 +19,7 @@ import { prepareRequest, REQUEST_DOMAIN, signRequest, type RequestToSign } from 
 import {
   MemoryReplayStore,
   readNodeRequest,
+  REQUEST_BODY_BOUND_CEILING,
   REQUEST_MAX_BODY_BYTES,
   RequestRefusal,
   RequestVerifier,
@@ -422,7 +423,8 @@ for (const mode of MODES) {
       want: 400,
     },
     {
-      name: "a malformed Content-Digest",
+      // A covered field altered after signing: the signature refuses it, as at any size.
+      name: "its Content-Digest altered after signing",
       make: () => {
         const s = signed("POST", "/api/v1/things", large(LARGE));
         return { ...s, headers: replace(s.headers, "Content-Digest", "sha-256=:not base64:") };
@@ -524,15 +526,28 @@ test("authenticateRaw refuses past its own configured bound, not the default", a
   await assert.rejects(verifier(16).authenticateRaw(raw(17)), (e) => status(e) === 413);
 });
 
-test("a body bound is a positive whole number of bytes, or the configuration is refused", async () => {
+test("a body bound is a whole number of bytes up to the ceiling, or the configuration is refused", async () => {
+  assert.equal(REQUEST_BODY_BOUND_CEILING, 1 << 30);
   assert.equal(verifier().maxBodyBytes, REQUEST_MAX_BODY_BYTES);
   assert.equal(verifier(LARGE).maxBodyBytes, LARGE);
   assert.equal(verifier(1).maxBodyBytes, 1);
+  assert.equal(verifier(REQUEST_BODY_BOUND_CEILING).maxBodyBytes, REQUEST_BODY_BOUND_CEILING);
   const req = { method: "POST", url: "/api", rawHeaders: [], rawTrailers: [], async *[Symbol.asyncIterator]() {} };
-  for (const bad of [0, -1, 1.5, Number.POSITIVE_INFINITY, Number.NaN, 2 ** 53]) {
+  const bads = [0, -1, 1.5, Number.POSITIVE_INFINITY, Number.NaN, REQUEST_BODY_BOUND_CEILING + 1, Number.MAX_SAFE_INTEGER, 2 ** 53];
+  for (const bad of bads) {
     assert.throws(() => verifier(bad), RangeError, `the verifier took ${bad}`);
     await assert.rejects(readNodeRequest(req, { maxBodyBytes: bad }), RangeError, `the reader took ${bad}`);
   }
+});
+
+test("a verifier's bound cannot be widened after construction", async () => {
+  const v = verifier();
+  assert.throws(() => {
+    (v as unknown as { maxBodyBytes: number }).maxBodyBytes = Number.POSITIVE_INFINITY;
+  }, TypeError);
+  assert.equal(v.maxBodyBytes, REQUEST_MAX_BODY_BYTES);
+  const big = { method: "POST", requestTarget: "/api", headers: [], body: new Uint8Array(REQUEST_MAX_BODY_BYTES + 1) };
+  await assert.rejects(v.authenticateRaw(big), (e) => status(e) === 413);
 });
 
 test("readNodeRequest reads exactly its bound, across chunks", async () => {

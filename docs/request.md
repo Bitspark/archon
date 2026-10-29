@@ -249,22 +249,27 @@ the gate's failure tests through that stack:
   - It costs memory per request in flight, so a service raises it only where it needs to. The route
     that takes large bodies gets its own verifier, with the same policy and replay store, and every
     other route keeps the default.
-  - A bound that is not a positive number of bytes is a configuration error, never "no limit".
+  - A bound from 1 byte up to a ceiling of 1 GiB, the same in every lane, is accepted. Anything
+    else is a configuration error, never "no limit". Go reads a zero bound as the default, as it
+    reads every zero field.
   - Each verifier re-checks its own bound on the body it is handed. A reader configured with
     another bound can refuse earlier, but never admit more.
 - **Go:** `server/go/request` — `Verifier{Policy, Store, Clock, MaxBodyBytes}` with
   `Authenticate(*http.Request)` and `Middleware(http.Handler)`; `FromContext` gives the handler its
   `Authenticated`; `Memory` is the reference store. The request-target is `RequestURI`, the request
   line as received. A body over `MaxBodyBytes` (zero means the package's `MaxBodyBytes`, 1 MiB) is
-  refused (413), never truncated; a negative bound refuses every request (500); a content coding or
-  trailer is refused (400).
+  refused (413), never truncated. A negative bound, or one over `BodyBoundCeiling`, refuses every
+  request (500). A content coding or trailer is refused (400).
 - **TypeScript:** `@bitspark/archon-server` — `RequestVerifier({policy, store, clock,
   maxBodyBytes})`, returning an `AuthenticatedRequest`, with two ways in, because a fetch `Request`
-  has already lost the request line. `maxBodyBytes` defaults to `REQUEST_MAX_BODY_BYTES` (1 MiB);
-  anything but a positive whole number makes the constructor throw a `RangeError`.
+  has already lost the request line. `maxBodyBytes` defaults to `REQUEST_MAX_BODY_BYTES` (1 MiB).
+  Anything but a whole number from 1 to `REQUEST_BODY_BOUND_CEILING` makes the constructor throw
+  a `RangeError`, and the bound cannot be changed after construction.
   - `authenticateRaw(raw)` takes the request as received; `readNodeRequest(req, {maxBodyBytes})`
-    builds one from node:http's raw `url`, `rawHeaders` and `rawTrailers`, given the verifier's
-    `verifier.maxBodyBytes`. This is the Go lane's behaviour.
+    builds one from node:http's raw `url`, `rawHeaders` and `rawTrailers`. Pass it
+    `verifier.maxBodyBytes`, which the constructor has checked; any other bound is checked the
+    same way, and the returned promise rejects with a `RangeError`. This is the Go lane's
+    behaviour.
   - `authenticate(request)` and the middleware `guard(next)` take a fetch `Request`, and verify
     its URL's pathname and search. The WHATWG URL parser has already rewritten those (dot segments
     resolved, `\` read as `/`), and `Headers` has joined repeated fields with `, `. That rewritten
@@ -277,7 +282,8 @@ the gate's failure tests through that stack:
 - **Rust:** `archon_server::request`, over the crate's own `http` adapter, because the crate has no
   framework (ADR 0007 §B).
   - `Verifier::new(policy, store, clock)` accepts bodies up to `MAX_REQUEST_BODY_BYTES` (1 MiB);
-    `.with_max_body_bytes(max)` takes a `NonZeroUsize`, so a zero bound cannot be asked for.
+    `.with_max_body_bytes(max)` returns an error for a bound outside 1 to
+    `REQUEST_BODY_BOUND_CEILING`.
   - `verifier.body_length(&head)` decides, before any byte is read, how much body to read. The
     crate frames a body by `Content-Length` only, so a transfer coding (and with it every trailer)
     is refused (400), as is a second or malformed `Content-Length`. A length over the verifier's
