@@ -29,9 +29,15 @@ import (
 	sdk "github.com/Bitspark/archon/sdk/go/request"
 )
 
-// MaxBodyBytes caps the content a verifier reads to recompute the digest. A larger body is
-// refused rather than truncated: a digest over part of a body verifies nothing.
+// MaxBodyBytes caps the content a verifier reads to recompute the digest, unless the Verifier
+// sets its own bound (Verifier.MaxBodyBytes). A larger body is refused rather than truncated: a
+// digest over part of a body verifies nothing.
 const MaxBodyBytes = 1 << 20
+
+// BodyBoundCeiling is the largest bound a Verifier may be given: 1 GiB, the same in every lane.
+// It is not a recommendation (the body is held in memory to digest it) but the line past which
+// a bound is "no limit" in effect, and it keeps the read's bound+1 from overflowing.
+const BodyBoundCeiling = 1 << 30
 
 // Outcome is what a replay store answers.
 type Outcome int
@@ -75,8 +81,8 @@ type Authenticated struct {
 
 // Refusal says why a request was not authenticated. Status is the HTTP status a middleware
 // answers with: 400 for a request that does not parse as the profile, 401 for one that parses
-// but does not authenticate, 413 for an oversized body, 503 when the replay store is
-// unavailable.
+// but does not authenticate, 413 for an oversized body, 500 for a Verifier whose body bound is
+// out of range, 503 when the replay store is unavailable.
 type Refusal struct {
 	Status int
 	Err    error
@@ -90,6 +96,12 @@ type Verifier struct {
 	Store  ReplayStore
 	// Clock is the verifier's time; nil means time.Now.
 	Clock func() time.Time
+	// MaxBodyBytes is the largest body this verifier accepts; zero means the package's
+	// MaxBodyBytes (1 MiB). It is an operational bound, not part of the proof: the digest is
+	// still recomputed over the whole body, which is held in memory to do it. A negative bound,
+	// or one over BodyBoundCeiling, is a configuration error, and every request is refused (500)
+	// rather than read without a bound.
+	MaxBodyBytes int
 }
 
 func (v *Verifier) now() time.Time {
@@ -99,6 +111,16 @@ func (v *Verifier) now() time.Time {
 	return v.Clock()
 }
 
+func (v *Verifier) maxBodyBytes() (int, error) {
+	switch {
+	case v.MaxBodyBytes == 0:
+		return MaxBodyBytes, nil
+	case v.MaxBodyBytes < 0 || v.MaxBodyBytes > BodyBoundCeiling:
+		return 0, &Refusal{http.StatusInternalServerError, fmt.Errorf("request: the verifier's body bound is %d bytes, not a length from 1 to %d", v.MaxBodyBytes, BodyBoundCeiling)}
+	}
+	return v.MaxBodyBytes, nil
+}
+
 // Authenticate reads r's body (restoring it for whoever reads it next), verifies the proof and
 // inserts its identifier. The request-target is r.RequestURI — the request line as received,
 // never a URL net/http rebuilt — so what is verified is what arrived.
@@ -106,11 +128,15 @@ func (v *Verifier) Authenticate(r *http.Request) (Authenticated, error) {
 	if v.Store == nil {
 		return Authenticated{}, &Refusal{http.StatusServiceUnavailable, errors.New("request: no replay store")}
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, MaxBodyBytes+1))
+	limit, err := v.maxBodyBytes()
+	if err != nil {
+		return Authenticated{}, err
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, int64(limit)+1))
 	if err != nil {
 		return Authenticated{}, &Refusal{http.StatusBadRequest, fmt.Errorf("request: reading the body: %w", err)}
 	}
-	if len(body) > MaxBodyBytes {
+	if len(body) > limit {
 		return Authenticated{}, &Refusal{http.StatusRequestEntityTooLarge, errors.New("request: the body is over the verifier's limit")}
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))

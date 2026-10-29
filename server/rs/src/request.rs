@@ -15,9 +15,10 @@
 //! verified AND its identifier was inserted. `AlreadyPresent` is a replay; `Unavailable` FAILS
 //! CLOSED — a store that cannot answer is never permission to skip the check.
 //!
-//! Like the login handler, nothing here opens a socket or spawns a task. [`body_length`] tells the
-//! caller how many body bytes to read, or that it must not read them at all; then
-//! [`Verifier::authenticate`] is a function from the parsed head and its body to a verdict.
+//! Like the login handler, nothing here opens a socket or spawns a task.
+//! [`Verifier::body_length`] tells the caller how many body bytes to read, or that it must not
+//! read them at all; then [`Verifier::authenticate`] is a function from the parsed head and its
+//! body to a verdict.
 //!
 //! What this does not do: authorize. [`Authenticated`] is the principal together with the
 //! verified request descriptor, so the application's authorization evaluates the request
@@ -32,9 +33,19 @@ use archon_sdk::request::{self as sdk, Policy, Received, Verified};
 use crate::http::Head;
 use crate::{Clock, Response};
 
-/// The largest body a verifier reads to recompute the digest. A larger one is refused, never
-/// truncated: a digest over part of a body verifies nothing.
+/// The largest body a verifier reads to recompute the digest, unless it is given another bound
+/// ([`Verifier::with_max_body_bytes`]). A larger one is refused, never truncated: a digest over
+/// part of a body verifies nothing.
 pub const MAX_REQUEST_BODY_BYTES: usize = 1 << 20;
+
+/// The largest bound a verifier may be given: 1 GiB, the same in every lane. Not a
+/// recommendation — the body is held in memory to digest it — but the line past which a bound
+/// is "no limit" in effect.
+pub const REQUEST_BODY_BOUND_CEILING: usize = 1 << 30;
+
+fn too_large() -> Refusal {
+    Refusal::new(413, "request: the body is over the verifier's limit")
+}
 
 /// What a replay store answers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -202,8 +213,13 @@ impl std::error::Error for Refusal {}
 /// This crate frames a body by `Content-Length` alone, so a transfer coding is refused (400) —
 /// which also refuses every trailer, as v1 requires (ADR 0010 §4). So is a `Content-Length` that
 /// is not plain digits or appears more than once: two framings of one body are two bodies. A
-/// declared length over [`MAX_REQUEST_BODY_BYTES`] is 413.
+/// declared length over [`MAX_REQUEST_BODY_BYTES`] is 413; [`Verifier::body_length`] decides
+/// the same under that verifier's own bound.
 pub fn body_length(head: &Head) -> Result<usize, Refusal> {
+    body_length_within(head, MAX_REQUEST_BODY_BYTES)
+}
+
+fn body_length_within(head: &Head, max: usize) -> Result<usize, Refusal> {
     if head.header("transfer-encoding").is_some() {
         return Err(Refusal::new(
             400,
@@ -232,11 +248,8 @@ pub fn body_length(head: &Head) -> Result<usize, Refusal> {
     let n: usize = raw
         .parse()
         .map_err(|_| Refusal::new(400, "request: Content-Length is not a length"))?;
-    if n > MAX_REQUEST_BODY_BYTES {
-        return Err(Refusal::new(
-            413,
-            "request: the body is over the verifier's limit",
-        ));
+    if n > max {
+        return Err(too_large());
     }
     Ok(n)
 }
@@ -246,32 +259,58 @@ pub struct Verifier {
     policy: Policy,
     store: Arc<dyn ReplayStore>,
     clock: Clock,
+    max_body_bytes: usize,
 }
 
 impl Verifier {
-    /// A verifier for `policy` against `store`. The clock is an argument, as the login
-    /// handler's is: a test steps it by hand, production passes one that reads the system clock.
+    /// A verifier for `policy` against `store`, accepting bodies up to
+    /// [`MAX_REQUEST_BODY_BYTES`]. The clock is an argument, as the login handler's is: a test
+    /// steps it by hand, production passes one that reads the system clock.
     pub fn new(policy: Policy, store: Arc<dyn ReplayStore>, clock: Clock) -> Self {
         Self {
             policy,
             store,
             clock,
+            max_body_bytes: MAX_REQUEST_BODY_BYTES,
         }
+    }
+
+    /// The same verifier, accepting bodies up to `max` bytes instead. An operational bound, not
+    /// part of the proof: the digest is still recomputed over the whole body, which the caller
+    /// holds in memory to pass it. Refuses a bound outside 1 to [`REQUEST_BODY_BOUND_CEILING`]:
+    /// there is no empty and no unbounded verifier.
+    pub fn with_max_body_bytes(mut self, max: usize) -> Result<Self, String> {
+        if max == 0 || max > REQUEST_BODY_BOUND_CEILING {
+            return Err(format!(
+                "request: the body bound is {max} bytes, not a length from 1 to {REQUEST_BODY_BOUND_CEILING}"
+            ));
+        }
+        self.max_body_bytes = max;
+        Ok(self)
     }
 
     pub fn policy(&self) -> &Policy {
         &self.policy
     }
 
+    /// The largest body this verifier accepts, in bytes.
+    pub fn max_body_bytes(&self) -> usize {
+        self.max_body_bytes
+    }
+
+    /// [`body_length`] under this verifier's bound: how many body bytes to read for `head`,
+    /// decided before a single one is read.
+    pub fn body_length(&self, head: &Head) -> Result<usize, Refusal> {
+        body_length_within(head, self.max_body_bytes)
+    }
+
     /// Verifies the proof `head` and `body` carry, then inserts its identifier. The
     /// request-target is `head.target`, the request line as received, so what is verified is
-    /// what arrived.
+    /// what arrived. The body bound is checked here again, so a body framed under a wider bound
+    /// is still refused.
     pub fn authenticate(&self, head: &Head, body: &[u8]) -> Result<Authenticated, Refusal> {
-        if body.len() > MAX_REQUEST_BODY_BYTES {
-            return Err(Refusal::new(
-                413,
-                "request: the body is over the verifier's limit",
-            ));
+        if body.len() > self.max_body_bytes {
+            return Err(too_large());
         }
         // v1 accepts no content coding and no trailers (ADR 0010 §4): the digest is over the
         // content as received, and a coded body would make "as received" ambiguous.

@@ -239,15 +239,37 @@ the gate's failure tests through that stack:
   is earlier than the moment its process started, because an earlier incarnation might have
   accepted that proof and its memory is gone. A deployment with several verifiers supplies a shared
   store with the same contract.
-- **Go:** `server/go/request` — `Verifier{Policy, Store, Clock}` with `Authenticate(*http.Request)`
-  and `Middleware(http.Handler)`; `FromContext` gives the handler its `Authenticated`; `Memory` is
-  the reference store. The request-target is `RequestURI`, the request line as received. A body
-  over 1 MiB is refused (413), never truncated; a content coding or trailer is refused (400).
-- **TypeScript:** `@bitspark/archon-server` — `RequestVerifier({policy, store, clock})`, returning
-  an `AuthenticatedRequest`, with two ways in, because a fetch `Request` has already lost the
-  request line:
-  - `authenticateRaw(raw)` takes the request as received; `readNodeRequest(req)` builds one from
-    node:http's raw `url`, `rawHeaders` and `rawTrailers`. This is the Go lane's behaviour.
+- **The body bound.** A verifier holds the whole body in memory to recompute the digest, so it
+  bounds what it reads: 1 MiB, unless the verifier is configured with its own bound. A body over the
+  bound is refused (413), never truncated.
+  - The bound is operational, not part of the profile. A proof says nothing about its body's size,
+    and a larger bound changes no check: the digest is still over every byte received, and the
+    method, target, audience, coverage, content-coding, trailer, freshness and replay checks are
+    the same.
+  - It costs memory per request in flight, so a service raises it only where it needs to. The route
+    that takes large bodies gets its own verifier, with the same policy and replay store, and every
+    other route keeps the default.
+  - A bound from 1 byte up to a ceiling of 1 GiB, the same in every lane, is accepted. Anything
+    else is a configuration error, never "no limit". Go reads a zero bound as the default, as it
+    reads every zero field.
+  - Each verifier re-checks its own bound on the body it is handed. A reader configured with
+    another bound can refuse earlier, but never admit more.
+- **Go:** `server/go/request` — `Verifier{Policy, Store, Clock, MaxBodyBytes}` with
+  `Authenticate(*http.Request)` and `Middleware(http.Handler)`; `FromContext` gives the handler its
+  `Authenticated`; `Memory` is the reference store. The request-target is `RequestURI`, the request
+  line as received. A body over `MaxBodyBytes` (zero means the package's `MaxBodyBytes`, 1 MiB) is
+  refused (413), never truncated. A negative bound, or one over `BodyBoundCeiling`, refuses every
+  request (500). A content coding or trailer is refused (400).
+- **TypeScript:** `@bitspark/archon-server` — `RequestVerifier({policy, store, clock,
+  maxBodyBytes})`, returning an `AuthenticatedRequest`, with two ways in, because a fetch `Request`
+  has already lost the request line. `maxBodyBytes` defaults to `REQUEST_MAX_BODY_BYTES` (1 MiB).
+  Anything but a whole number from 1 to `REQUEST_BODY_BOUND_CEILING` makes the constructor throw
+  a `RangeError`, and the bound cannot be changed after construction.
+  - `authenticateRaw(raw)` takes the request as received; `readNodeRequest(req, {maxBodyBytes})`
+    builds one from node:http's raw `url`, `rawHeaders` and `rawTrailers`. Pass it
+    `verifier.maxBodyBytes`, which the constructor has checked; any other bound is checked the
+    same way, and the returned promise rejects with a `RangeError`. This is the Go lane's
+    behaviour.
   - `authenticate(request)` and the middleware `guard(next)` take a fetch `Request`, and verify
     its URL's pathname and search. The WHATWG URL parser has already rewritten those (dot segments
     resolved, `\` read as `/`), and `Headers` has joined repeated fields with `, `. That rewritten
@@ -255,13 +277,18 @@ the gate's failure tests through that stack:
     a proof over any other spelling is refused.
 
   `MemoryReplayStore` is the reference store. The body and transport rules are the Go lane's.
+  `authenticate` reads the fetch body under the verifier's own bound, and cancels it once the bound
+  is crossed.
 - **Rust:** `archon_server::request`, over the crate's own `http` adapter, because the crate has no
   framework (ADR 0007 §B).
-  - `body_length(&head)` decides, before any byte is read, how much body to read. The crate frames
-    a body by `Content-Length` only, so a transfer coding (and with it every trailer) is refused
-    (400), as is a second or malformed `Content-Length`. A length over 1 MiB is refused (413).
-  - `Verifier::new(policy, store, clock)` then runs `authenticate(&head, &body)` against
-    `head.target`, the request line as received.
+  - `Verifier::new(policy, store, clock)` accepts bodies up to `MAX_REQUEST_BODY_BYTES` (1 MiB);
+    `.with_max_body_bytes(max)` returns an error for a bound outside 1 to
+    `REQUEST_BODY_BOUND_CEILING`.
+  - `verifier.body_length(&head)` decides, before any byte is read, how much body to read. The
+    crate frames a body by `Content-Length` only, so a transfer coding (and with it every trailer)
+    is refused (400), as is a second or malformed `Content-Length`. A length over the verifier's
+    bound is refused (413). The free `body_length(&head)` decides the same under the default.
+  - `authenticate(&head, &body)` then runs against `head.target`, the request line as received.
 
   It returns an `Authenticated`, which only `authenticate` can construct; a refusal comes back as a
   `Refusal` with its status and `response()`. `MemoryReplayStore` is the reference store.
