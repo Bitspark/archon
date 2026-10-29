@@ -240,8 +240,8 @@ the gate's failure tests through that stack:
   accepted that proof and its memory is gone. A deployment with several verifiers supplies a shared
   store with the same contract.
 - **The body bound.** A verifier holds the whole body in memory to recompute the digest, so it
-  bounds what it reads: 1 MiB, unless the verifier is configured with its own bound. A body over the
-  bound is refused (413), never truncated.
+  bounds what it reads: 1 MiB, unless the verifier is configured with its own bound (since 0.16.0).
+  A body over the bound is refused (413), never truncated.
   - The bound is operational, not part of the profile. A proof says nothing about its body's size,
     and a larger bound changes no check: the digest is still over every byte received, and the
     method, target, audience, coverage, content-coding, trailer, freshness and replay checks are
